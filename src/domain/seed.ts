@@ -1,0 +1,684 @@
+/**
+ * Deterministic factory builder.
+ *
+ * `buildFactory(blueprint)` creates a complete, internally consistent factory: lines,
+ * machines, products, BOMs, inventory, orders and maintenance history. It then runs the
+ * plant model for 24 simulated hours of "pre-history" so that telemetry, production
+ * records and energy history are produced by the same physics that drives the live twin.
+ */
+import { DEFAULT_COST_MODEL } from "./constants";
+import { computeHealthScore, classifyStatus } from "./health";
+import { createRng, gaussian, round } from "./math";
+import { advanceFactory } from "./telemetry";
+import type {
+  Asset,
+  AssetKind,
+  CustomerOrder,
+  DataSourceKind,
+  FactoryState,
+  InventoryItem,
+  LineCapability,
+  MaintenanceRecord,
+  Product,
+  ProductionLine,
+  SensorSpec,
+  Thresholds,
+} from "./types";
+
+export const SCHEMA_VERSION = 3;
+export const DEMO_SEED = 20261013;
+
+export interface FactoryBlueprint {
+  name: string;
+  industry: string;
+  location: string;
+  productionType: string;
+  dataSource: DataSourceKind;
+  assemblyLines: number; // 1-3 (+ one packaging line)
+  assetKinds: AssetKind[]; // machines on each assembly line
+  seedIncident: boolean;
+  isDemo: boolean;
+}
+
+export const DEMO_BLUEPRINT: FactoryBlueprint = {
+  name: "Aurora Electronics — Plant 2",
+  industry: "Electronics manufacturing",
+  location: "Pune, India",
+  productionType: "High-mix PCB assembly & packaging",
+  dataSource: "demo",
+  assemblyLines: 2,
+  assetKinds: ["conveyor", "press", "robot", "camera"],
+  seedIncident: true,
+  isDemo: true,
+};
+
+interface MachineTemplate {
+  code: string;
+  label: string;
+  manufacturer: string;
+  model: string;
+  criticality: Asset["criticality"];
+  nominalRate: number;
+  ratedPowerKw: number;
+  idlePowerKw: number;
+  baseline: { vibration: number; temperature: number };
+  thresholds: Thresholds;
+  maintenanceIntervalHours: number;
+  sensors: Omit<SensorSpec, "id">[];
+  failureMode: string;
+}
+
+const TEMPLATES: Record<AssetKind, MachineTemplate> = {
+  conveyor: {
+    code: "CNV",
+    label: "Infeed Conveyor",
+    manufacturer: "Movex Drives",
+    model: "MX-400 belt drive",
+    criticality: "C",
+    nominalRate: 200,
+    ratedPowerKw: 3.2,
+    idlePowerKw: 1.1,
+    baseline: { vibration: 1.6, temperature: 41 },
+    thresholds: { vibrationAlarm: 4.5, vibrationTrip: 7.1, temperatureAlarm: 70, temperatureTrip: 85 },
+    maintenanceIntervalHours: 3000,
+    sensors: [
+      { kind: "vibration", model: "VB-200 accelerometer", sampleRateHz: 1000 },
+      { kind: "power", model: "PM-3 power meter", sampleRateHz: 1 },
+    ],
+    failureMode: "Drive roller bearing wear",
+  },
+  press: {
+    code: "PRS",
+    label: "Press-Fit Station",
+    manufacturer: "Hydrotek",
+    model: "PF-60 servo press",
+    criticality: "B",
+    nominalRate: 150,
+    ratedPowerKw: 18,
+    idlePowerKw: 4.5,
+    baseline: { vibration: 2.2, temperature: 52 },
+    thresholds: { vibrationAlarm: 5.6, vibrationTrip: 9.0, temperatureAlarm: 80, temperatureTrip: 92 },
+    maintenanceIntervalHours: 2500,
+    sensors: [
+      { kind: "vibration", model: "VB-200 accelerometer", sampleRateHz: 1000 },
+      { kind: "temperature", model: "TC-K thermocouple", sampleRateHz: 2 },
+      { kind: "power", model: "PM-3 power meter", sampleRateHz: 1 },
+    ],
+    failureMode: "Ball-screw preload loss",
+  },
+  robot: {
+    code: "ROB",
+    label: "Assembly Robot",
+    manufacturer: "Axion Robotics",
+    model: "AX-6 six-axis cell",
+    criticality: "A",
+    nominalRate: 120,
+    ratedPowerKw: 7.5,
+    idlePowerKw: 2.1,
+    baseline: { vibration: 2.6, temperature: 56 },
+    thresholds: { vibrationAlarm: 7.1, vibrationTrip: 11.2, temperatureAlarm: 85, temperatureTrip: 95 },
+    maintenanceIntervalHours: 2000,
+    sensors: [
+      { kind: "vibration", model: "VB-300 triaxial accelerometer", sampleRateHz: 2000 },
+      { kind: "temperature", model: "RTD-100 joint probe", sampleRateHz: 2 },
+      { kind: "power", model: "PM-3 power meter", sampleRateHz: 1 },
+      { kind: "counter", model: "Cycle counter (PLC tag)", sampleRateHz: 1 },
+    ],
+    failureMode: "Joint-4 gearbox bearing wear",
+  },
+  camera: {
+    code: "CAM",
+    label: "AOI Inspection Camera",
+    manufacturer: "Optiq Vision",
+    model: "AOI-3D inline",
+    criticality: "B",
+    nominalRate: 180,
+    ratedPowerKw: 1.2,
+    idlePowerKw: 0.7,
+    baseline: { vibration: 0.6, temperature: 38 },
+    thresholds: { vibrationAlarm: 2.0, vibrationTrip: 3.5, temperatureAlarm: 60, temperatureTrip: 72 },
+    maintenanceIntervalHours: 4000,
+    sensors: [
+      { kind: "vision", model: "12 MP 3D AOI head", sampleRateHz: 30 },
+      { kind: "temperature", model: "Board temp sensor", sampleRateHz: 1 },
+    ],
+    failureMode: "Illumination module overheating",
+  },
+  packager: {
+    code: "PKG",
+    label: "Carton Packer",
+    manufacturer: "Paxon Systems",
+    model: "CP-280 case packer",
+    criticality: "A",
+    nominalRate: 280,
+    ratedPowerKw: 22,
+    idlePowerKw: 6.5,
+    baseline: { vibration: 3.0, temperature: 60 },
+    thresholds: { vibrationAlarm: 7.1, vibrationTrip: 11.0, temperatureAlarm: 82, temperatureTrip: 92 },
+    maintenanceIntervalHours: 2200,
+    sensors: [
+      { kind: "vibration", model: "VB-200 accelerometer", sampleRateHz: 1000 },
+      { kind: "temperature", model: "Seal-heater thermocouple", sampleRateHz: 2 },
+      { kind: "power", model: "PM-3 power meter", sampleRateHz: 1 },
+    ],
+    failureMode: "Seal-heater controller drift",
+  },
+  labeler: {
+    code: "LBL",
+    label: "Label & Seal Unit",
+    manufacturer: "Paxon Systems",
+    model: "LS-300 print-apply",
+    criticality: "B",
+    nominalRate: 300,
+    ratedPowerKw: 5,
+    idlePowerKw: 1.6,
+    baseline: { vibration: 1.8, temperature: 45 },
+    thresholds: { vibrationAlarm: 4.5, vibrationTrip: 7.1, temperatureAlarm: 70, temperatureTrip: 82 },
+    maintenanceIntervalHours: 3000,
+    sensors: [
+      { kind: "vibration", model: "VB-200 accelerometer", sampleRateHz: 1000 },
+      { kind: "power", model: "PM-3 power meter", sampleRateHz: 1 },
+    ],
+    failureMode: "Applicator pad wear",
+  },
+};
+
+export const ASSET_KIND_LABEL: Record<AssetKind, string> = {
+  conveyor: "Conveyor",
+  press: "Industrial press",
+  robot: "Assembly robot",
+  camera: "Inspection camera",
+  packager: "Packaging machine",
+  labeler: "Labeling unit",
+};
+
+export function machineTemplate(kind: AssetKind) {
+  return TEMPLATES[kind];
+}
+
+const PRODUCTS: (Product & { bom: { itemId: string; qty: number }[]; rate: number })[] = [
+  {
+    id: "ECU-200",
+    name: "EdgeController ECU-200",
+    sku: "ECU-200-IND",
+    unitMaterialCost: 42,
+    unitPrice: 129,
+    rate: 120,
+    bom: [
+      { itemId: "MCU-7", qty: 1 },
+      { itemId: "PCB-E2", qty: 1 },
+      { itemId: "CON-24", qty: 2 },
+    ],
+  },
+  {
+    id: "SH-40",
+    name: "SensorHub SH-40",
+    sku: "SH-40-MOD",
+    unitMaterialCost: 27,
+    unitPrice: 84,
+    rate: 110,
+    bom: [
+      { itemId: "SNS-40", qty: 1 },
+      { itemId: "PCB-S4", qty: 1 },
+      { itemId: "CON-24", qty: 1 },
+    ],
+  },
+  {
+    id: "GW-10",
+    name: "Gateway GW-10",
+    sku: "GW-10-LTE",
+    unitMaterialCost: 35,
+    unitPrice: 109,
+    rate: 100,
+    bom: [
+      { itemId: "MCU-7", qty: 1 },
+      { itemId: "LTE-M2", qty: 1 },
+      { itemId: "CON-24", qty: 1 },
+    ],
+  },
+];
+
+const INVENTORY: InventoryItem[] = [
+  {
+    id: "MCU-7",
+    name: "MCU-7 microcontroller",
+    category: "component",
+    unit: "pcs",
+    onHand: 2900,
+    reserved: 0,
+    reorderPoint: 1500,
+    unitCost: 9.4,
+    supplier: "Lumen Semiconductor (demo)",
+    leadTimeHours: 72,
+    inbound: [{ poId: "PO-7781", qty: 2500, etaHour: 30 }],
+    expediteCost: 3800,
+    expediteEtaHours: 10,
+  },
+  {
+    id: "PCB-E2",
+    name: "ECU-200 PCB substrate",
+    category: "raw",
+    unit: "pcs",
+    onHand: 6200,
+    reserved: 0,
+    reorderPoint: 2000,
+    unitCost: 6.1,
+    supplier: "Nordboard Circuits (demo)",
+    leadTimeHours: 96,
+    inbound: [],
+    expediteCost: 2600,
+    expediteEtaHours: 18,
+  },
+  {
+    id: "PCB-S4",
+    name: "SH-40 PCB substrate",
+    category: "raw",
+    unit: "pcs",
+    onHand: 6000,
+    reserved: 0,
+    reorderPoint: 1800,
+    unitCost: 4.2,
+    supplier: "Nordboard Circuits (demo)",
+    leadTimeHours: 96,
+    inbound: [],
+    expediteCost: 2400,
+    expediteEtaHours: 18,
+  },
+  {
+    id: "CON-24",
+    name: "24-pin board connector",
+    category: "component",
+    unit: "pcs",
+    onHand: 16400,
+    reserved: 0,
+    reorderPoint: 4000,
+    unitCost: 1.2,
+    supplier: "Pinwell Interconnect (demo)",
+    leadTimeHours: 48,
+    inbound: [{ poId: "PO-7786", qty: 8000, etaHour: 38 }],
+    expediteCost: 900,
+    expediteEtaHours: 12,
+  },
+  {
+    id: "SNS-40",
+    name: "MEMS sensor module",
+    category: "component",
+    unit: "pcs",
+    onHand: 4300,
+    reserved: 0,
+    reorderPoint: 1500,
+    unitCost: 7.8,
+    supplier: "Kinetiq Sensors (demo)",
+    leadTimeHours: 60,
+    inbound: [{ poId: "PO-7790", qty: 3000, etaHour: 32 }],
+    expediteCost: 2100,
+    expediteEtaHours: 14,
+  },
+  {
+    id: "LTE-M2",
+    name: "LTE-M radio module",
+    category: "component",
+    unit: "pcs",
+    onHand: 2400,
+    reserved: 0,
+    reorderPoint: 1200,
+    unitCost: 11.5,
+    supplier: "Kinetiq Sensors (demo)",
+    leadTimeHours: 96,
+    inbound: [],
+    expediteCost: 2900,
+    expediteEtaHours: 20,
+  },
+  {
+    id: "CTN-S",
+    name: "Anti-static carton",
+    category: "packaging",
+    unit: "pcs",
+    onHand: 9200,
+    reserved: 0,
+    reorderPoint: 3000,
+    unitCost: 0.65,
+    supplier: "Corrupak (demo)",
+    leadTimeHours: 24,
+    inbound: [{ poId: "PO-7793", qty: 8000, etaHour: 30 }],
+    expediteCost: 600,
+    expediteEtaHours: 8,
+  },
+];
+
+const CUSTOMERS = ["Kestrel Robotics", "Halden Energy Systems", "Corvid Medical Devices", "Meridian Mobility", "Brightwater Utilities"];
+
+function makeAsset(kind: AssetKind, lineCode: string, index: number, lineName: string, rng: () => number): Asset {
+  const t = TEMPLATES[kind];
+  const id = `${lineCode}-${t.code}-${String(index + 1).padStart(2, "0")}`;
+  const jitter = (v: number, pct: number) => round(v * (1 + (rng() - 0.5) * pct), 2);
+  const baseline = { vibration: jitter(t.baseline.vibration, 0.08), temperature: jitter(t.baseline.temperature, 0.04) };
+  return {
+    id,
+    name: `${t.label} ${lineCode}${index + 1}`,
+    kind,
+    lineId: `LINE-${lineCode}`,
+    manufacturer: t.manufacturer,
+    model: t.model,
+    criticality: t.criticality,
+    mode: "running",
+    speedPct: 100,
+    nominalRate: t.nominalRate,
+    ratedPowerKw: t.ratedPowerKw,
+    idlePowerKw: t.idlePowerKw,
+    baseline,
+    thresholds: { ...t.thresholds },
+    condition: { vibrationExcess: 0, vibrationSlope: 0, temperatureExcess: 0, temperatureSlope: 0, failureMode: null },
+    sensors: t.sensors.map((s, i) => ({ ...s, id: `${id}-S${i + 1}` })),
+    installedYear: 2019 + Math.floor(rng() * 5),
+    lastMaintenanceHour: -Math.round(t.maintenanceIntervalHours * (0.2 + rng() * 0.6)),
+    maintenanceIntervalHours: t.maintenanceIntervalHours,
+    downUntil: null,
+    maintenanceUntil: null,
+    signal: { vibration: baseline.vibration, temperature: baseline.temperature, powerKw: t.idlePowerKw, throughput: 0 },
+    status: "healthy",
+    healthScore: 100,
+    utilization: 0,
+    documentIds: [],
+  };
+  void lineName;
+}
+
+const DOCS_BY_KIND: Partial<Record<AssetKind, string[]>> = {
+  robot: ["ax6-maintenance-manual", "ax6-gearbox-bearing-bulletin"],
+  press: ["pf60-press-manual"],
+  packager: ["cp280-seal-heater-guide"],
+};
+
+export function buildFactory(blueprint: FactoryBlueprint, anchorISO: string, seed = DEMO_SEED): FactoryState {
+  const rng = createRng(seed);
+  const assemblyCount = Math.max(1, Math.min(3, Math.round(blueprint.assemblyLines)));
+  const letters = ["A", "B", "C", "D"];
+  const kinds = (blueprint.assetKinds.length ? blueprint.assetKinds : DEMO_BLUEPRINT.assetKinds).filter(
+    (k) => k !== "packager" && k !== "labeler",
+  );
+  const lines: ProductionLine[] = [];
+  const assets: Asset[] = [];
+  const packagingCode = letters[assemblyCount];
+  const usedProducts = PRODUCTS.slice(0, Math.min(PRODUCTS.length, assemblyCount));
+  const packagingLineId = `LINE-${packagingCode}`;
+
+  for (let li = 0; li < assemblyCount; li++) {
+    const code = letters[li];
+    const lineId = `LINE-${code}`;
+    const lineAssets = (kinds.length ? kinds : (["robot"] as AssetKind[])).map((k, i) => makeAsset(k, code, i, `Line ${code}`, rng));
+    for (const a of lineAssets) a.documentIds = DOCS_BY_KIND[a.kind] ?? [];
+    assets.push(...lineAssets);
+    const primary = usedProducts[li];
+    const capabilities: LineCapability[] = [
+      { productId: primary.id, ratePerHour: primary.rate, designRatePerHour: Math.round(primary.rate * 1.12), changeoverHours: 0.75, bom: primary.bom.map((b) => ({ ...b })) },
+    ];
+    // Each line can also build the previous line's product at a reduced rate (tooling-compatible).
+    const alt = usedProducts[(li + usedProducts.length - 1) % usedProducts.length];
+    if (alt && alt.id !== primary.id) {
+      const altRate = Math.round(alt.rate * 0.8);
+      capabilities.push({ productId: alt.id, ratePerHour: altRate, designRatePerHour: Math.round(altRate * 1.12), changeoverHours: 0.75, bom: alt.bom.map((b) => ({ ...b })) });
+    }
+    lines.push({
+      id: lineId,
+      code,
+      name: `Assembly Line ${code}`,
+      kind: "assembly",
+      assetIds: lineAssets.map((a) => a.id),
+      capabilities,
+      allocation: { [primary.id]: 1 },
+      baseScrapRate: li === 0 ? 0.015 : 0.018,
+      downstreamLineId: packagingLineId,
+      changeoverUntil: null,
+      buffer: {},
+      state: "running",
+    });
+  }
+  // Packaging line
+  const pkgKinds: AssetKind[] = ["conveyor", "packager", "labeler", "camera"];
+  const pkgAssets = pkgKinds.map((k, i) => {
+    const a = makeAsset(k, packagingCode, i, `Line ${packagingCode}`, rng);
+    if (k === "conveyor") a.name = `Merge Conveyor ${packagingCode}1`;
+    if (k === "camera") a.name = `Final Inspection ${packagingCode}4`;
+    if (k === "conveyor") a.nominalRate = 300;
+    if (k === "camera") a.nominalRate = 320;
+    a.documentIds = DOCS_BY_KIND[k] ?? [];
+    return a;
+  });
+  assets.push(...pkgAssets);
+  lines.push({
+    id: packagingLineId,
+    code: packagingCode,
+    name: `Packaging Line ${packagingCode}`,
+    kind: "packaging",
+    assetIds: pkgAssets.map((a) => a.id),
+    capabilities: usedProducts.map((p) => ({ productId: p.id, ratePerHour: 260, designRatePerHour: 290, changeoverHours: 0, bom: [{ itemId: "CTN-S", qty: 1 }] })),
+    allocation: Object.fromEntries(usedProducts.map((p) => [p.id, 1 / usedProducts.length])),
+    baseScrapRate: 0.003,
+    downstreamLineId: null,
+    changeoverUntil: null,
+    buffer: {},
+    state: "running",
+  });
+
+  // Inventory relevant to the products in use
+  const itemIds = new Set<string>(["CTN-S"]);
+  for (const p of usedProducts) for (const b of p.bom) itemIds.add(b.itemId);
+  const inventory = INVENTORY.filter((i) => itemIds.has(i.id)).map((i) => ({ ...i, inbound: i.inbound.map((s) => ({ ...s })) }));
+
+  // Orders: the primary line's product carries the critical, tight-deadline order.
+  const orders: CustomerOrder[] = [];
+  const orderPlan: { productIdx: number; qtyHours: number; due: number; priority: CustomerOrder["priority"]; penalty: number }[] = [
+    { productIdx: 0, qtyHours: 21.7, due: 24, priority: "critical", penalty: 18 },
+    { productIdx: 1, qtyHours: 16.4, due: 40, priority: "high", penalty: 8 },
+    { productIdx: 0, qtyHours: 7.5, due: 56, priority: "high", penalty: 10 },
+    { productIdx: 1, qtyHours: 12.7, due: 64, priority: "standard", penalty: 5 },
+    { productIdx: 2, qtyHours: 18, due: 36, priority: "high", penalty: 9 },
+  ];
+  let orderNo = 1042;
+  for (const plan of orderPlan) {
+    const p = usedProducts[plan.productIdx];
+    if (!p) continue;
+    orders.push({
+      id: `ORD-${orderNo}`,
+      customer: CUSTOMERS[(orderNo - 1042) % CUSTOMERS.length],
+      productId: p.id,
+      quantity: Math.round((p.rate * plan.qtyHours) / 100) * 100,
+      fulfilled: 0,
+      dueHour: plan.due,
+      priority: plan.priority,
+      penaltyPerLateUnit: plan.penalty,
+      completedHour: null,
+    });
+    orderNo++;
+  }
+
+  // Maintenance history (past ~6 months)
+  const maintenanceHistory: MaintenanceRecord[] = [];
+  let mr = 4000;
+  const techs = ["R. Iyer", "M. Chen", "S. Okafor", "L. Novak", "A. Haddad"];
+  for (const a of assets) {
+    const count = 3 + Math.floor(rng() * 2);
+    for (let k = 0; k < count; k++) {
+      const hour = a.lastMaintenanceHour - k * a.maintenanceIntervalHours * (0.45 + rng() * 0.2);
+      const type: MaintenanceRecord["type"] = k === 0 ? "preventive" : rng() < 0.25 ? "inspection" : rng() < 0.15 ? "corrective" : "preventive";
+      maintenanceHistory.push({
+        id: `MR-${++mr}`,
+        assetId: a.id,
+        type,
+        hour: Math.round(hour),
+        durationHours: type === "inspection" ? 1 : type === "corrective" ? 9 : 4 + Math.round(rng() * 3),
+        technician: techs[Math.floor(rng() * techs.length)],
+        notes:
+          type === "inspection"
+            ? "Routine condition inspection — no defects found."
+            : type === "corrective"
+              ? `Corrective repair: ${TEMPLATES[a.kind].failureMode.toLowerCase()}.`
+              : "Scheduled PM: lubrication, fastener torque check, sensor calibration.",
+        cost: type === "inspection" ? 220 : type === "corrective" ? 14500 : 2600 + Math.round(rng() * 900),
+      });
+    }
+  }
+  maintenanceHistory.sort((x, y) => y.hour - x.hour);
+
+  const state: FactoryState = {
+    schemaVersion: SCHEMA_VERSION,
+    seed,
+    profile: {
+      id: blueprint.isDemo ? "demo-plant-2" : `factory-${seed.toString(36)}`,
+      name: blueprint.name,
+      industry: blueprint.industry,
+      location: blueprint.location,
+      productionType: blueprint.productionType,
+      dataSource: blueprint.dataSource,
+      createdAt: anchorISO,
+      isDemo: blueprint.isDemo,
+    },
+    clock: { hour: -24, tick: 0, anchorISO, liveTelemetry: true, lastTickAt: 0, lastHistoryHour: -24 },
+    lines,
+    assets,
+    connections: [],
+    products: usedProducts.map(({ id, name, sku, unitMaterialCost, unitPrice }) => ({ id, name, sku, unitMaterialCost, unitPrice })),
+    inventory,
+    orders: [],
+    telemetry: Object.fromEntries(assets.map((a) => [a.id, []])),
+    latest: {},
+    healthHistory: {},
+    production: [],
+    finishedGoods: {},
+    maintenanceHistory,
+    workOrders: [],
+    directives: [],
+    incidents: [],
+    analyses: [],
+    scenarioRuns: [],
+    recommendations: [],
+    audit: [],
+    costModel: { ...DEFAULT_COST_MODEL },
+    counters: {},
+  };
+
+  // Seed incident: degradation onset on the first line's robot (or its most critical machine).
+  const firstLine = lines[0];
+  const target =
+    assets.find((a) => a.lineId === firstLine.id && a.kind === "robot") ??
+    assets.find((a) => a.lineId === firstLine.id && a.criticality === "A") ??
+    assets.find((a) => a.lineId === firstLine.id);
+  const packer = pkgAssets.find((a) => a.kind === "packager");
+  if (packer) {
+    packer.condition.temperatureExcess = 2;
+    packer.condition.temperatureSlope = 0.11;
+    packer.condition.failureMode = TEMPLATES.packager.failureMode;
+  }
+  const secondPress = assets.find((a) => a.lineId === lines[1]?.id && a.kind === "press");
+  if (secondPress) secondPress.condition.vibrationExcess = 0.5;
+  if (target && blueprint.seedIncident) {
+    target.lastMaintenanceHour = -(target.maintenanceIntervalHours + 52);
+  }
+
+  // Inventory during pre-history is abundant; actual stock levels are set at t0.
+  const t0Inventory = inventory.map((i) => ({ onHand: i.onHand }));
+  for (const i of state.inventory) i.onHand = 1e6;
+  for (const a of state.assets) a.signal.powerKw = a.idlePowerKw;
+
+  const onsetHour = -16;
+  let onsetApplied = false;
+  advanceFactory(state, 24, {
+    nowISO: anchorISO,
+    recordEvents: false,
+    beforeStep: (world) => {
+      if (!onsetApplied && target && blueprint.seedIncident && world.hour >= onsetHour - 1e-9) {
+        const m = world.machines[target.id];
+        m.vibSlope = 0.22;
+        m.tempSlope = 0.25;
+        m.failureMode = TEMPLATES[target.kind].failureMode;
+        onsetApplied = true;
+      }
+    },
+  });
+
+  // t0: open order book, actual stock levels, empty finished goods.
+  state.clock.hour = 0;
+  state.inventory.forEach((i, idx) => (i.onHand = t0Inventory[idx].onHand));
+  state.orders = orders;
+  state.finishedGoods = Object.fromEntries(usedProducts.map((p) => [p.id, 0]));
+
+  // 30-day daily health history (seeded, consistent with today's condition).
+  for (const a of state.assets) {
+    const today = a.healthScore;
+    const series: { day: number; score: number }[] = [];
+    for (let d = -29; d <= 0; d++) {
+      const noise = gaussian(seed, `${a.id}:hh:${d}`) * 1.2;
+      let score: number;
+      if (a.id === target?.id && blueprint.seedIncident) {
+        score = d >= -1 ? today + (d === -1 ? 14 : 0) : 94 - (29 + d) * 0.18 + noise;
+      } else {
+        score = Math.min(99.5, today + (-d) * 0.04 + noise);
+      }
+      series.push({ day: d, score: round(Math.max(0, Math.min(100, d === 0 ? today : score)), 1) });
+    }
+    state.healthHistory[a.id] = series;
+  }
+
+  // Make derived status consistent with smoothed signals.
+  for (const a of state.assets) {
+    a.healthScore = computeHealthScore(a.signal.vibration, a.signal.temperature, a.baseline, a.thresholds);
+    a.status = classifyStatus(a.mode, a.signal.vibration, a.signal.temperature, a.healthScore, a.thresholds);
+  }
+
+  // Seeded open incident for the degrading asset.
+  if (target && blueprint.seedIncident) {
+    state.incidents.push({
+      id: "INC-2041",
+      assetId: target.id,
+      title: `${target.name} — rising vibration trend`,
+      severity: target.status === "critical" ? "critical" : "warning",
+      status: "open",
+      openedHour: -3.5,
+      resolvedHour: null,
+      source: "telemetry",
+      summary: `Vibration up from ${target.baseline.vibration.toFixed(1)} to ${target.signal.vibration.toFixed(1)} mm/s over the last shift; joint temperature trending up. Preventive maintenance is ${Math.round(-target.lastMaintenanceHour - target.maintenanceIntervalHours)} h overdue.`,
+    });
+    state.counters["INC"] = 2041;
+  }
+
+  state.audit = [];
+  if (target && blueprint.seedIncident) {
+    state.audit.push({
+      id: "EVT-10001",
+      hour: -3.5,
+      at: anchorISO,
+      category: "telemetry-alert",
+      actor: "Telemetry monitor",
+      title: `${target.id} vibration trend alert`,
+      detail: `Incident INC-2041 opened: ${target.name} vibration ${target.signal.vibration.toFixed(2)} mm/s (baseline ${target.baseline.vibration}).`,
+      severity: "warning",
+      refs: { assetIds: [target.id], incidentId: "INC-2041" },
+    });
+  }
+  state.audit.unshift({
+    id: "EVT-10002",
+    hour: 0,
+    at: anchorISO,
+    category: "system",
+    actor: "System",
+    title: blueprint.isDemo ? "Demo factory loaded" : "Digital twin created",
+    detail: `${blueprint.name}: ${state.lines.length} lines, ${state.assets.length} assets, ${state.orders.length} open orders. Data source: ${blueprint.dataSource === "demo" ? "simulated demo telemetry" : blueprint.dataSource.toUpperCase() + " selected (not connected — simulated telemetry in use)"}.`,
+    severity: "info",
+    refs: {},
+  });
+  state.counters["EVT"] = 10002;
+  state.clock.lastTickAt = 0;
+  return state;
+}
+
+/** Anchor demo time at the top of the current hour so the "shift clock" reads naturally. */
+export function defaultAnchor(now = new Date()) {
+  const d = new Date(now);
+  d.setMinutes(0, 0, 0);
+  return d.toISOString();
+}
+
+export function buildDemoFactory(anchorISO = defaultAnchor()) {
+  return buildFactory(DEMO_BLUEPRINT, anchorISO, DEMO_SEED);
+}

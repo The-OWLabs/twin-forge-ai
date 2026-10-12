@@ -1,0 +1,10 @@
+node_modules
+.next
+.data
+.git
+scratch
+test-results
+playwright-report
+*.tsbuildinfo
+.env
+.env.local
