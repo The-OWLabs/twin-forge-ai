@@ -1,0 +1,25 @@
+# Firebase App Hosting configuration for TwinForge AI.
+# Docs: https://firebase.google.com/docs/app-hosting/configure
+runConfig:
+  minInstances: 0
+  # Demo state lives in the instance (/tmp). One instance keeps every visitor on the same factory.
+  maxInstances: 1
+  concurrency: 80
+  cpu: 1
+  memoryMiB: 1024
+
+env:
+  - variable: NEXT_TELEMETRY_DISABLED
+    value: "1"
+    availability: [BUILD, RUNTIME]
+  - variable: TWINFORGE_DATA_DIR
+    value: /tmp/twinforge
+    availability: [RUNTIME]
+  # Gemini on Vertex AI (optional): uncomment after enabling the Vertex AI API and granting the
+  # App Hosting service account roles/aiplatform.user — see README → Google Cloud integrations.
+  # - variable: GOOGLE_CLOUD_PROJECT
+  #   value: twin-forge
+  #   availability: [RUNTIME]
+  # - variable: GEMINI_MODEL
+  #   value: gemini-3.5-flash
+  #   availability: [RUNTIME]

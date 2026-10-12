@@ -1,7 +1,6 @@
 import "server-only";
-import fs from "node:fs";
-import path from "node:path";
 import { cloudStorage } from "./integrations/adapters";
+import { DOC_CONTENT } from "./docs-content";
 
 export interface DocumentMeta {
   id: string;
@@ -19,8 +18,6 @@ const LOCAL_DOCS: Omit<DocumentMeta, "source" | "path">[] = [
   { id: "cp280-seal-heater-guide", title: "CP-280 Seal Heater Troubleshooting", kind: "manual", assetKinds: ["packager"] },
   { id: "changeover-sop-ecu200-line-b", title: "SOP-CHG-031 Changeover: ECU-200 on Line B", kind: "procedure", assetKinds: [] },
 ];
-
-const DOC_DIR = path.join(process.cwd(), "content", "docs");
 
 export async function listDocuments(asset?: { id: string; kind: string; documentIds: string[] }) {
   const local: DocumentMeta[] = LOCAL_DOCS.filter((d) => !asset || asset.documentIds.includes(d.id) || d.assetKinds.includes(asset.kind)).map((d) => ({
@@ -54,8 +51,7 @@ export async function listDocuments(asset?: { id: string; kind: string; document
 
 export function readLocalDocument(id: string) {
   const meta = LOCAL_DOCS.find((d) => d.id === id);
-  if (!meta) return null;
-  const file = path.join(DOC_DIR, `${meta.id}.md`);
-  if (!fs.existsSync(file)) return null;
-  return { ...meta, source: "local" as const, content: fs.readFileSync(file, "utf8") };
+  const content = meta ? DOC_CONTENT[meta.id] : undefined;
+  if (!meta || !content) return null;
+  return { ...meta, source: "local" as const, content };
 }

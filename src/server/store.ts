@@ -1,5 +1,6 @@
 import "server-only";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { buildDemoFactory, SCHEMA_VERSION } from "@/domain/seed";
 import type { FactoryState } from "@/domain/types";
@@ -13,7 +14,9 @@ import type { FactoryState } from "@/domain/types";
  * filesystem (`/tmp`), so state is per-instance and resets when the instance is recycled —
  * deploy with max-instances=1 for demos (see README).
  */
-const DATA_DIR = process.env.TWINFORGE_DATA_DIR || path.join(process.cwd(), ".data");
+// On serverless runtimes (Cloud Run / Cloud Functions / App Hosting) only /tmp is writable.
+const SERVERLESS = !!(process.env.K_SERVICE || process.env.FUNCTION_TARGET || process.env.FIREBASE_CONFIG);
+const DATA_DIR = process.env.TWINFORGE_DATA_DIR || (SERVERLESS ? path.join(os.tmpdir(), "twinforge") : path.join(process.cwd(), ".data"));
 const FILE = path.join(DATA_DIR, "factory-state.json");
 
 type Cache = { state: FactoryState | null; writeError: string | null };
