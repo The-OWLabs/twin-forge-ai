@@ -183,3 +183,100 @@ export async function testAi(): Promise<{ ok: boolean; detail: string }> {
     return { ok: false, detail: msg.slice(0, 300) };
   }
 }
+
+/* ───────────────────────────── Visual review (video / image) ───────────────────────────── */
+
+export const MEDIA_LIMIT_BYTES = 15 * 1024 * 1024;
+export const MEDIA_TYPES = ["video/mp4", "video/webm", "video/quicktime", "image/jpeg", "image/png", "image/webp"];
+
+const MediaFindingSchema = z.object({
+  timestampSec: z.number().min(0).max(36000).nullable(),
+  category: z.string().min(2).max(80),
+  description: z.string().min(3).max(400),
+  severity: z.enum(["info", "minor", "major", "critical"]),
+  confidence: z.number().min(0).max(1),
+});
+const MediaSchema = z.object({ summary: z.string().min(5).max(800), findings: z.array(MediaFindingSchema).max(40) });
+
+export interface MediaAnalysis {
+  summary: string;
+  findings: z.infer<typeof MediaFindingSchema>[];
+  model: string;
+}
+
+/**
+ * Ask Gemini to review uploaded footage. Results are ADVISORY: probabilistic model output that
+ * always lands as "pending human review" — never an automatic accept/reject decision.
+ */
+export async function analyzeMedia(
+  bytes: Buffer,
+  mimeType: string,
+  context: { station: string; standard: string | null; categories: readonly string[] },
+): Promise<{ ok: true; analysis: MediaAnalysis } | { ok: false; status: number; error: string }> {
+  const cfg = aiConfig();
+  if (cfg.provider === "none") {
+    return { ok: false, status: 503, error: "Gemini is not configured. Enable Vertex AI (GOOGLE_CLOUD_PROJECT) or set GEMINI_API_KEY to analyze uploaded footage." };
+  }
+  if (!MEDIA_TYPES.includes(mimeType)) return { ok: false, status: 415, error: `Unsupported file type ${mimeType}. Use MP4, WebM, MOV, JPEG, PNG or WebP.` };
+  if (bytes.byteLength > MEDIA_LIMIT_BYTES) return { ok: false, status: 413, error: "File is larger than 15 MB. Trim the clip and try again." };
+  const prompt = [
+    "You are a visual quality-inspection assistant for an electronics factory.",
+    `Station: ${context.station}. Applicable criteria: ${context.standard ?? "general visual inspection"}.`,
+    "Review the attached footage and report ONLY what is clearly visible. Do not guess hidden details.",
+    `Use one of these categories for each finding: ${context.categories.join("; ")}.`,
+    'If nothing abnormal is visible, return a single finding with category "No defect visible".',
+    "For video, give timestampSec where the issue is visible; for images use null.",
+    "confidence is your own 0–1 estimate. Safety observations are advisory only. Never state that a part is certified or compliant.",
+  ].join("\n");
+  const responseSchema = {
+    type: "object",
+    properties: {
+      summary: { type: "string" },
+      findings: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: {
+            timestampSec: { type: ["number", "null"] },
+            category: { type: "string", enum: [...context.categories] },
+            description: { type: "string" },
+            severity: { type: "string", enum: ["info", "minor", "major", "critical"] },
+            confidence: { type: "number" },
+          },
+          required: ["timestampSec", "category", "description", "severity", "confidence"],
+        },
+      },
+    },
+    required: ["summary", "findings"],
+  };
+  runtime.calls++;
+  const started = Date.now();
+  const timeoutMs = Math.max(cfg.timeoutMs, 45000);
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const { GoogleGenAI } = await import("@google/genai");
+    const ai =
+      cfg.provider === "vertex"
+        ? new GoogleGenAI({ vertexai: true, project: cfg.project, location: cfg.location, httpOptions: { timeout: timeoutMs } })
+        : new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY, httpOptions: { timeout: timeoutMs } });
+    const res = await ai.models.generateContent({
+      model: cfg.model,
+      contents: [{ role: "user", parts: [{ inlineData: { mimeType, data: bytes.toString("base64") } }, { text: prompt }] }],
+      config: { responseMimeType: "application/json", responseJsonSchema: responseSchema, temperature: 0, maxOutputTokens: 2048, abortSignal: controller.signal },
+    });
+    const parsed = MediaSchema.parse(JSON.parse(res.text ?? ""));
+    const allowed = new Set(context.categories);
+    const findings = parsed.findings.map((f) => ({ ...f, category: allowed.has(f.category) ? f.category : "Other" }));
+    runtime.lastSuccessAt = new Date().toISOString();
+    runtime.lastLatencyMs = Date.now() - started;
+    runtime.lastError = null;
+    return { ok: true, analysis: { summary: parsed.summary, findings, model: `${cfg.model} via ${cfg.provider === "vertex" ? `Vertex AI (${cfg.location})` : "Gemini API"}` } };
+  } catch (e) {
+    const msg = e instanceof Error ? (e.name === "AbortError" ? `timed out after ${timeoutMs} ms` : e.message) : String(e);
+    runtime.lastError = `${new Date().toISOString()} — ${msg}`.slice(0, 400);
+    return { ok: false, status: 502, error: `Gemini analysis failed: ${msg.slice(0, 200)}` };
+  } finally {
+    clearTimeout(timer);
+  }
+}

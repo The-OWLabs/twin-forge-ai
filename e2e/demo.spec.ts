@@ -16,7 +16,7 @@ test.beforeEach(async ({ request }) => {
 
 test("every page renders without console errors", async ({ page }) => {
   const errors = collectErrors(page);
-  for (const path of ["/", "/onboarding", "/dashboard", "/twin", "/assets", "/agents", "/simulator", "/approvals", "/sustainability", "/audit", "/integrations"]) {
+  for (const path of ["/", "/onboarding", "/dashboard", "/twin", "/assets", "/quality", "/agents", "/simulator", "/approvals", "/sustainability", "/audit", "/integrations"]) {
     // Wait for rendered content rather than "networkidle": the app polls live telemetry every 4 s.
     await page.goto(path, { waitUntil: "domcontentloaded" });
     await expect(page.locator("h1, h2").first()).toBeVisible();
@@ -109,7 +109,8 @@ test("isometric twin view supports selection, and the theme toggle persists", as
   const errors = collectErrors(page);
   await page.goto("/twin");
   await page.getByRole("button", { name: "Isometric" }).click();
-  const robot = page.locator("[data-asset='A-ROB-03']");
+  // first(): the main viewport; camera thumbnails in the asset panel render the scene too
+  const robot = page.locator("[data-asset='A-ROB-03']").first();
   await expect(robot).toBeVisible();
   await robot.click();
   await expect(page.getByText("Condition diagnostics")).toBeVisible();
@@ -130,7 +131,7 @@ test("landing scroll story advances through every chapter", async ({ page }) => 
   const errors = collectErrors(page);
   await page.goto("/");
   await expect(page.getByRole("heading", { name: /Your factory\./ })).toBeVisible();
-  const chapters = ["Every asset. Mirrored.", "It notices what people miss.", "Five agents. One investigation.", "See tomorrow. Choose today.", "You stay in command.", "Every decision, on the record."];
+  const chapters = ["Every asset. Mirrored.", "It notices what people miss.", "Six agents. One investigation.", "See tomorrow. Choose today.", "You stay in command.", "Every decision, on the record."];
   const total = await page.evaluate(() => (document.querySelector("section[aria-label='TwinForge AI product story']") as HTMLElement).offsetHeight - innerHeight);
   for (let i = 0; i < chapters.length; i++) {
     await page.evaluate((y) => window.scrollTo(0, y), Math.round(((i + 1.45) / 7) * total));
@@ -139,4 +140,53 @@ test("landing scroll story advances through every chapter", async ({ page }) => 
   await page.getByText("The crisis, by the numbers").scrollIntoViewIfNeeded();
   await expect(page.getByText("of unplanned downtime avoided")).toBeVisible();
   expect(errors).toEqual([]);
+});
+
+test("cameras: twin card → live view (audited) → visual quality review with human disposition", async ({ page, request }) => {
+  const errors = collectErrors(page);
+  await request.post("/api/demo/crisis");
+
+  // Camera in the isometric twin opens a card with the camera's view
+  await page.goto("/twin");
+  await page.getByRole("button", { name: "Isometric" }).click();
+  await page.getByRole("button", { name: "Camera THM-A1" }).click();
+  const card = page.getByTestId("camera-panel");
+  await expect(card).toBeVisible();
+  await expect(card.getByText(/Hottest: A-ROB-03/)).toBeVisible();
+  await expect(card.getByText("Simulated feed", { exact: true })).toBeVisible();
+
+  // The user chooses to watch the live stream; the access is written to the audit trail
+  await card.getByRole("button", { name: "Watch live stream" }).click();
+  const dialog = page.getByRole("dialog");
+  await expect(dialog.getByTestId("live-feed")).toBeVisible();
+  await expect(dialog.getByText("Access logged")).toBeVisible();
+  await expect
+    .poll(async () => ((await (await request.get("/api/audit")).json()) as { entries: { title: string }[] }).entries.some((e) => e.title === "Live view opened: THM-A1"))
+    .toBe(true);
+  await dialog.getByRole("button", { name: "Close" }).click();
+
+  // Visual Quality: rising AOI rejects linked to the robot; review needs a human decision
+  await page.getByRole("link", { name: "Visual Quality" }).click();
+  await expect(page.getByRole("heading", { name: "Visual Quality" })).toBeVisible();
+  await expect(page.getByText("rising", { exact: true })).toBeVisible();
+  await expect(page.getByText(/r = 0\.\d\d/).first()).toBeVisible();
+  await expect(page.getByTestId("camera-tile")).toHaveCount(9);
+  await page.getByRole("button", { name: "Review last 60 units" }).click();
+  const review = page.getByTestId("vision-review").first();
+  await expect(review.getByText("Awaiting human review")).toBeVisible();
+  await review.getByRole("button", { name: /Confirm/ }).click();
+  await expect(review.getByText("confirmed")).toBeVisible();
+  expect(errors).toEqual([]);
+});
+
+test("camera API rejects insecure stream URLs and reports Gemini honestly", async ({ request }) => {
+  const insecure = await request.patch("/api/cameras/CCTV-A1", { data: { kind: "hls", url: "http://10.0.0.9/a.m3u8" } });
+  expect(insecure.status()).toBe(400);
+  const unknown = await request.post("/api/cameras/NOPE/view", { data: {} });
+  expect(unknown.status()).toBe(404);
+  const integrations = (await (await request.get("/api/integrations")).json()) as { integrations: { id: string; state: string }[] };
+  const vertex = integrations.integrations.find((i) => i.id === "vertex-ai")!;
+  const upload = await request.post("/api/vision/analyze", { multipart: { file: { name: "frame.png", mimeType: "image/png", buffer: Buffer.from([0x89, 0x50, 0x4e, 0x47]) } } });
+  if (vertex.state === "not-configured") expect(upload.status()).toBe(503);
+  else expect([201, 502]).toContain(upload.status());
 });

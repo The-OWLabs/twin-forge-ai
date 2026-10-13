@@ -85,6 +85,7 @@ export interface LineAcc {
   targetUnits: number;
   energyKwh: number;
   idleEnergyKwh: number;
+  scrapByCause: Record<string, number>;
 }
 
 export interface WorldOrder {
@@ -126,6 +127,13 @@ export interface SimWorld {
 
 const EPS = 1e-9;
 
+/** Carton-seal defects rise once a packer's seal-heater temperature drifts past 85% of its alarm limit. */
+function sealContribution(m: MachineSim) {
+  if (m.kind !== "packager") return 0;
+  const t = machineTemperature(m);
+  return Math.max(0, t - m.thresholds.temperatureAlarm * 0.85) * 0.004;
+}
+
 export const emptyAcc = (): LineAcc => ({
   plannedHours: 0,
   runHours: 0,
@@ -139,7 +147,16 @@ export const emptyAcc = (): LineAcc => ({
   targetUnits: 0,
   energyKwh: 0,
   idleEnergyKwh: 0,
+  scrapByCause: {},
 });
+
+/** Split scrap between the baseline process and each machine's vibration-driven contribution. */
+function attributeScrap(acc: LineAcc, scrap: number, base: number, parts: [string, number][]) {
+  const total = base + parts.reduce((x, [, v]) => x + v, 0);
+  if (scrap <= 0 || total <= 0) return;
+  acc.scrapByCause.process = (acc.scrapByCause.process ?? 0) + (scrap * base) / total;
+  for (const [id, v] of parts) if (v > 0) acc.scrapByCause[id] = (acc.scrapByCause[id] ?? 0) + (scrap * v) / total;
+}
 
 /** Structural vibration severity (mm/s) at operating load — what a vibration probe reads while producing. */
 export const machineVibration = (m: MachineSim) => m.baseVibration + m.vibExcess;
@@ -513,7 +530,8 @@ function produceAssembly(world: SimWorld, line: LineSim, dt: number) {
 
   const speedFactor = Math.min(...ms.map((m) => m.speedPct)) / 100;
   const machineCap = Math.min(...ms.map((m) => m.nominalRate * (m.speedPct / 100)));
-  const scrapRate = Math.min(0.6, line.baseScrapRate + ms.reduce((s, m) => s + scrapContribution(machineVibration(m), m.thresholds), 0));
+  const contributions: [string, number][] = ms.map((m) => [m.id, scrapContribution(machineVibration(m), m.thresholds)]);
+  const scrapRate = Math.min(0.6, line.baseScrapRate + contributions.reduce((x, [, v]) => x + v, 0));
 
   let started = 0;
   let attempted = 0;
@@ -532,6 +550,7 @@ function produceAssembly(world: SimWorld, line: LineSim, dt: number) {
     good += g;
     acc.goodUnits += g;
     acc.scrapUnits += s;
+    attributeScrap(acc, s, line.baseScrapRate, contributions);
     world.scrapByProduct[pid] = (world.scrapByProduct[pid] ?? 0) + s;
     if (line.downstreamLineId && world.lines[line.downstreamLineId]) {
       const dl = world.lines[line.downstreamLineId];
@@ -578,7 +597,8 @@ function producePackaging(world: SimWorld, line: LineSim, dt: number) {
   const machineCap = Math.min(...ms.map((m) => m.nominalRate * (m.speedPct / 100)));
   const capacity = Math.min(baseRate * speedFactor, machineCap) * dt;
   const totalBuffer = Object.values(line.buffer).reduce((a, b) => a + b, 0);
-  const scrapRate = Math.min(0.5, line.baseScrapRate + ms.reduce((s, m) => s + scrapContribution(machineVibration(m), m.thresholds) * 0.5, 0));
+  const contributions: [string, number][] = ms.map((m) => [m.id, scrapContribution(machineVibration(m), m.thresholds) * 0.5 + sealContribution(m)]);
+  const scrapRate = Math.min(0.5, line.baseScrapRate + contributions.reduce((x, [, v]) => x + v, 0));
   let processed = 0;
   let good = 0;
   if (totalBuffer > EPS && capacity > 0) {
@@ -595,6 +615,7 @@ function producePackaging(world: SimWorld, line: LineSim, dt: number) {
       good += g;
       acc.goodUnits += g;
       acc.scrapUnits += s;
+      attributeScrap(acc, s, line.baseScrapRate, contributions);
       world.scrapByProduct[pid] = (world.scrapByProduct[pid] ?? 0) + s;
       world.finishedGoods[pid] = (world.finishedGoods[pid] ?? 0) + g;
       world.producedByProduct[pid] = (world.producedByProduct[pid] ?? 0) + g;

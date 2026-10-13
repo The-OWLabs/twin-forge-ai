@@ -64,11 +64,16 @@ function mergeProduction(state: FactoryState, world: SimWorld, bucket: number) {
   for (const [lineId, acc] of Object.entries(world.acc)) {
     let rec = state.production.find((r) => r.hour === bucket && r.lineId === lineId);
     if (!rec) {
-      rec = { hour: bucket, lineId, ...emptyAcc() } as LineHourRecord;
+      rec = { hour: bucket, lineId, ...emptyAcc(), scrapByCause: {} } as LineHourRecord;
       state.production.push(rec);
     }
     for (const k of Object.keys(acc) as (keyof typeof acc)[]) {
-      (rec as unknown as Record<string, number>)[k] += acc[k];
+      if (k === "scrapByCause") {
+        rec.scrapByCause ??= {};
+        for (const [cause, v] of Object.entries(acc.scrapByCause)) rec.scrapByCause[cause] = (rec.scrapByCause[cause] ?? 0) + v;
+      } else {
+        (rec as unknown as Record<string, number>)[k] += acc[k];
+      }
     }
   }
 }

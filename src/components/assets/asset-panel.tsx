@@ -19,6 +19,7 @@ import { KeyValue, SectionLabel } from "../page";
 import { Badge, Button, Dialog, Input, Label, Meter, Select, Slider, Tabs, TabsContent, TabsList, TabsTrigger } from "../ui/primitives";
 import { RiskBadge, StatusBadge, healthTone } from "../ui/status";
 import { KIND_ICON } from "../twin/nodes";
+import { CamerasWatching } from "../vision/camera-panel";
 
 export function AssetPanel({ state, asset, compact = false, onClose }: { state: FactoryState; asset: Asset; compact?: boolean; onClose?: () => void }) {
   const Icon = KIND_ICON[asset.kind];
@@ -148,6 +149,8 @@ function Overview({ state, asset, compact }: { state: FactoryState; asset: Asset
         </div>
         <p className="mt-2 text-[10.5px] leading-relaxed text-muted">OLS trend on running telemetry with a change-point test. Estimates from simulated demo data.</p>
       </div>
+
+      <CamerasWatching state={state} assetId={asset.id} />
 
       <div className="flex flex-wrap gap-2">
         <Button

@@ -12,7 +12,7 @@ import type { AgentId, FactoryState } from "@/domain/types";
 import { cn } from "@/lib/cn";
 import { fmtInt, fmtMoney, fmtSimTime } from "@/lib/format";
 
-const AGENTS: AgentId[] = ["maintenance", "production", "supply", "energy", "orchestrator"];
+const AGENTS: AgentId[] = ["maintenance", "quality", "production", "supply", "energy", "orchestrator"];
 
 /** Normalise either the live (streaming) analysis or the last persisted one into one view model. */
 function useAnalysisView(state: FactoryState, live: LiveAnalysis | null) {
@@ -100,7 +100,7 @@ export default function AgentsPage() {
     <div className="animate-fade-in">
       <PageHeader
         title="AI Operations Command Center"
-        description="Five specialised agents investigate the factory on a snapshot of the shared twin. Every finding lists its inputs, method and evidence; every number comes from the plant model, not from a language model."
+        description="Six specialised agents investigate the factory on a snapshot of the shared twin. Every finding lists its inputs, method and evidence; every number comes from the plant model, not from a language model."
         eyebrow={
           <Badge tone="agent">
             <BrainCircuit className="h-3 w-3" /> Agentic workflow · OBSERVE → INVESTIGATE → PREDICT → SIMULATE → RECOMMEND → HUMAN APPROVAL
@@ -155,7 +155,7 @@ export default function AgentsPage() {
 
           <div className="mt-4 grid gap-4 xl:grid-cols-[1fr_380px]">
             <div className="min-w-0 space-y-4">
-              <div className="grid gap-3 sm:grid-cols-2 2xl:grid-cols-5">
+              <div className="grid gap-3 sm:grid-cols-2 2xl:grid-cols-3">
                 {AGENTS.map((id) => (
                   <AgentCard
                     key={id}

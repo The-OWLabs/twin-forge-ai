@@ -16,6 +16,7 @@ import {
   Leaf,
   Network,
   Radio,
+  ScanEye,
   ShieldCheck,
   Sparkles,
   Truck,
@@ -129,8 +130,8 @@ const CHAPTERS = [
   {
     eyebrow: "Agentic operations",
     tone: "text-agent-ink",
-    title: "Five agents. One investigation.",
-    body: () => "Maintenance, production, supply-chain and energy agents each bring evidence. An orchestrator weighs it all and resolves the conflicts between them.",
+    title: "Six agents. One investigation.",
+    body: () => "Maintenance, visual-quality, production, supply-chain and energy agents each bring evidence — the AOI camera corroborates what the accelerometer saw. An orchestrator weighs it all and resolves the conflicts.",
   },
   {
     eyebrow: "What-if simulation",
@@ -199,7 +200,7 @@ function Sparkline({ values, draw, alarm = 7.1, trip = 11.2 }: { values: number[
   );
 }
 
-const AGENT_ICON: Record<AgentId, typeof Wrench> = { maintenance: Wrench, production: Factory, supply: Truck, energy: Leaf, orchestrator: BrainCircuit };
+const AGENT_ICON: Record<AgentId, typeof Wrench> = { maintenance: Wrench, quality: ScanEye, production: Factory, supply: Truck, energy: Leaf, orchestrator: BrainCircuit };
 
 /* ───────────────────────────── pinned story ───────────────────────────── */
 
@@ -257,7 +258,7 @@ function PinnedStory({ story }: { story: StoryData }) {
             <span className="bg-gradient-to-r from-accent-ink via-agent-ink to-accent-ink bg-clip-text text-transparent">Reimagined before reality.</span>
           </h1>
           <p className="mx-auto mt-5 max-w-2xl text-[16px] leading-relaxed text-ink-2 sm:text-[19px]">
-            A living digital twin with five AI agents that see trouble coming, simulate the fix — and wait for your go.
+            A living digital twin with six AI agents that see trouble coming, simulate the fix — and wait for your go.
           </p>
           <div className="mt-7 flex flex-wrap items-center justify-center gap-3">
             <Link href="/dashboard" className="flex h-11 items-center gap-2 rounded-full bg-accent px-6 text-[15px] font-semibold text-white shadow-[0_10px_30px_-10px_var(--color-accent)] hover:bg-accent-strong">
@@ -370,9 +371,9 @@ function PinnedStory({ story }: { story: StoryData }) {
         {/* Chapter 3 — agents */}
         {vis(3) > 0.01 && desktop && (
           <div className={cn("absolute z-10 space-y-2", desktop ? "right-[4vw] bottom-[6vh] w-[380px]" : "inset-x-5 top-[57vh]")} style={{ opacity: vis(3) }}>
-            {story.agents.slice(0, desktop ? 5 : 3).map((a, k) => {
+            {story.agents.slice(0, desktop ? 6 : 3).map((a, k) => {
               const Icon = AGENT_ICON[a.id];
-              const on = step > 3 ? 1 : smooth((local - k * 0.13) / 0.15);
+              const on = step > 3 ? 1 : smooth((local - k * 0.11) / 0.13);
               return (
                 <Glass key={a.id} className="flex items-start gap-3 p-3" style={{ opacity: on, transform: `translateX(${(1 - on) * 24}px)` }}>
                   <span className={cn("rounded-lg border p-1.5", a.id === "orchestrator" ? "border-agent/50 bg-agent/15 text-agent-ink" : "border-line bg-surface-2 text-ink-2")}>
@@ -564,7 +565,7 @@ const FEATURES = [
   { icon: Network, title: "Living digital twin", body: "Topology, isometric and floor-plan views of lines, machines, sensors, materials and orders — every element backed by live state." },
   { icon: Wrench, title: "Predictive maintenance", body: "Trend and change-point detection with time-to-trip and failure probability — and the uncertainty stated." },
   { icon: FlaskConical, title: "What-if simulation", body: "A deterministic plant model compares plans on output, delivery, downtime, energy, scrap and cost." },
-  { icon: BrainCircuit, title: "Agentic operations", body: "Five agents investigate together and propose one plan — with evidence, risks and rollback." },
+  { icon: BrainCircuit, title: "Agentic operations", body: "Six agents investigate together and propose one plan — with evidence, risks and rollback." },
 ];
 
 function Platform() {

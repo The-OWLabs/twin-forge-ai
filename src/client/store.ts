@@ -15,9 +15,10 @@ import type {
   ScenarioResult,
   ScenarioRun,
   StageState,
+  VisionReview,
 } from "@/domain/types";
 import type { Anomaly } from "@/domain/anomaly";
-import { api, streamNdjson } from "./api";
+import { api, ApiError, streamNdjson } from "./api";
 
 /* ───────────────────────────── Factory store ───────────────────────────── */
 
@@ -73,6 +74,11 @@ interface FactoryStore {
   rollback: (id: string, by: string) => Promise<boolean>;
   createFactory: (bp: Record<string, unknown>) => Promise<boolean>;
   analyze: () => Promise<boolean>;
+  logCameraView: (id: string) => Promise<void>;
+  setCameraStream: (id: string, kind: "simulated" | "hls" | "mp4" | "mjpeg", url: string | null) => Promise<boolean>;
+  reviewInspectionLog: (cameraId: string) => Promise<VisionReview | undefined>;
+  analyzeMedia: (file: File, cameraId: string | null) => Promise<VisionReview | undefined>;
+  dispositionReview: (id: string, disposition: "confirmed" | "dismissed", note: string) => Promise<boolean>;
 }
 
 let toastSeq = 1;
@@ -367,6 +373,70 @@ export const useFactory = create<FactoryStore>((set, get) => ({
       return false;
     }
   },
+
+  logCameraView: async (id) => {
+    try {
+      const r = await api<{ state: FactoryState }>(`/api/cameras/${id}/view`, { body: { by: useUi.getState().operator } });
+      get().apply(r.state);
+    } catch {
+      /* the view itself still works; the access log is best-effort from the client's side */
+    }
+  },
+
+  setCameraStream: async (id, kind, url) => {
+    const r = await get().run(
+      "cameraStream",
+      async () => {
+        const res = await api<{ state: FactoryState }>(`/api/cameras/${id}`, { method: "PATCH", body: { kind, url, by: useUi.getState().operator } });
+        get().apply(res.state);
+        return true;
+      },
+      kind === "simulated" ? `${id} switched to the twin-generated feed` : `${id} now plays the ${kind.toUpperCase()} gateway stream`,
+    );
+    return !!r;
+  },
+
+  reviewInspectionLog: async (cameraId) => {
+    return get().run(
+      "visionReview",
+      async () => {
+        const res = await api<{ review: VisionReview; state: FactoryState }>("/api/vision/review-log", { body: { cameraId } });
+        get().apply(res.state);
+        return res.review;
+      },
+      (r) => `${r.id}: ${r.findings.length} reject(s) logged for human review`,
+    );
+  },
+
+  analyzeMedia: async (file, cameraId) => {
+    return get().run(
+      "visionAnalyze",
+      async () => {
+        const form = new FormData();
+        form.append("file", file);
+        if (cameraId) form.append("cameraId", cameraId);
+        const res = await fetch("/api/vision/analyze", { method: "POST", body: form, cache: "no-store" });
+        const data = (await res.json().catch(() => null)) as { review?: VisionReview; state?: FactoryState; error?: string } | null;
+        if (!res.ok || !data?.review || !data.state) throw new ApiError(data?.error ?? `Analysis failed (${res.status})`, res.status);
+        get().apply(data.state);
+        return data.review;
+      },
+      (r) => `${r.id}: Gemini returned ${r.findings.length} finding(s) — pending your review`,
+    );
+  },
+
+  dispositionReview: async (id, disposition, note) => {
+    const r = await get().run(
+      "visionDisposition",
+      async () => {
+        const res = await api<{ state: FactoryState }>(`/api/vision/reviews/${id}`, { method: "PATCH", body: { disposition, note, by: useUi.getState().operator } });
+        get().apply(res.state);
+        return true;
+      },
+      `${id} ${disposition}`,
+    );
+    return !!r;
+  },
 }));
 
 /* ───────────────────────────── UI preferences ───────────────────────────── */
@@ -411,7 +481,7 @@ export interface Highlight {
 interface UiStore {
   selectedAssetId: string | null;
   highlight: Highlight | null;
-  layers: { sensors: boolean; inventory: boolean; orders: boolean };
+  layers: { sensors: boolean; inventory: boolean; orders: boolean; cameras: boolean };
   twinView: "topology" | "iso" | "floor";
   nodePositions: Record<string, { x: number; y: number }>;
   guide: { active: boolean; step: number };
@@ -432,7 +502,7 @@ export const useUi = create<UiStore>()(
     (set) => ({
       selectedAssetId: null,
       highlight: null,
-      layers: { sensors: false, inventory: true, orders: true },
+      layers: { sensors: false, inventory: true, orders: true, cameras: true },
       twinView: "topology",
       nodePositions: {},
       guide: { active: false, step: 0 },
@@ -447,7 +517,16 @@ export const useUi = create<UiStore>()(
       setGuide: (g) => set((s) => ({ guide: { ...s.guide, ...g } })),
       setOperator: (n) => set({ operator: n }),
     }),
-    { name: "twinforge-ui", storage: createJSONStorage(() => safeStorage), version: 1 },
+    {
+      name: "twinforge-ui",
+      storage: createJSONStorage(() => safeStorage),
+      version: 1,
+      // Layers added in later releases default on for people with older saved preferences.
+      merge: (persisted, current) => {
+        const p = (persisted ?? {}) as Partial<UiStore>;
+        return { ...current, ...p, layers: { ...current.layers, ...(p.layers ?? {}) } };
+      },
+    },
   ),
 );
 

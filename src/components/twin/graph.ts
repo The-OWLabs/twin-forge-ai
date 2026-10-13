@@ -1,5 +1,6 @@
 import type { Edge, Node } from "@xyflow/react";
-import type { Asset, CustomerOrder, FactoryState, InventoryItem, ProductionLine, SensorSpec } from "@/domain/types";
+import { cameraView } from "@/domain/quality";
+import type { Asset, Camera, CustomerOrder, FactoryState, InventoryItem, ProductionLine, SensorSpec } from "@/domain/types";
 import type { Highlight } from "@/client/store";
 
 /** Role of a node within a highlighted scenario. */
@@ -37,6 +38,12 @@ export interface OrderData extends Record<string, unknown> {
   dimmed: boolean;
   atRisk: boolean;
 }
+export interface CameraData extends Record<string, unknown> {
+  camera: Camera;
+  alert: boolean;
+  headline: string;
+  dimmed: boolean;
+}
 export interface SensorData extends Record<string, unknown> {
   sensor: SensorSpec;
   assetId: string;
@@ -56,7 +63,7 @@ const V_GAP = 22;
 const SERIES = ["var(--color-series-1)", "var(--color-series-2)", "var(--color-series-3)", "var(--color-series-4)"];
 
 export interface GraphOptions {
-  layers: { sensors: boolean; inventory: boolean; orders: boolean };
+  layers: { sensors: boolean; inventory: boolean; orders: boolean; cameras?: boolean };
   highlight: Highlight | null;
   positions: Record<string, { x: number; y: number }>;
   interactive: boolean;
@@ -76,10 +83,29 @@ function roleLabelFor(h: Highlight, role: HighlightRole): string | null {
   return null;
 }
 
+const CAM_W = 132;
+
 export function buildGraph(state: FactoryState, opts: GraphOptions): { nodes: Node[]; edges: Edge[] } {
   const nodes: Node[] = [];
   const edges: Edge[] = [];
   const h = opts.highlight;
+  const showCams = !!opts.layers.cameras;
+  const camNode = (cam: Camera, position: { x: number; y: number }, parentId?: string, links: string[] = [], handles: [string, string] = ["b", "t-in"]) => {
+    const v = cameraView(state, cam);
+    const nid = `cam:${cam.id}`;
+    nodes.push({
+      id: nid,
+      type: "camera",
+      ...(parentId ? { parentId } : {}),
+      position,
+      data: { camera: cam, alert: v.detections.some((d) => d.tone === "bad"), headline: v.headline, dimmed: !!h } satisfies CameraData,
+      draggable: false,
+      zIndex: 3,
+    });
+    for (const target of links) {
+      edges.push({ id: `cam:${cam.id}:${target}`, source: nid, target, sourceHandle: handles[0], targetHandle: handles[1], type: "straight", style: { stroke: "var(--color-line-strong)", strokeWidth: 1, strokeDasharray: "3 3" }, zIndex: 1 });
+    }
+  };
   const assembly = state.lines.filter((l) => l.kind === "assembly");
   const packaging = state.lines.filter((l) => l.kind === "packaging");
   const colorOf = (lineId: string) => SERIES[Math.max(0, state.lines.findIndex((l) => l.id === lineId)) % SERIES.length];
@@ -166,6 +192,17 @@ export function buildGraph(state: FactoryState, opts: GraphOptions): { nodes: No
         edges.push(flowEdge(prev.id, a.id, line.state === "running" || line.state === "starved", hot, colorOf(line.id), "r", "l"));
       }
     });
+    if (showCams) {
+      const slot = (i: number) => LINE_PAD_X + i * (MACHINE_W + H_GAP);
+      for (const cam of state.cameras.filter((c) => c.lineId === line.id)) {
+        const idx = assets.map((a, i) => (cam.covers.includes(a.id) ? i : -1)).filter((i) => i >= 0);
+        if (cam.kind === "area") camNode(cam, { x: LINE_PAD_X, y: -30 }, gid);
+        else if (idx.length) {
+          const mid = (slot(idx[0]) + slot(idx[idx.length - 1]) + MACHINE_W) / 2;
+          camNode(cam, { x: mid - CAM_W / 2, y: -30 }, gid, cam.covers);
+        }
+      }
+    }
     maxRowRight = Math.max(maxRowRight, pos.x + width);
     y += height + 36;
   }
@@ -241,6 +278,15 @@ export function buildGraph(state: FactoryState, opts: GraphOptions): { nodes: No
         edges.push(flowEdge(prev.id, a.id, line.state === "running" || line.state === "starved", hot, colorOf(line.id), "b", "t"));
       }
     });
+    if (showCams) {
+      for (const cam of state.cameras.filter((c) => c.lineId === line.id)) {
+        if (cam.kind === "area") camNode(cam, { x: width + 12, y: 6 }, gid);
+        else {
+          const i = assets.findIndex((a) => cam.covers.includes(a.id));
+          if (i >= 0) camNode(cam, { x: width + 12, y: LINE_HEADER + i * (MACHINE_H + V_GAP) + 34 }, gid, cam.covers, ["l", "r-in"]);
+        }
+      }
+    }
     // Assembly outputs merge into packaging infeed
     const infeed = assets[0];
     if (infeed) {
@@ -295,6 +341,10 @@ export function buildGraph(state: FactoryState, opts: GraphOptions): { nodes: No
     });
   }
 
+  if (showCams && opts.layers.inventory) {
+    for (const cam of state.cameras.filter((x) => !x.lineId && x.kind !== "dock")) camNode(cam, { x: invX, y: -30 });
+  }
+
   // Orders row (below the assembly lines), fed from the end of the packaging line
   if (opts.layers.orders && packaging[0]) {
     const lastPkg = packaging[0].assetIds[packaging[0].assetIds.length - 1];
@@ -329,6 +379,10 @@ export function buildGraph(state: FactoryState, opts: GraphOptions): { nodes: No
         });
       }
     });
+  }
+
+  if (showCams && opts.layers.orders && packaging[0]) {
+    for (const cam of state.cameras.filter((x) => x.kind === "dock")) camNode(cam, { x: lineX + state.orders.length * 216, y: assemblyBottom + 30 });
   }
 
   // User-defined dependencies

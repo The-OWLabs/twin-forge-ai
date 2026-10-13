@@ -24,9 +24,13 @@ export interface IsoSceneProps {
   labels?: "all" | "smart" | "none";
   sensors?: boolean;
   camera?: { focusId?: string | null; zoom?: number } | null;
+  /** Render CCTV / inspection / thermal cameras (requires `model.cameras`). */
+  showCameras?: boolean;
   className?: string;
   title?: string;
 }
+
+const CAM_LENS: Record<string, string> = { area: "#38bdf8", inspection: "#4c8dff", thermal: "#fb923c", dock: "#38bdf8" };
 
 const STATUS_COLOR: Record<AssetStatus, string> = {
   healthy: "#10b981",
@@ -279,6 +283,7 @@ export const IsoScene = memo(function IsoScene({
   labels = "smart",
   sensors = false,
   camera,
+  showCameras = false,
   className,
   title = "Isometric view of the factory digital twin",
 }: IsoSceneProps) {
@@ -311,6 +316,12 @@ export const IsoScene = memo(function IsoScene({
     const [wx, wy] = rot(r, it.x, it.y);
     content.push(project([wx - 1.4, wy - 1, 0]), project([wx + 1.4, wy + 1, 0]), project([wx, wy, 1.6]));
   }
+  if (showCameras) {
+    for (const pc of layout.cameras) {
+      const [wx, wy] = rot(r, pc.x, pc.y);
+      content.push(project([wx, wy, 0]), project([wx, wy, pc.z + 0.6]));
+    }
+  }
   for (const bay of layout.bays) {
     for (const [x, y] of [
       [bay.x0 - 0.6, bay.y0 - 0.6],
@@ -332,7 +343,17 @@ export const IsoScene = memo(function IsoScene({
   // Camera focus (landing story)
   let camTransform = "translate(0px, 0px) scale(1)";
   if (camera?.focusId) {
-    const pm = layout.machines.find((m) => m.m.id === camera.focusId);
+    const fid = camera.focusId;
+    const pm =
+      layout.machines.find((m) => m.m.id === fid) ??
+      layout.trucks.map((t) => ({ x: t.x, y: t.y, id: `ord:${t.id}` })).find((t) => t.id === fid) ??
+      layout.racks.map((k) => ({ x: k.x, y: k.y, id: `inv:${k.id}` })).find((k) => k.id === fid) ??
+      (fid === "zone:dock" && layout.trucks.length ? { x: layout.trucks.reduce((a, t) => a + t.x, 0) / layout.trucks.length, y: layout.trucks[0].y } : null) ??
+      (fid === "zone:stores" && layout.racks.length ? { x: layout.racks.reduce((a, k) => a + k.x, 0) / layout.racks.length, y: layout.racks.reduce((a, k) => a + k.y, 0) / layout.racks.length } : null) ??
+      (fid.startsWith("line:") ? (() => {
+        const ms = layout.machines.filter((m) => m.lineId === fid.slice(5));
+        return ms.length ? { x: ms.reduce((a, m) => a + m.x, 0) / ms.length, y: ms.reduce((a, m) => a + m.y, 0) / ms.length } : null;
+      })() : null);
     if (pm) {
       const [fx, fy] = rot(r, pm.x, pm.y);
       const [sx, sy] = project([fx, fy, 0.8]);
@@ -472,6 +493,95 @@ export const IsoScene = memo(function IsoScene({
   }
   const sortedLabels = labelItems.sort((a, b2) => a.key - b2.key).map((l) => l.node);
 
+  // Cameras: floor field-of-view wedges (under everything) and pole-mounted heads (over everything).
+  const camWedges: ReactNode[] = [];
+  const camHeads: ReactNode[] = [];
+  const camA11y = (camId: string) =>
+    onSelect
+      ? {
+          role: "button",
+          tabIndex: 0,
+          "aria-label": `Camera ${camId}`,
+          className: "outline-none",
+          onKeyDown: (e: React.KeyboardEvent) => {
+            if (e.key === "Enter" || e.key === " ") (e.preventDefault(), onSelect(`cam:${camId}`));
+          },
+        }
+      : {};
+  if (showCameras && build >= 0.98) {
+    for (const pc of layout.cameras) {
+      const id = `cam:${pc.cam.id}`;
+      const sel = selectedId === id;
+      const lens = pc.cam.alert ? "#ef4444" : (CAM_LENS[pc.cam.kind] ?? "#38bdf8");
+      const [mx, my] = rot(r, pc.x, pc.y);
+      const base = project([mx, my, 0]);
+      const head = project([mx, my, pc.z]);
+      const pick = onSelect ? (e: React.MouseEvent) => (e.stopPropagation(), onSelect(id)) : undefined;
+      if (pc.aim) {
+        const [ax, ay] = rot(r, pc.aim[0], pc.aim[1]);
+        const dx = ax - mx;
+        const dy = ay - my;
+        const len = Math.hypot(dx, dy) || 1;
+        const px = (-dy / len) * pc.spread;
+        const py = (dx / len) * pc.spread;
+        const far = 1.18;
+        const p1 = project([mx + dx * far + px, my + dy * far + py, 0.02]);
+        const p2 = project([mx + dx * far - px, my + dy * far - py, 0.02]);
+        camWedges.push(
+          <polygon
+            key={`w-${pc.cam.id}`}
+            points={pts([base, p1, p2])}
+            fill={pc.cam.kind === "thermal" ? "#fb923c" : "var(--color-accent)"}
+            fillOpacity={sel ? 0.2 : 0.055}
+            stroke={sel ? (pc.cam.kind === "thermal" ? "#fb923c" : "var(--color-accent)") : "none"}
+            strokeOpacity={0.7}
+            strokeDasharray="5 4"
+            strokeWidth={1.2}
+            pointerEvents="none"
+          />,
+        );
+        // lens offset toward the aim point in screen space
+        const aimS = project([ax, ay, 0]);
+        const ux = aimS[0] - head[0];
+        const uy = aimS[1] - head[1];
+        const ul = Math.hypot(ux, uy) || 1;
+        const lx = head[0] + (ux / ul) * 7;
+        const ly = head[1] + (uy / ul) * 4;
+        camHeads.push(
+          <g key={`c-${pc.cam.id}`} style={{ cursor: pick ? "pointer" : undefined }} onClick={pick} {...camA11y(pc.cam.id)}>
+            <title>{`${pc.cam.id} · ${pc.cam.name}`}</title>
+            <line x1={base[0]} y1={base[1]} x2={head[0]} y2={head[1] + 3} stroke="var(--iso-trim-left)" strokeWidth={2} />
+            <ellipse cx={base[0]} cy={base[1]} rx={4} ry={2} fill="var(--iso-trim-left)" />
+            <circle cx={head[0]} cy={head[1]} r={12} fill="transparent" />
+            {sel && <circle cx={head[0]} cy={head[1]} r={11} fill="none" stroke="var(--color-accent)" strokeWidth={2} />}
+            <rect x={head[0] - 7} y={head[1] - 5} width={14} height={10} rx={3} fill="var(--iso-label-bg)" stroke="var(--iso-label-border)" strokeWidth={1} />
+            <circle cx={lx} cy={ly} r={3.2} fill={lens} stroke="var(--iso-label-bg)" strokeWidth={1} />
+            <circle cx={head[0] - 4} cy={head[1] - 2.4} r={1.4} fill="#ef4444" className="iso-blink" />
+            {pc.cam.alert && <circle cx={head[0]} cy={head[1]} r={9} fill="none" stroke="#ef4444" strokeWidth={1.5} className="iso-ping" />}
+          </g>,
+        );
+      } else {
+        // Inspection camera sitting on its station: lens pointing down with a scan cone.
+        const top = project([mx, my, pc.z - 0.9]);
+        camHeads.push(
+          <g key={`c-${pc.cam.id}`} style={{ cursor: pick ? "pointer" : undefined }} onClick={pick} {...camA11y(pc.cam.id)}>
+            <title>{`${pc.cam.id} · ${pc.cam.name}`}</title>
+            <polygon points={pts([[head[0] - 3, head[1] + 4], [head[0] + 3, head[1] + 4], [top[0] + 9, top[1]], [top[0] - 9, top[1]]])} fill={lens} opacity={sel ? 0.35 : 0.16} />
+            <circle cx={head[0]} cy={head[1]} r={12} fill="transparent" />
+            {sel && <circle cx={head[0]} cy={head[1]} r={11} fill="none" stroke="var(--color-accent)" strokeWidth={2} />}
+            <rect x={head[0] - 8} y={head[1] - 6} width={16} height={11} rx={3} fill="var(--iso-label-bg)" stroke={pc.cam.alert ? "#ef4444" : "var(--iso-label-border)"} strokeWidth={1.2} />
+            <circle cx={head[0]} cy={head[1] + 0.5} r={3.2} fill={lens} />
+            {pc.cam.alert && <circle cx={head[0]} cy={head[1]} r={9} fill="none" stroke="#ef4444" strokeWidth={1.5} className="iso-ping" />}
+          </g>,
+        );
+      }
+      if (sel && labels !== "none") {
+        const [lx2, ly2] = [mx, my];
+        camHeads.push(<Label key={`l-${pc.cam.id}`} x={lx2} y={ly2} z={pc.z + 0.55} title={pc.cam.id} sub={pc.cam.name} color={lens} emphasis />);
+      }
+    }
+  }
+
   return (
     <svg viewBox={`${minX} ${minY} ${vbW} ${vbH}`} className={className} role="img" aria-label={title} style={{ overflow: "visible" }}>
       <defs>
@@ -512,6 +622,7 @@ export const IsoScene = memo(function IsoScene({
             );
           })}
         </g>
+        {camWedges}
         {beltsOn &&
           layout.belts.map((bt) => {
             const [ax, ay] = rot(r, ...bt.from);
@@ -534,6 +645,7 @@ export const IsoScene = memo(function IsoScene({
             );
           })}
         {solids.map((s) => s.node)}
+        {camHeads}
         {sortedLabels}
       </g>
     </svg>

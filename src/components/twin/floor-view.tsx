@@ -1,6 +1,8 @@
 "use client";
 
-import type { Asset, FactoryState } from "@/domain/types";
+import { useMemo } from "react";
+import { cameraView } from "@/domain/quality";
+import type { Asset, Camera, FactoryState } from "@/domain/types";
 import type { Highlight } from "@/client/store";
 import { STATUS_META } from "../ui/status";
 
@@ -11,7 +13,6 @@ export function FloorView({ state, highlight, selectedId, onSelect }: { state: F
   const assembly = state.lines.filter((l) => l.kind === "assembly");
   const packaging = state.lines.filter((l) => l.kind === "packaging");
   const bayH = 120;
-  const width = 1100;
   const height = 80 + assembly.length * (bayH + 30) + 40;
   const tileW = 150;
   const tileH = 64;
@@ -42,7 +43,33 @@ export function FloorView({ state, highlight, selectedId, onSelect }: { state: F
 
   const asmX0 = 170;
   const gap = 40;
-  const pkgX = asmX0 + 4 * (tileW + gap) + 30;
+  const maxRow = Math.max(4, ...assembly.map((l) => l.assetIds.length));
+  const pkgX = asmX0 + maxRow * (tileW + gap) + 30;
+  const dockW = 170;
+  const width = pkgX + tileW + 40 + dockW + 30;
+
+  // Tile positions (same formulas as the bays below) for placing camera markers.
+  const tilePos: Record<string, { x: number; y: number }> = {};
+  assembly.forEach((l, li) => l.assetIds.forEach((id, i) => (tilePos[id] = { x: asmX0 + i * (tileW + gap), y: 40 + li * (bayH + 30) + 38 })));
+  packaging.forEach((l) => l.assetIds.forEach((id, i) => (tilePos[id] = { x: pkgX, y: 80 + i * ((height - 80 - 60) / Math.max(1, l.assetIds.length)) })));
+  const alerts = useMemo(() => Object.fromEntries(state.cameras.map((c) => [c.id, cameraView(state, c).detections.some((d) => d.tone === "bad")])), [state]);
+  const camPos = (c: Camera): { x: number; y: number } | null => {
+    const line = state.lines.find((l) => l.id === c.lineId);
+    if (c.kind === "inspection") {
+      const p = c.assetId ? tilePos[c.assetId] : null;
+      if (!p) return null;
+      return line?.kind === "packaging" ? { x: p.x + tileW + 2, y: p.y + 6 } : { x: p.x + tileW - 26, y: p.y - 20 };
+    }
+    if (c.kind === "thermal") {
+      const ps = c.covers.map((id) => tilePos[id]).filter(Boolean);
+      if (!ps.length) return null;
+      return { x: (Math.min(...ps.map((p) => p.x)) + Math.max(...ps.map((p) => p.x)) + tileW) / 2 - 12, y: ps[0].y + tileH + 2 };
+    }
+    if (c.kind === "dock") return { x: width - 64, y: 48 };
+    if (!line) return { x: 73, y: height - 64 };
+    if (line.kind === "packaging") return { x: pkgX + tileW - 14, y: 50 };
+    return { x: pkgX - 52, y: 40 + assembly.indexOf(line) * (bayH + 30) + 8 };
+  };
 
   return (
     <div className="h-full w-full overflow-auto">
@@ -143,6 +170,33 @@ export function FloorView({ state, highlight, selectedId, onSelect }: { state: F
             {o.id} {Math.round((o.fulfilled / o.quantity) * 100)}%
           </text>
         ))}
+        {/* Cameras */}
+        {state.cameras.map((c) => {
+          const p = camPos(c);
+          if (!p) return null;
+          const sel = selectedId === `cam:${c.id}`;
+          const alert = alerts[c.id];
+          const lens = c.kind === "thermal" ? "#fb923c" : alert ? "#ef4444" : "var(--color-accent)";
+          return (
+            <g
+              key={c.id}
+              transform={`translate(${p.x},${p.y})`}
+              onClick={(e) => (e.stopPropagation(), onSelect(`cam:${c.id}`))}
+              style={{ cursor: "pointer" }}
+              role="button"
+              tabIndex={0}
+              className="outline-none"
+              aria-label={`Camera ${c.id}`}
+              onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && (e.preventDefault(), onSelect(`cam:${c.id}`))}
+            >
+              <title>{`${c.id} · ${c.name}`}</title>
+              <rect x={-4} y={-4} width={32} height={24} fill="transparent" />
+              <rect width={24} height={16} rx={4} fill="var(--color-shell)" stroke={sel ? "var(--color-accent)" : alert ? "#ef4444" : "var(--color-line-strong)"} strokeWidth={sel ? 2 : 1.2} />
+              <circle cx={14} cy={8} r={4} fill={lens} />
+              <circle cx={6} cy={5} r={1.6} fill="#ef4444" className="iso-blink" />
+            </g>
+          );
+        })}
       </svg>
     </div>
   );

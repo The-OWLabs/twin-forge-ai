@@ -107,6 +107,8 @@ export interface Product {
   sku: string;
   unitMaterialCost: number;
   unitPrice: number;
+  /** Defect opportunities per unit (placements + joints + features inspected) — DPMO denominator. */
+  inspectionOpportunities: number;
 }
 
 export interface InboundShipment {
@@ -169,6 +171,8 @@ export interface LineHourRecord {
   targetUnits: number;
   energyKwh: number;
   idleEnergyKwh: number;
+  /** Scrap attributed to its cause: "process" (baseline) or the contributing machine id. */
+  scrapByCause: Record<string, number>;
 }
 
 export interface MaintenanceRecord {
@@ -275,7 +279,7 @@ export interface AuditEntry {
 
 /* ───────────────────────────── Agents ───────────────────────────── */
 
-export type AgentId = "maintenance" | "production" | "supply" | "energy" | "orchestrator";
+export type AgentId = "maintenance" | "production" | "supply" | "energy" | "quality" | "orchestrator";
 export type WorkflowStage = "observe" | "investigate" | "predict" | "simulate" | "recommend" | "approval";
 
 export interface Evidence {
@@ -605,6 +609,51 @@ export interface SimClock {
   lastHistoryHour: number;
 }
 
+/* ─────────────────────────── Cameras & vision ─────────────────────────── */
+
+export type CameraKind = "inspection" | "area" | "thermal" | "dock";
+export type VisionAnalytic = "defects" | "ocr-barcode" | "counting" | "line-state" | "zone" | "thermal" | "occupancy";
+
+export interface Camera {
+  id: string;
+  name: string;
+  kind: CameraKind;
+  purpose: string;
+  standard: string | null; // governing standard for the inspection / measurement
+  zone: string;
+  lineId: string | null;
+  assetId: string | null; // inspection cameras are also line assets
+  covers: string[]; // asset ids in the field of view
+  analytics: VisionAnalytic[];
+  resolution: string;
+  fps: number;
+  onvifProfile: "S" | "T";
+  stream: { kind: "simulated" | "hls" | "mp4" | "mjpeg"; url: string | null };
+  privacy: { faceBlur: boolean; retentionDays: number };
+}
+
+export interface VisionFinding {
+  timestampSec: number | null;
+  category: string;
+  description: string;
+  severity: "info" | "minor" | "major" | "critical";
+  confidence: number; // 0-1, model-reported
+}
+
+export interface VisionReview {
+  id: string;
+  cameraId: string | null;
+  at: string;
+  hour: number;
+  source: "gemini" | "simulated-inspection-log";
+  model?: string;
+  fileName: string | null;
+  summary: string;
+  findings: VisionFinding[];
+  disposition: "pending-human-review" | "confirmed" | "dismissed";
+  note: string;
+}
+
 export interface FactoryState {
   schemaVersion: number;
   seed: number;
@@ -628,6 +677,8 @@ export interface FactoryState {
   analyses: AnalysisRun[];
   scenarioRuns: ScenarioRun[];
   recommendations: Recommendation[];
+  cameras: Camera[];
+  visionReviews: VisionReview[];
   audit: AuditEntry[];
   costModel: CostModel;
   counters: Record<string, number>;

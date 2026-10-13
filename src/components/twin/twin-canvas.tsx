@@ -36,7 +36,7 @@ export interface TwinCanvasProps {
 }
 
 const NO_RISK: Record<string, boolean> = {};
-const PREVIEW_LAYERS = { sensors: false, inventory: true, orders: true };
+const PREVIEW_LAYERS = { sensors: false, inventory: true, orders: true, cameras: false };
 const NO_POSITIONS: Record<string, { x: number; y: number }> = {};
 
 function Canvas({ state, highlight, interactive = true, connectMode = false, focusAssetId, orderRisk = NO_RISK, onSelectNode, selectedId, minimap = true }: TwinCanvasProps) {
@@ -74,7 +74,7 @@ function Canvas({ state, highlight, interactive = true, connectMode = false, foc
     });
   }, [built, selectedId, setNodes]);
 
-  const layoutKey = `${layers.sensors}-${layers.inventory}-${layers.orders}-${state.assets.length}-${Object.keys(positions).length === 0}`;
+  const layoutKey = `${layers.sensors}-${layers.inventory}-${layers.orders}-${layers.cameras}-${state.assets.length}-${Object.keys(positions).length === 0}`;
   const lastLayout = useRef<string>("");
   useEffect(() => {
     if (lastLayout.current === layoutKey) return;

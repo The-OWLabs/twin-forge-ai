@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useMemo, useRef, useState } from "react";
-import { Maximize, Minus, Plus, Radio, RotateCcw, RotateCw, Tag } from "lucide-react";
+import { Cctv, Maximize, Minus, Plus, Radio, RotateCcw, RotateCw, Tag } from "lucide-react";
 import type { FactoryState } from "@/domain/types";
 import type { Highlight } from "@/client/store";
 import { cn } from "@/lib/cn";
@@ -23,8 +23,9 @@ export function IsoViewport({
   onSelect: (id: string | null) => void;
   orderRisk: Record<string, boolean>;
 }) {
-  const model = useMemo(() => isoModelFromState(state, orderRisk), [state, orderRisk]);
+  const model = useMemo(() => isoModelFromState(state, orderRisk, { cameras: true }), [state, orderRisk]);
   const [rotation, setRotation] = useState(0);
+  const [cameras, setCameras] = useState(true);
   const [labels, setLabels] = useState<"smart" | "all">("smart");
   const [sensors, setSensors] = useState(false);
   const [view, setView] = useState({ s: 1, x: 0, y: 0 });
@@ -96,6 +97,7 @@ export function IsoViewport({
             onSelect={(id) => onSelect(id)}
             labels={labels}
             sensors={sensors}
+            showCameras={cameras}
             className="h-full w-full"
           />
         </div>
@@ -132,8 +134,15 @@ export function IsoViewport({
         >
           <Radio className="h-3 w-3" /> Sensors
         </button>
+        <button
+          onClick={() => setCameras(!cameras)}
+          aria-pressed={cameras}
+          className={cn("flex h-7 items-center gap-1.5 rounded-lg border px-2.5 text-[11.5px]", cameras ? "border-accent/50 bg-accent/12 text-accent-ink" : "border-line bg-surface text-muted hover:text-ink")}
+        >
+          <Cctv className="h-3 w-3" /> Cameras
+        </button>
       </div>
-      <p className="pointer-events-none absolute right-3 bottom-3 text-[10.5px] text-muted">Scroll to zoom · drag to pan · click a machine, rack or truck</p>
+      <p className="pointer-events-none absolute right-3 bottom-3 hidden text-[10.5px] text-muted sm:block">Scroll to zoom · drag to pan · click a machine, camera, rack or truck</p>
     </div>
   );
 }

@@ -2,7 +2,7 @@
 
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { Box, Boxes, Cable, ChevronDown, Eye, LayoutGrid, Map as MapIcon, Network, Plus, Radio, RotateCcw, ShieldAlert, Truck, X, FlaskConical } from "lucide-react";
+import { Box, Boxes, Cable, Cctv, ChevronDown, Eye, LayoutGrid, Map as MapIcon, Network, Plus, Radio, RotateCcw, ShieldAlert, Truck, X, FlaskConical } from "lucide-react";
 import Link from "next/link";
 import { useForecast } from "@/client/hooks";
 import { useFactory, useUi } from "@/client/store";
@@ -11,6 +11,7 @@ import { KeyValue, PageHeader } from "@/components/page";
 import { FloorView } from "@/components/twin/floor-view";
 import { IsoViewport } from "@/components/iso/iso-viewport";
 import { TwinCanvas } from "@/components/twin/twin-canvas";
+import { CameraPanel } from "@/components/vision/camera-panel";
 import { Badge, Button, Dialog, Input, Label, Select, Tip } from "@/components/ui/primitives";
 import { STATUS_META } from "@/components/ui/status";
 import { ASSET_KIND_LABEL } from "@/domain/seed";
@@ -58,7 +59,8 @@ function TwinStudio() {
   }, [forecast]);
 
   const selectedAsset = state.assets.find((a) => a.id === selectedId) ?? null;
-  const selectedOther = selectedId && !selectedAsset ? selectedId : null;
+  const selectedCamera = selectedId?.startsWith("cam:") ? (state.cameras.find((c) => `cam:${c.id}` === selectedId) ?? null) : null;
+  const selectedOther = selectedId && !selectedAsset && !selectedCamera && (selectedId.startsWith("inv:") || selectedId.startsWith("ord:")) ? selectedId : null;
   const counts = state.assets.reduce<Record<string, number>>((m, a) => ((m[a.status] = (m[a.status] ?? 0) + 1), m), {});
 
   return (
@@ -98,6 +100,7 @@ function TwinStudio() {
             <LayerToggle on={layers.sensors} onClick={() => toggleLayer("sensors")} icon={<Radio className="h-3.5 w-3.5" />} label="Sensors" />
             <LayerToggle on={layers.inventory} onClick={() => toggleLayer("inventory")} icon={<Boxes className="h-3.5 w-3.5" />} label="Inventory" />
             <LayerToggle on={layers.orders} onClick={() => toggleLayer("orders")} icon={<Truck className="h-3.5 w-3.5" />} label="Orders" />
+            <LayerToggle on={layers.cameras} onClick={() => toggleLayer("cameras")} icon={<Cctv className="h-3.5 w-3.5" />} label="Cameras" />
             <Button size="xs" variant="ghost" onClick={resetLayout}>
               <RotateCcw className="h-3 w-3" /> Reset layout
             </Button>
@@ -156,10 +159,12 @@ function TwinStudio() {
             Connect mode: drag from a node&apos;s right edge to another node
           </div>
         )}
-        {selectedAsset || selectedOther ? (
+        {selectedAsset || selectedOther || selectedCamera ? (
           <aside className="absolute inset-y-2 right-2 z-10 w-[min(400px,calc(100%-16px))] overflow-hidden rounded-xl border border-line-strong bg-surface/97 shadow-2xl backdrop-blur animate-fade-in">
             {selectedAsset ? (
               <AssetPanel state={state} asset={selectedAsset} onClose={() => selectAsset(null)} />
+            ) : selectedCamera ? (
+              <CameraPanel key={selectedCamera.id} state={state} camera={selectedCamera} onClose={() => selectAsset(null)} />
             ) : (
               <OtherNodePanel state={state} id={selectedOther!} onClose={() => selectAsset(null)} />
             )}

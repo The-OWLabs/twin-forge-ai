@@ -6,6 +6,7 @@ import { runMaintenanceAgent } from "@/domain/agents/maintenance";
 import { runScenarioSet } from "@/domain/agents/orchestrator";
 import { runProductionAgent } from "@/domain/agents/production";
 import { runSupplyAgent } from "@/domain/agents/supply";
+import { runQualityAgent } from "@/domain/agents/quality";
 import { detectAnomalies } from "@/domain/anomaly";
 import { fastForward, injectFault } from "@/domain/commands";
 import { buildRecommendation } from "@/domain/recommendations";
@@ -49,7 +50,7 @@ function compute(): StoryData {
   const { anomalies, diagnostics } = detectAnomalies(crisis);
   const focus = crisis.assets.find((a) => a.id === "A-ROB-03")!;
   const ctx = { state: crisis, focus, anomalies, diagnostics };
-  const reports = [runMaintenanceAgent(ctx), runProductionAgent(ctx), runSupplyAgent(ctx), runEnergyAgent(ctx)];
+  const reports = [runMaintenanceAgent(ctx), runQualityAgent(ctx), runProductionAgent(ctx), runSupplyAgent(ctx), runEnergyAgent(ctx)];
   const run = runScenarioSet(crisis, focus.id, "agent", NOW);
   const best = run.results.find((r) => r.definition.id === run.recommendedId)!;
   const cont = run.results.find((r) => r.definition.id === "continue")!;

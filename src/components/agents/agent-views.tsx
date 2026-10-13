@@ -1,6 +1,6 @@
 "use client";
 
-import { BrainCircuit, CheckCircle2, CircleDashed, Cpu, Eye, FlaskConical, Hourglass, Leaf, Loader2, Microscope, Search, Sparkles, Telescope, Truck, UserCheck, Wrench, Factory } from "lucide-react";
+import { ScanEye, BrainCircuit, CheckCircle2, CircleDashed, Cpu, Eye, FlaskConical, Hourglass, Leaf, Loader2, Microscope, Search, Sparkles, Telescope, Truck, UserCheck, Wrench, Factory } from "lucide-react";
 import { AGENT_META } from "@/domain/agents/context";
 import type { AgentId, AgentReport, FactoryState, Narrative, StageState, WorkflowStage } from "@/domain/types";
 import { cn } from "@/lib/cn";
@@ -13,6 +13,7 @@ export const AGENT_ICON: Record<AgentId, typeof Wrench> = {
   production: Factory,
   supply: Truck,
   energy: Leaf,
+  quality: ScanEye,
   orchestrator: BrainCircuit,
 };
 

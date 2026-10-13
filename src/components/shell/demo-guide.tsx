@@ -23,7 +23,7 @@ const STEPS: GuideStep[] = [
   },
   {
     title: "Agents investigate",
-    body: "Five agents observe telemetry, investigate, predict, simulate and recommend. Every finding shows its evidence and method. Watch the stages complete.",
+    body: "Six agents observe telemetry, investigate, predict, simulate and recommend. Every finding shows its evidence and method. Watch the stages complete.",
     path: "/agents",
     cta: "Compare operating plans",
   },

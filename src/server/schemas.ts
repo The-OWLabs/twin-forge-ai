@@ -84,3 +84,16 @@ export const ScenarioRunSchema = z.object({
 export const CreateRecommendationSchema = z.object({ scenarioRunId: z.string().min(1), scenarioId: z.string().min(1) });
 export const DecisionSchema = z.object({ by: z.string().trim().min(1).max(60).default("Operator"), note: z.string().trim().max(300).default("") });
 export const IntegrationTestSchema = z.object({ id: z.string().min(1) });
+
+export const CameraStreamSchema = z.object({
+  kind: z.enum(["simulated", "hls", "mp4", "mjpeg"]),
+  url: z.string().trim().max(500).nullable().default(null),
+  by: z.string().trim().min(1).max(60).default("Operator"),
+});
+export const CameraViewSchema = z.object({ by: z.string().trim().min(1).max(60).default("Operator") });
+export const ReviewLogSchema = z.object({ cameraId: z.string().min(1) });
+export const DispositionSchema = z.object({
+  disposition: z.enum(["confirmed", "dismissed"]),
+  note: z.string().trim().max(300).default(""),
+  by: z.string().trim().min(1).max(60).default("Operator"),
+});

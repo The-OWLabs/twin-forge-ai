@@ -20,6 +20,7 @@ import { runMaintenanceAgent } from "./maintenance";
 import { buildOrchestratorReport, detectConflicts, runScenarioSet } from "./orchestrator";
 import { runProductionAgent } from "./production";
 import { runSupplyAgent } from "./supply";
+import { runQualityAgent } from "./quality";
 
 export const STAGES: WorkflowStage[] = ["observe", "investigate", "predict", "simulate", "recommend", "approval"];
 
@@ -101,6 +102,7 @@ export async function* runAnalysisPipeline(snapshot: FactoryState, deps: Pipelin
   const reports: AgentReport[] = [];
   const specialists: [AgentId, (c: AnalysisContext) => AgentReport][] = [
     ["maintenance", runMaintenanceAgent],
+    ["quality", runQualityAgent],
     ["production", runProductionAgent],
     ["supply", runSupplyAgent],
     ["energy", runEnergyAgent],
@@ -121,7 +123,7 @@ export async function* runAnalysisPipeline(snapshot: FactoryState, deps: Pipelin
     });
     yield { type: "agent", agentId: id, status: "complete", report };
   }
-  yield setStage("investigate", "complete", `${reports.reduce((s, r) => s + r.findings.length, 0)} findings from 4 specialist agents`);
+  yield setStage("investigate", "complete", `${reports.reduce((s, r) => s + r.findings.length, 0)} findings from ${reports.length} specialist agents`);
 
   // PREDICT — no-intervention projection on the shared plant model
   yield setStage("predict", "running");

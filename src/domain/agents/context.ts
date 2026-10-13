@@ -27,6 +27,11 @@ export const AGENT_META: Record<AgentId, { name: string; role: string; short: st
     short: "Supply chain",
     role: "Identifies component shortages and order-fulfilment risk across BOMs, stock and inbound POs.",
   },
+  quality: {
+    name: "Quality Inspection Agent",
+    short: "Visual quality",
+    role: "Reads the AOI and pack-out inspection cameras: yield, DPMO and defect classes against IPC-A-610, and correlates rejects with machine condition.",
+  },
   energy: {
     name: "Energy & Sustainability Agent",
     short: "Energy",

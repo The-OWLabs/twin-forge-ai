@@ -3,7 +3,7 @@
 > **Your factory. Reimagined before reality.**
 > Create your factory's digital twin. Let AI understand its operations, predict what could go wrong, simulate better decisions, and help you act before losses happen.
 
-TwinForge AI is a working MVP of an industrial digital-twin platform. It digitizes a factory as a live topology, ingests (simulated) telemetry, runs five specialized AI agents that investigate incidents, compares alternative operating plans on a deterministic plant model, and applies the chosen plan to the twin only after human approval, with a full audit trail.
+TwinForge AI is a working MVP of an industrial digital-twin platform. It digitizes a factory as a live topology, ingests (simulated) telemetry, watches the line through inspection, thermal and CCTV cameras placed in the twin, runs six specialized AI agents that investigate incidents, compares alternative operating plans on a deterministic plant model, and applies the chosen plan to the twin only after human approval, with a full audit trail.
 
 It ships with one complete scenario: an electronics plant with three lines where an assembly robot develops bearing damage just as a critical customer order is due and a key component is in short supply.
 
@@ -17,12 +17,13 @@ It ships with one complete scenario: an electronics plant with three lines where
 4. [Architecture](#architecture)
 5. [How the numbers are produced](#how-the-numbers-are-produced)
 6. [AI agents](#ai-agents)
-7. [API reference](#api-reference)
-8. [Google Cloud integrations](#google-cloud-integrations)
-9. [Deploy (Firebase App Hosting or Cloud Run)](#deploy-to-firebase-app-hosting)
-10. [Testing](#testing)
-11. [Project structure](#project-structure)
-12. [Known limitations](#known-limitations)
+7. [Visual quality and cameras](#visual-quality-and-cameras)
+8. [API reference](#api-reference)
+9. [Google Cloud integrations](#google-cloud-integrations)
+10. [Deploy (Firebase App Hosting or Cloud Run)](#deploy-to-firebase-app-hosting)
+11. [Testing](#testing)
+12. [Project structure](#project-structure)
+13. [Known limitations](#known-limitations)
 
 ---
 
@@ -65,11 +66,12 @@ Tip — to run a dev server next to a running production build without them over
 The fastest path is **Demo controls → Run Factory Crisis Demo** (top-right). It resets the factory, injects joint-4 bearing damage on robot **A-ROB-03**, and opens a guided panel that walks through each step:
 
 1. **Command Center**: a critical incident banner appears. OEE, output, health, energy, scrap, incidents, inventory shortages and delivery risk all come from the same state. Delivery risk shows **ORD-1042 ≈700 units short** if nothing is done (a model estimate).
-2. **AI Operations**: five agents run a real workflow: OBSERVE → INVESTIGATE → PREDICT → SIMULATE → RECOMMEND → HUMAN APPROVAL. Each stage streams its actual results: anomalies found, per-agent findings with an evidence table, the method, inputs and confidence, the no-intervention forecast (trip at ≈h+16), and the ranked plans.
+2. **AI Operations**: six agents run a real workflow: OBSERVE → INVESTIGATE → PREDICT → SIMULATE → RECOMMEND → HUMAN APPROVAL. Each stage streams its actual results: anomalies found, per-agent findings with an evidence table, the method, inputs and confidence, the no-intervention forecast (trip at ≈h+16), and the ranked plans.
 3. **What-If Simulator**: compares the reference plan with *Continue*, *Stop for preventive maintenance*, and *Reroute to Line B + maintain*. Move any lever (maintenance start or duration, robot speed, Line B allocation, MCU-7 usable stock, expediting, order quantity or priority, repair duration, energy price, idle draw) and every scenario recalculates instantly. Try dropping **MCU-7 usable stock** to 85% to watch the reroute plan go late, then toggle **Expedite PO-7781**.
 4. **Digital Twin Studio**: the selected plan's production path is highlighted. A3 shows a maintenance window, Line B is marked as rerouted, packaging is downstream, and the critical order is on the path. Switch between **Topology**, **Isometric** and **Floor plan** views. Click any machine, rack or truck for live telemetry, diagnostics, history, dependencies, documents and fault-injection controls.
-5. **Approvals**: review actions, evidence, benefits, risks, the impact table and rollback information. Approve it, then **Fast-forward 8 h**: Line B changes over, A-ROB-03 goes into maintenance, returns healthy, and the incident resolves itself.
-6. **Audit Trail**: every alert, agent finding, scenario run, decision, simulated action and resulting state change is listed with links.
+5. **Cameras and Visual Quality**: in the Isometric view, click the thermal camera **THM-A1** above robot A3. A card shows what the camera sees (A-ROB-03 running hot); **Watch live stream** opens the live view, and the access is written to the audit trail. **Visual Quality** shows Line A's AOI reject rate rising from ≈1.7% to ≈3.3%, tracking A-ROB-03 vibration (r ≈ 0.89). **Review last 60 units** lists each reject with its IPC-A-610 criterion and waits for you to confirm or dismiss it.
+6. **Approvals**: review actions, evidence, benefits, risks, the impact table and rollback information. Approve it, then **Fast-forward 8 h**: Line B changes over, A-ROB-03 goes into maintenance, returns healthy, and the incident resolves itself.
+7. **Audit Trail**: every alert, agent finding, scenario run, decision, simulated action and resulting state change is listed with links.
 
 **Reset Demo** (Demo controls) restores the exact initial state at any time.
 
@@ -87,7 +89,11 @@ The fastest path is **Demo controls → Run Factory Crisis Demo** (top-right). I
 | Asset management: search, filters, sort, detail sheet linked to the twin | ✅ |
 | Live simulated telemetry (deterministic noise) with pause/resume and fast-forward | ✅ |
 | Anomaly detection: OLS trend, change-point test, z-score, threshold proximity, excess-power check | ✅ |
-| Five agents and a streamed orchestration workflow | ✅ |
+| Six agents (including Quality Inspection) and a streamed orchestration workflow | ✅ |
+| Cameras in the twin: area CCTV, AOI / final-inspection, radiometric thermal, dock and stores cameras in all three views (iso cameras show their field of view). Click one for a card with its current view and analytics, then open the live view (every opening is audited) | ✅ simulated feeds |
+| Live view plays a real HLS / MP4 / MJPEG stream when a camera is pointed at a gateway URL (https only) | ✅ implemented; needs a gateway |
+| Visual Quality: FPY, DPMO, rolled throughput yield, defect Pareto, hourly reject trend, vibration ↔ reject correlation, camera wall, standards and privacy panel | ✅ |
+| Visual reviews: deterministic station-log review, Gemini review of uploaded clips or photos, human confirm / dismiss | ✅ Gemini part needs credentials |
 | What-if engine: baseline plus three alternatives plus a custom plan, 10+ adjustable parameters, comparison table, charts, timeline, assumptions | ✅ |
 | Human approval: approve, reject, rollback, execution status, directive tracking | ✅ |
 | Sustainability: energy per unit, by-line energy, idle waste, scrap, avoidable-waste estimates, scenario energy and waste | ✅ |
@@ -162,11 +168,36 @@ The same inputs always produce the same outputs, and tests verify this. Every sc
 | Production Optimization | Hourly production, capabilities, allocations, orders | OEE, bottleneck, schedule slack, alternate-line slack | Reroute feasibility and proposal |
 | Supply Chain | Inventory, BOMs, inbound POs, scrap projection | BOM explosion, coverage hours, exhaustion vs. ETA, scrap sensitivity | Binding component, shortage risk, expedite options |
 | Energy & Sustainability | Energy records, power signals | Intensity, idle share, excess draw, idle exposure of a trip | Standby and lock-out proposals (assumptions stated) |
+| Quality Inspection | AOI and pack-out results (24 h), defect classes, hourly vibration | FPY, DPMO and Pareto per station; recent vs. earlier reject rate; OLS trend; Pearson correlation of each machine's vibration with its line's reject rate | Containment proposal (hold and re-inspect), root-cause corroboration, MSA validation before any threshold change |
 | Operations Orchestrator | All reports plus simulated scenarios | Scenario generation, scoring, policy, explicit conflict resolution | Ranked plans, one recommendation for approval, narrative |
 
 The workflow (`src/domain/agents/pipeline.ts`) runs on a frozen snapshot, so live telemetry can't change results mid-run. It streams each stage's real output to the UI as NDJSON. Small pauses between stages exist only so people can follow along; the computations themselves are real.
 
 **Gemini's role.** When configured, Gemini writes the orchestrator briefing from structured facts. Its output must pass a JSON schema (zod) and a **numeric grounding check**: any figure of 10 or more that does not appear in the simulation outputs causes the narrative to be rejected and replaced by the deterministic version, with the reason shown.
+
+---
+
+## Visual quality and cameras
+
+**Where the cameras are.** Every generated factory gets an area CCTV per line, an inspection camera on each AOI / final-inspection station, a radiometric thermal camera on the first robot cell, and cameras on the shipping dock and component stores (9 in the demo). They appear in the Topology (camera chips), Isometric (pole-mounted cameras with field-of-view wedges) and Floor plan views, and in the asset panel of every machine they cover.
+
+**Card first, then live.** Clicking a camera opens a card with its current view and what its analytics report: units counted, lock-out zones, reject rate, hottest target, trailer loading or rack fill. **Watch live stream** opens the full view and logs who opened it. With no real camera connected, the feed is rendered from the live twin state and labelled *Simulated feed*. To show real video, set **Stream source** to an HLS, MP4 or MJPEG URL. Browsers can't play RTSP, so run a gateway on the plant network (for example MediaMTX) that pulls the camera's ONVIF / RTSP stream and republishes it as HLS over HTTPS.
+
+**How inspection results are produced.** The plant model attributes every scrapped unit to a cause: the baseline process or a specific degraded machine. Each cause maps to the defect classes an inspection station would report, for example a worn placement robot produces misalignment, missing parts and tombstoning. Station metrics (FPY, DPMO, RTY, Pareto) and the per-unit pass/fail frames come from that attribution, so camera evidence always agrees with the twin. They are demo values, not a trained vision model.
+
+**Standards used**
+
+| Standard | Used for |
+|---|---|
+| IPC-A-610J, Class 2 (with IPC J-STD-001) | Acceptance criteria behind the assembly AOI defect classes |
+| ISO/IEC 15416 / 15415 | Barcode print-quality grade at pack-out (below C fails) |
+| ISO 18434-1 | Condition-monitoring thermography (THM-A1) |
+| ONVIF Profile S / T | Camera streaming and metadata interoperability |
+| AIAG MSA (attribute agreement) | Validate the inspection system before trusting or tuning reject limits |
+
+**Gemini video review.** Upload a clip or photo (MP4, WebM, MOV, JPEG, PNG or WebP, up to 15 MB). Gemini returns findings restricted to a fixed category list, with a JSON schema, temperature 0 and zod validation. Results are advisory: every review lands as *awaiting human review*, and nothing is accepted or rejected automatically. Without credentials the upload is disabled and the API returns 503; the deterministic station-log review still works.
+
+**Safety and privacy.** Video analytics are not safety functions (IEC 61496 / ISO 13849) and never replace guarding or interlocks. Area cameras blur faces, footage has a fixed retention period, analytics are limited to stated purposes, and every live view is audited. This reflects how India's DPDP Act, 2023 treats workplace video as personal data.
 
 ---
 
@@ -187,6 +218,9 @@ The workflow (`src/domain/agents/pipeline.ts`) runs on a frozen snapshot, so liv
 | `GET/POST /api/recommendations` · `POST /api/recommendations/:id/{approve,reject,rollback}` | Recommendations and decisions |
 | `GET /api/audit` · `GET /api/kpis` · `GET /api/integrations` · `POST /api/integrations/test` | Audit, KPIs, integration status and tests |
 | `GET /api/documents?assetId=` · `GET /api/documents/:id` | Asset documents |
+| `GET /api/cameras` · `PATCH /api/cameras/:id` · `POST /api/cameras/:id/view` | Cameras with their current views · set stream source (https gateway URL) · log a live view |
+| `GET /api/quality` | FPY, DPMO, RTY, Pareto and correlations (24 h) |
+| `POST /api/vision/review-log` · `POST /api/vision/analyze` · `PATCH /api/vision/reviews/:id` | Station-log review · Gemini review of an uploaded file (multipart `file`, optional `cameraId`) · confirm or dismiss |
 
 Inputs are validated with zod. Errors return `{ error, issues? }` with 400, 404 or 409 status codes.
 
@@ -210,7 +244,7 @@ Everything works **without credentials**. Each integration activates when its en
 
 | Service | What it does here | Required configuration |
 |---|---|---|
-| **Gemini on Vertex AI** | Orchestrator narratives (never metrics) | `GOOGLE_CLOUD_PROJECT`, ADC (`gcloud auth application-default login`), optional `GOOGLE_CLOUD_LOCATION` (default `global`), `GEMINI_MODEL` (default `gemini-3.5-flash`). Alternatively `GOOGLE_GENAI_USE_VERTEXAI=false` with `GEMINI_API_KEY`. |
+| **Gemini on Vertex AI** | Orchestrator narratives (never metrics); advisory review of uploaded inspection footage | `GOOGLE_CLOUD_PROJECT`, ADC (`gcloud auth application-default login`), optional `GOOGLE_CLOUD_LOCATION` (default `global`), `GEMINI_MODEL` (default `gemini-3.5-flash`). Alternatively `GOOGLE_GENAI_USE_VERTEXAI=false` with `GEMINI_API_KEY`. |
 | **BigQuery** | Mirrors scenario outcomes and decisions; schema for telemetry, production and health history | `BIGQUERY_DATASET`, then create tables with `infra/bigquery/schema.sql` |
 | **Pub/Sub** | Telemetry ingestion: `{assetId, vibration, temperature, powerKw}` messages override simulated measurements | `PUBSUB_TELEMETRY_SUBSCRIPTION`, `TELEMETRY_SOURCE=pubsub` |
 | **Cloud Storage** | Per-asset documents under `assets/<assetId>/` | `GCS_BUCKET` |
@@ -265,11 +299,11 @@ docker run -p 8080:8080 twinforge-ai     # http://localhost:8080
 ## Testing
 
 ```bash
-npm test               # 40 Vitest tests
-npm run build && npm run test:e2e   # 6 Playwright tests against the production server
+npm test               # 49 Vitest tests
+npm run build && npm run test:e2e   # 8 Playwright tests against the production server
 ```
 
-- **Unit and integration tests** (`tests/`, 40 tests), including a check that the landing story's figures are engine-derived:
+- **Unit and integration tests** (`tests/`, 49 tests), including a check that the landing story's figures are engine-derived:
   - seed reproducibility and entity counts
   - health and status rules, OLS and trend estimation, change-point detection
   - KPIs
@@ -280,7 +314,9 @@ npm run build && npm run test:e2e   # 6 Playwright tests against the production 
   - approval execution through to completion, rejection, double-approval guard and rollback
   - commands (add, edit and connect assets; forced trip)
   - the LLM grounding check and deterministic fallback
-- **End-to-end tests** (`e2e/demo.spec.ts`, 6 tests): isometric selection and rotation, theme persistence, every landing-story chapter appearing on scroll; every page renders with no console errors; the full guided crisis demo (incident → agents → scenario sensitivity → twin highlight → approval → fast-forward → audit); reset reproducibility; API validation.
+  - visual quality: scrap fully attributed to causes, FPY / Pareto consistency, the robot ↔ AOI correlation in the crisis, deterministic inspection frames, thermal readings matching the twin
+  - cameras: https-only stream URLs, audited live views, station-log reviews and the human disposition guard
+- **End-to-end tests** (`e2e/demo.spec.ts`, 8 tests): camera card → audited live view → Visual Quality review confirmed by a person; camera API validation and honest Gemini status; isometric selection and rotation, theme persistence, every landing-story chapter appearing on scroll; every page renders with no console errors; the full guided crisis demo (incident → agents → scenario sensitivity → twin highlight → approval → fast-forward → audit); reset reproducibility; API validation.
 
 ---
 
@@ -288,11 +324,11 @@ npm run build && npm run test:e2e   # 6 Playwright tests against the production 
 
 ```
 src/
-  app/                 routes: landing, onboarding, (platform)/{dashboard,twin,assets,agents,simulator,approvals,sustainability,audit,integrations}, api/*
+  app/                 routes: landing, onboarding, (platform)/{dashboard,twin,assets,quality,agents,simulator,approvals,sustainability,audit,integrations}, api/*
   components/          ui primitives, shell, theme toggle, dashboard, twin (graph, nodes, canvas, floor view), iso (isometric renderer),
-                       assets, agents, simulator, landing (scroll story)
+                       assets, agents, simulator, vision (camera feeds, camera card, live view, reviews), landing (scroll story)
   client/              API client, Zustand stores (factory, UI prefs, simulator workbench), hooks
-  domain/              plant model, telemetry, simulation, agents, recommendations, actions, KPIs, seed
+  domain/              plant model, telemetry, simulation, agents, quality, vision, recommendations, actions, KPIs, seed
   server/              persistence, AI provider, integrations, documents, request schemas
 content/docs/          demo maintenance manuals and procedures (fictional)
 infra/                 BigQuery schema, Cloud Run deploy script
@@ -304,6 +340,7 @@ tests/ e2e/            Vitest and Playwright suites
 ## Known limitations
 
 - **Simulated plant.** All telemetry, production and costs come from a deterministic model with fictional demo data. Results are estimates, not validated forecasts.
+- **No real cameras in the demo.** Camera feeds are rendered from the twin, and inspection results come from the plant model's scrap attribution, not a trained vision model. Real streams need a plant-side gateway (HLS / MP4 / MJPEG over HTTPS). Gemini footage review is advisory and unvalidated; run an attribute-agreement study before relying on it.
 - **No real equipment control.** Approval changes only the digital twin. The platform never writes to PLCs or commands machines; that would need a separately authenticated, authorized and safety-validated integration.
 - **Single tenant, per-instance state.** One factory per server, stored in a local JSON file. Cloud Run instances do not share state (hence max-instances 1), and state resets when an instance is recycled. A production version would use Firestore, Cloud SQL or BigQuery.
 - **No authentication or authorization.**

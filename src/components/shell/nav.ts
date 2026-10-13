@@ -9,6 +9,7 @@ import {
   PlugZap,
   Boxes,
   FlaskConical,
+  ScanEye,
 } from "lucide-react";
 
 export const NAV = [
@@ -18,6 +19,7 @@ export const NAV = [
       { href: "/dashboard", label: "Command Center", icon: Gauge },
       { href: "/twin", label: "Digital Twin Studio", icon: Network },
       { href: "/assets", label: "Assets", icon: Boxes },
+      { href: "/quality", label: "Visual Quality", icon: ScanEye },
     ],
   },
   {

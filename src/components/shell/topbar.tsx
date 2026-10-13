@@ -8,6 +8,7 @@ import { fmtSimTime } from "@/lib/format";
 import { cn } from "@/lib/cn";
 import { Badge, Button, Tip } from "../ui/primitives";
 import { ThemeToggle } from "../theme-toggle";
+import { AGENT_META } from "@/domain/agents/context";
 
 function usePopover() {
   const [open, setOpen] = useState(false);
@@ -117,7 +118,7 @@ function SystemStatus() {
         Simulated data
         <span className="h-1 w-1 rounded-full bg-muted" />
         <Cpu className="h-3.5 w-3.5 text-agent" />
-        5 agents ready
+        {Object.keys(AGENT_META).length} agents ready
       </button>
       {open && (
         <div className="absolute right-0 z-50 mt-2 w-96 rounded-xl border border-line-strong bg-shell p-3 shadow-2xl animate-fade-in">

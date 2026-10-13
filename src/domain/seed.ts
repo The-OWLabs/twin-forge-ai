@@ -13,6 +13,7 @@ import { advanceFactory } from "./telemetry";
 import type {
   Asset,
   AssetKind,
+  Camera,
   CustomerOrder,
   DataSourceKind,
   FactoryState,
@@ -25,7 +26,7 @@ import type {
   Thresholds,
 } from "./types";
 
-export const SCHEMA_VERSION = 3;
+export const SCHEMA_VERSION = 4;
 export const DEMO_SEED = 20261013;
 
 export interface FactoryBlueprint {
@@ -203,6 +204,7 @@ const PRODUCTS: (Product & { bom: { itemId: string; qty: number }[]; rate: numbe
     sku: "ECU-200-IND",
     unitMaterialCost: 42,
     unitPrice: 129,
+    inspectionOpportunities: 186,
     rate: 120,
     bom: [
       { itemId: "MCU-7", qty: 1 },
@@ -216,6 +218,7 @@ const PRODUCTS: (Product & { bom: { itemId: string; qty: number }[]; rate: numbe
     sku: "SH-40-MOD",
     unitMaterialCost: 27,
     unitPrice: 84,
+    inspectionOpportunities: 124,
     rate: 110,
     bom: [
       { itemId: "SNS-40", qty: 1 },
@@ -229,6 +232,7 @@ const PRODUCTS: (Product & { bom: { itemId: string; qty: number }[]; rate: numbe
     sku: "GW-10-LTE",
     unitMaterialCost: 35,
     unitPrice: 109,
+    inspectionOpportunities: 150,
     rate: 100,
     bom: [
       { itemId: "MCU-7", qty: 1 },
@@ -538,7 +542,7 @@ export function buildFactory(blueprint: FactoryBlueprint, anchorISO: string, see
     lines,
     assets,
     connections: [],
-    products: usedProducts.map(({ id, name, sku, unitMaterialCost, unitPrice }) => ({ id, name, sku, unitMaterialCost, unitPrice })),
+    products: usedProducts.map(({ id, name, sku, unitMaterialCost, unitPrice, inspectionOpportunities }) => ({ id, name, sku, unitMaterialCost, unitPrice, inspectionOpportunities })),
     inventory,
     orders: [],
     telemetry: Object.fromEntries(assets.map((a) => [a.id, []])),
@@ -553,6 +557,8 @@ export function buildFactory(blueprint: FactoryBlueprint, anchorISO: string, see
     analyses: [],
     scenarioRuns: [],
     recommendations: [],
+    cameras: buildCameras(lines, assets),
+    visionReviews: [],
     audit: [],
     costModel: { ...DEFAULT_COST_MODEL },
     counters: {},
@@ -670,6 +676,114 @@ export function buildFactory(blueprint: FactoryBlueprint, anchorISO: string, see
   state.counters["EVT"] = 10002;
   state.clock.lastTickAt = 0;
   return state;
+}
+
+/**
+ * Camera layout for any generated factory: an area CCTV per line, the AOI / final-inspection
+ * stations as vision cameras, a radiometric thermal camera on the first robot cell, and
+ * dock / stores cameras. Inspection placement follows IPC-A-610 practice: inspect after every
+ * step that can introduce a defect, and verify labels/barcodes at final pack-out.
+ */
+function buildCameras(lines: ProductionLine[], assets: Asset[]): Camera[] {
+  const cams: Camera[] = [];
+  const privacy = { faceBlur: true, retentionDays: 30 };
+  for (const l of lines) {
+    cams.push({
+      id: `CCTV-${l.code}1`,
+      name: `${l.name} overview`,
+      kind: "area",
+      purpose: "Line overview: unit counting, line state and lock-out zone monitoring",
+      standard: "ONVIF Profile S stream · advisory analytics only (not a safety function)",
+      zone: l.name,
+      lineId: l.id,
+      assetId: null,
+      covers: [...l.assetIds],
+      analytics: ["counting", "line-state", "zone"],
+      resolution: "1920×1080",
+      fps: 15,
+      onvifProfile: "S",
+      stream: { kind: "simulated", url: null },
+      privacy,
+    });
+    for (const a of assets.filter((x) => x.lineId === l.id && x.kind === "camera")) {
+      const pack = l.kind === "packaging";
+      cams.push({
+        id: `VIS-${a.id}`,
+        name: pack ? `${a.name} (pack-out verification)` : `${a.name} (post-placement AOI)`,
+        kind: "inspection",
+        purpose: pack ? "100% final inspection: label OCR, barcode grade, carton seal and count" : "100% automated optical inspection after placement and press-fit",
+        standard: pack ? "ISO/IEC 15416 / 15415 barcode print quality · label & seal criteria" : "IPC-A-610J Class 2 acceptance · J-STD-001 soldering requirements",
+        zone: l.name,
+        lineId: l.id,
+        assetId: a.id,
+        covers: [a.id],
+        analytics: pack ? ["defects", "ocr-barcode"] : ["defects"],
+        resolution: "12 MP",
+        fps: 30,
+        onvifProfile: "T",
+        stream: { kind: "simulated", url: null },
+        privacy: { faceBlur: false, retentionDays: 90 },
+      });
+    }
+  }
+  const firstAssembly = lines.find((l) => l.kind === "assembly");
+  const robot = assets.find((a) => a.lineId === firstAssembly?.id && a.kind === "robot");
+  if (firstAssembly && robot) {
+    cams.push({
+      id: `THM-${firstAssembly.code}1`,
+      name: `${firstAssembly.name} robot cell (thermal)`,
+      kind: "thermal",
+      purpose: "Radiometric thermography of drive trains and motors — early warning for friction and overheating",
+      standard: "ISO 18434-1 condition-monitoring thermography",
+      zone: firstAssembly.name,
+      lineId: firstAssembly.id,
+      assetId: null,
+      covers: assets.filter((a) => a.lineId === firstAssembly.id && (a.kind === "robot" || a.kind === "press")).map((a) => a.id),
+      analytics: ["thermal"],
+      resolution: "640×480 radiometric",
+      fps: 9,
+      onvifProfile: "S",
+      stream: { kind: "simulated", url: null },
+      privacy: { faceBlur: false, retentionDays: 30 },
+    });
+  }
+  cams.push(
+    {
+      id: "CCTV-DOCK",
+      name: "Shipping dock",
+      kind: "dock",
+      purpose: "Dock occupancy and truck loading progress",
+      standard: "ONVIF Profile S stream · advisory analytics only",
+      zone: "Shipping dock",
+      lineId: null,
+      assetId: null,
+      covers: [],
+      analytics: ["occupancy", "counting"],
+      resolution: "1920×1080",
+      fps: 15,
+      onvifProfile: "S",
+      stream: { kind: "simulated", url: null },
+      privacy,
+    },
+    {
+      id: "CCTV-STORES",
+      name: "Component stores",
+      kind: "area",
+      purpose: "Rack occupancy and restricted-zone access for component stores",
+      standard: "ONVIF Profile S stream · advisory analytics only",
+      zone: "Component stores",
+      lineId: null,
+      assetId: null,
+      covers: [],
+      analytics: ["occupancy", "zone"],
+      resolution: "1920×1080",
+      fps: 15,
+      onvifProfile: "S",
+      stream: { kind: "simulated", url: null },
+      privacy,
+    },
+  );
+  return cams;
 }
 
 /** Anchor demo time at the top of the current hour so the "shift clock" reads naturally. */

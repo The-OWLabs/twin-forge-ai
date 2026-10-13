@@ -2,12 +2,12 @@
 
 import { memo } from "react";
 import { Handle, Position, type NodeProps, type Node } from "@xyflow/react";
-import { Activity, Bot, Boxes, Camera, Gauge, Hammer, Package, Rows3, Tag, Thermometer, Truck, Waves, Wrench, Zap, ScanLine } from "lucide-react";
+import { Activity, Bot, Boxes, Camera, Cctv, Gauge, Hammer, Package, Rows3, ScanEye, Tag, Thermometer, ThermometerSun, Truck, Waves, Wrench, Zap, ScanLine } from "lucide-react";
 import type { AssetKind } from "@/domain/types";
 import { cn } from "@/lib/cn";
 import { fmtInt } from "@/lib/format";
 import { STATUS_META } from "../ui/status";
-import type { InventoryData, LineData, MachineData, OrderData, SensorData } from "./graph";
+import type { CameraData, InventoryData, LineData, MachineData, OrderData, SensorData } from "./graph";
 
 export const KIND_ICON: Record<AssetKind, typeof Bot> = {
   conveyor: Rows3,
@@ -241,4 +241,26 @@ export const SensorNode = memo(function SensorNode({ data }: NodeProps<Node<Sens
   );
 });
 
-export const nodeTypes = { machine: MachineNode, line: LineNode, inventory: InventoryNode, order: OrderNode, sensor: SensorNode };
+const CAMERA_ICON = { area: Cctv, inspection: ScanEye, thermal: ThermometerSun, dock: Truck } as const;
+
+export const CameraNode = memo(function CameraNode({ data, selected }: NodeProps<Node<CameraData>>) {
+  const Icon = CAMERA_ICON[data.camera.kind];
+  return (
+    <div
+      className={cn(
+        "flex h-6 w-[132px] cursor-pointer items-center gap-1.5 rounded-full border bg-shell px-2 text-[10.5px] shadow-sm transition-colors",
+        selected ? "border-accent ring-2 ring-accent/30" : data.alert ? "border-critical/60" : "border-line-strong hover:border-accent/50",
+        data.dimmed && !selected && "opacity-60",
+      )}
+      title={`${data.camera.name} — ${data.headline}`}
+    >
+      <Handle type="source" position={Position.Bottom} id="b" className={hidden} />
+      <Handle type="source" position={Position.Left} id="l" className={hidden} />
+      <Icon className={cn("h-3 w-3 shrink-0", data.alert ? "text-critical" : "text-accent")} />
+      <span className="truncate font-mono text-ink">{data.camera.id}</span>
+      <span className={cn("ml-auto h-1.5 w-1.5 shrink-0 rounded-full", data.alert ? "bg-critical animate-pulse" : "bg-healthy")} />
+    </div>
+  );
+});
+
+export const nodeTypes = { machine: MachineNode, line: LineNode, inventory: InventoryNode, order: OrderNode, sensor: SensorNode, camera: CameraNode };

@@ -2,7 +2,8 @@
  * Serializable model for the isometric factory renderer, plus world-space layout.
  * Used by the Twin Studio (live state) and by the landing-page story (scripted scenario).
  */
-import type { AssetKind, AssetStatus, FactoryState, LineState } from "@/domain/types";
+import { cameraView } from "@/domain/quality";
+import type { AssetKind, AssetStatus, CameraKind, FactoryState, LineState } from "@/domain/types";
 
 const SERIES = ["var(--color-series-1)", "var(--color-series-2)", "var(--color-series-3)", "var(--color-series-4)"];
 
@@ -26,14 +27,41 @@ export interface IsoLine {
   machines: IsoMachine[];
 }
 
+export interface IsoCamera {
+  id: string;
+  name: string;
+  kind: CameraKind;
+  site: "line" | "asset" | "dock" | "stores";
+  lineId: string | null;
+  assetId: string | null;
+  covers: string[];
+  alert: boolean;
+}
+
 export interface IsoModel {
   lines: IsoLine[];
   inventory: { id: string; name: string; fill: number; low: boolean }[];
   orders: { id: string; customer: string; progress: number; atRisk: boolean; priority: string }[];
+  cameras?: IsoCamera[];
 }
 
-export function isoModelFromState(state: FactoryState, orderRisk: Record<string, boolean> = {}): IsoModel {
+/** Camera models for the twin views; `alert` is true when the camera's own analytics flag something. */
+export function isoCameras(state: FactoryState): IsoCamera[] {
+  return state.cameras.map((c) => ({
+    id: c.id,
+    name: c.name,
+    kind: c.kind,
+    site: c.kind === "inspection" ? "asset" : c.kind === "dock" ? "dock" : c.lineId ? "line" : "stores",
+    lineId: c.lineId,
+    assetId: c.assetId,
+    covers: c.covers,
+    alert: cameraView(state, c).detections.some((d) => d.tone === "bad"),
+  }));
+}
+
+export function isoModelFromState(state: FactoryState, orderRisk: Record<string, boolean> = {}, opts: { cameras?: boolean } = {}): IsoModel {
   return {
+    cameras: opts.cameras ? isoCameras(state) : undefined,
     lines: state.lines.map((l, i) => ({
       id: l.id,
       name: l.name,
@@ -87,7 +115,17 @@ export interface Bay {
   y1: number;
 }
 
+export interface PlacedCamera {
+  cam: IsoCamera;
+  x: number; // mount point
+  y: number;
+  z: number; // mount height
+  aim: [number, number] | null; // floor point the camera looks at (null: looks straight down)
+  spread: number; // half-width of the field of view at the aim point
+}
+
 export interface Layout {
+  cameras: PlacedCamera[];
   machines: PlacedMachine[];
   belts: Belt[];
   bays: Bay[];
@@ -167,9 +205,36 @@ export function layoutIso(model: IsoModel): Layout {
   // Shipping dock trucks (orders) at the end of packaging
   const trucks = model.orders.map((o, k) => ({ id: o.id, customer: o.customer, x: pkgX - 1.4 - k * 2.25, y: dockY, progress: o.progress, atRisk: o.atRisk, priority: o.priority }));
 
+  // Cameras: pole-mounted at bay corners looking across their area; inspection cameras sit on their station.
+  const cameras: PlacedCamera[] = [];
+  const centroid = (ps: { x: number; y: number }[]): [number, number] => [ps.reduce((a, p) => a + p.x, 0) / ps.length, ps.reduce((a, p) => a + p.y, 0) / ps.length];
+  for (const cam of model.cameras ?? []) {
+    if (cam.site === "asset") {
+      const pm = machines.find((m) => m.m.id === cam.assetId);
+      if (pm) cameras.push({ cam, x: pm.x, y: pm.y, z: FOOTPRINT[pm.m.kind].H + 1.25, aim: null, spread: 0 });
+    } else if (cam.kind === "thermal") {
+      const ms = machines.filter((m) => cam.covers.includes(m.m.id));
+      if (!ms.length) continue;
+      const [ax, ay] = centroid(ms);
+      cameras.push({ cam, x: ax, y: ay - 1.55, z: 2.1, aim: [ax, ay], spread: Math.max(1.1, (Math.max(...ms.map((m) => m.x)) - Math.min(...ms.map((m) => m.x))) / 2 + 0.7) });
+    } else if (cam.site === "line") {
+      const bay = bays.find((b) => b.id === cam.lineId);
+      if (!bay) continue;
+      const aim: [number, number] = [(bay.x0 + bay.x1) / 2, (bay.y0 + bay.y1) / 2];
+      cameras.push({ cam, x: bay.x1 + 0.3, y: bay.y0 - 0.3, z: 2.6, aim, spread: Math.max(bay.x1 - bay.x0, bay.y1 - bay.y0) * 0.32 });
+    } else if (cam.site === "dock" && trucks.length) {
+      const [ax, ay] = centroid(trucks);
+      cameras.push({ cam, x: Math.max(...trucks.map((t) => t.x)) + 1.8, y: ay + 1.2, z: 2.4, aim: [ax, ay], spread: (Math.max(...trucks.map((t) => t.x)) - Math.min(...trucks.map((t) => t.x))) / 2 + 1.2 });
+    } else if (cam.site === "stores" && racks.length) {
+      const [ax, ay] = centroid(racks);
+      cameras.push({ cam, x: Math.max(...racks.map((r) => r.x)) + 0.75, y: Math.min(...racks.map((r) => r.y)) - 1.1, z: 2.4, aim: [ax, ay], spread: 1.3 });
+    }
+  }
+
   const xs = [...machines.map((m) => m.x), ...racks.map((r) => r.x), ...trucks.map((t) => t.x), pkgX + 1.5];
   const ys = [...machines.map((m) => m.y), ...racks.map((r) => r.y), ...trucks.map((t) => t.y), -1.5];
   return {
+    cameras,
     machines,
     belts,
     bays,

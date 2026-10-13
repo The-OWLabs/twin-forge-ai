@@ -9,6 +9,7 @@ import { Sidebar } from "@/components/shell/sidebar";
 import { Toaster } from "@/components/shell/toaster";
 import { Topbar } from "@/components/shell/topbar";
 import { Button, TooltipProvider } from "@/components/ui/primitives";
+import { CameraDialogHost } from "@/components/vision/camera-panel";
 
 export default function PlatformLayout({ children }: { children: React.ReactNode }) {
   const [navOpen, setNavOpen] = useState(false);
@@ -51,6 +52,7 @@ export default function PlatformLayout({ children }: { children: React.ReactNode
           </main>
         </div>
         <DemoGuide />
+        <CameraDialogHost />
         <Toaster />
       </div>
     </TooltipProvider>

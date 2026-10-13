@@ -6,7 +6,7 @@ describe("landing-page story data", () => {
 
   it("is computed by the engine on the scripted crisis", () => {
     expect(s.recommendedId).toBe("reroute");
-    expect(s.agents.map((a) => a.id)).toEqual(["maintenance", "production", "supply", "energy", "orchestrator"]);
+    expect(s.agents.map((a) => a.id)).toEqual(["maintenance", "quality", "production", "supply", "energy", "orchestrator"]);
     expect(s.scenarios.map((x) => x.id)).toEqual(["continue", "preventive", "reroute"]);
     expect(s.focus.step).toBeGreaterThan(1);
     expect(s.focus.hoursToTrip).toBeGreaterThan(5);

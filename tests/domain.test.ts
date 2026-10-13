@@ -116,7 +116,7 @@ describe("agent pipeline", () => {
     expect(events.some((e) => e.type === "stage" && e.stage === "approval" && e.status === "waiting")).toBe(true);
     const a = bundle.analysis;
     expect(a.focusAssetId).toBe("A-ROB-03");
-    for (const id of ["maintenance", "production", "supply", "energy", "orchestrator"] as const) {
+    for (const id of ["maintenance", "quality", "production", "supply", "energy", "orchestrator"] as const) {
       const r = a.reports[id]!;
       expect(r.findings.length).toBeGreaterThan(0);
       expect(r.inputs.length).toBeGreaterThan(0);
