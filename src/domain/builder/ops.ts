@@ -81,6 +81,8 @@ export function applyOps(input: TwinSpec, ops: SpecOp[], prov: Prov): ApplyResul
     ...spec.materials.map((m) => m.id),
     ...spec.integrations.map((i) => i.id),
   ]);
+  // A line needs one machine, so add_line creates a placeholder; it is replaced by the first real add_machine.
+  const placeholders = new Map<string, string>();
   const archetype = (a: string | null | undefined): AssetKind | null => (a && (ASSET_KINDS as string[]).includes(a) ? (a as AssetKind) : null);
   const findLine = (id?: string | null) => spec.lines.find((l) => l.id === id);
   const findMachine = (id?: string | null) => {
@@ -102,12 +104,16 @@ export function applyOps(input: TwinSpec, ops: SpecOp[], prov: Prov): ApplyResul
     switch (o.op) {
       case "add_machine": {
         const line = findLine(o.lineId);
-        const kind = archetype(o.archetype);
+        // Models sometimes put the machine type in `kind`; accept it only if it is a valid machine type.
+        const kind = archetype(o.archetype) ?? archetype(o.kind);
         if (!line) fail(`line "${o.lineId}" not found`);
         else if (!kind) fail(`"${o.archetype}" is not a supported machine type`);
         else if (line.machines.length >= 8) fail(`${line.name} already has 8 machines`);
         else {
           const name = o.name || kind;
+          const ph = placeholders.get(line.id);
+          if (ph && line.machines.length === 1 && line.machines[0].id === ph) line.machines = [];
+          placeholders.delete(line.id);
           const m = { id: uniqueId(`${line.name} ${name}`, taken), name, archetype: kind, ratePerHour: o.ratePerHour ?? null, notes: null, box: null, prov };
           const at = o.position == null ? line.machines.length : Math.min(o.position, line.machines.length);
           line.machines.splice(at, 0, m);
@@ -163,6 +169,7 @@ export function applyOps(input: TwinSpec, ops: SpecOp[], prov: Prov): ApplyResul
           const role = o.role ?? "process";
           const productIds = role === "process" ? (o.productIds ?? (spec.products[0] ? [spec.products[0].id] : [])) : [];
           const line = { id, name, role, productIds, box: null, prov, machines: [{ id: uniqueId(`${name} ${kind}`, taken), name: o.text || kind, archetype: kind, ratePerHour: null, notes: null, box: null, prov }] };
+          if (!o.archetype && !o.text) placeholders.set(id, line.machines[0].id);
           if (role === "packing") spec.lines.push(line);
           else {
             const firstPacking = spec.lines.findIndex((l) => l.role === "packing");

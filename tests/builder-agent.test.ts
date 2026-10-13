@@ -144,3 +144,22 @@ describe("Twin Builder with AI (recorded responses)", () => {
     expect(out.validation.ok).toBe(true);
   });
 });
+
+describe("edit operations", () => {
+  it("replaces the placeholder machine when a new line gets its first real machine", async () => {
+    const { applyOps } = await import("@/domain/builder/ops");
+    const { templateById } = await import("@/domain/builder/templates");
+    const spec = structuredClone(templateById("beverage-bottling")!.spec);
+    const r = applyOps(
+      spec,
+      [
+        { op: "add_line", name: "Line 3", role: "process" },
+        { op: "add_machine", lineId: "line-3", name: "Can filler", archetype: "filler", position: 0 },
+        { op: "add_machine", lineId: "line-3", name: "Seamer", archetype: "filler", position: 1 },
+      ],
+      { source: "requirement" },
+    );
+    expect(r.rejected).toEqual([]);
+    expect(r.spec.lines.find((l) => l.id === "line-3")!.machines.map((m) => m.name)).toEqual(["Can filler", "Seamer"]);
+  });
+});

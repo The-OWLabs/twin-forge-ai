@@ -15,14 +15,17 @@ env:
   - variable: TWINFORGE_DATA_DIR
     value: /tmp/twinforge
     availability: [RUNTIME]
-  # Gemini on Vertex AI (optional): uncomment after enabling the Vertex AI API and granting the
-  # App Hosting service account roles/aiplatform.user — see README → Google Cloud integrations.
-  # - variable: GOOGLE_CLOUD_PROJECT
-  #   value: twin-forge
-  #   availability: [RUNTIME]
-  # - variable: GEMINI_MODEL
-  #   value: gemini-3.5-flash
-  #   availability: [RUNTIME]
+  # Gemini on Vertex AI. The App Hosting service account has roles/aiplatform.user.
+  # asia-southeast1 is co-located with this backend; the global endpoint occasionally stalled in tests.
+  - variable: GOOGLE_CLOUD_PROJECT
+    value: twin-forge
+    availability: [RUNTIME]
+  - variable: GOOGLE_CLOUD_LOCATION
+    value: asia-southeast1
+    availability: [RUNTIME]
+  - variable: GEMINI_MODEL
+    value: gemini-3.5-flash
+    availability: [RUNTIME]
   # Python vision service (optional): Cloud Run URL of services/vision. Grant this backend's service
   # account roles/run.invoker on that service — see docs/python-services-plan.md.
   # - variable: VISION_SERVICE_URL

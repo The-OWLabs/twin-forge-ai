@@ -87,7 +87,7 @@ The fastest path is **Demo controls → Run Factory Crisis Demo** (top-right). I
 |---|---|
 | Landing page: Apple-style scroll story — the isometric twin stays pinned while the scripted crisis unfolds (build → detect → investigate → simulate → approve → audit); every figure is computed by running the engine on that scenario | ✅ |
 | Light / dark theme toggle (persisted, no flash on load) across the app and landing page | ✅ |
-| **Twin Builder**: the agent reads a blueprint (Gemini, multimodal), researches standard layouts (Google Search grounding, cited) and drafts a twin spec. The user reviews it with provenance on every element, edits directly or by chat, plans data connections and builds. Deterministic validation and compile; template mode without AI | ✅ AI steps need Vertex AI |
+| **Twin Builder**: the agent reads a blueprint (Gemini, multimodal), researches standard layouts (Google Search grounding, cited) and drafts a twin spec. The user reviews it with provenance on every element, edits directly or by chat, plans data connections and builds. Deterministic validation and compile; template mode without AI | ✅ live on Vertex AI |
 | 16 machine archetypes across industries (CNC, mixer, oven, filler, molding, welding, palletizer, pump, manual station, extruder + the original 6), each with physics, sensors, failure mode, defect classes and a 3D shape; 7 industry templates | ✅ |
 | Factory Command Center: OEE, target vs. actual, health distribution, energy, scrap, incidents, shortages, delivery risk, line status, events | ✅ |
 | Digital Twin Studio: React Flow topology (lines, machines, sensors, inventory and order nodes; add, edit and connect assets; drag; zoom, pan and fit), an **isometric view** (extruded machines with status stack-lights, animated belts, warehouse racks and order trucks; rotate, zoom, pan, select), and a 2D floor plan, all with scenario highlighting | ✅ |
@@ -282,7 +282,7 @@ Everything works **without credentials**. Each integration activates when its en
 
 | Service | What it does here | Required configuration |
 |---|---|---|
-| **Gemini on Vertex AI** | Orchestrator narratives (never metrics); advisory review of uploaded inspection footage | `GOOGLE_CLOUD_PROJECT`, ADC (`gcloud auth application-default login`), optional `GOOGLE_CLOUD_LOCATION` (default `global`), `GEMINI_MODEL` (default `gemini-3.5-flash`). Alternatively `GOOGLE_GENAI_USE_VERTEXAI=false` with `GEMINI_API_KEY`. |
+| **Gemini on Vertex AI** | Twin Builder (reading drawings, Google Search-grounded research, drafting, chat edits); orchestrator narratives (never metrics); advisory review of uploaded inspection footage | `GOOGLE_CLOUD_PROJECT`, ADC (`gcloud auth application-default login`), `GOOGLE_CLOUD_LOCATION` (default `global`; this project uses `asia-southeast1`), `GEMINI_MODEL` (default `gemini-3.5-flash`). Alternatively `GOOGLE_GENAI_USE_VERTEXAI=false` with `GEMINI_API_KEY`. |
 | **BigQuery** | Mirrors scenario outcomes and decisions; schema for telemetry, production and health history | `BIGQUERY_DATASET`, then create tables with `infra/bigquery/schema.sql` |
 | **Pub/Sub** | Telemetry ingestion: `{assetId, vibration, temperature, powerKw}` messages override simulated measurements | `PUBSUB_TELEMETRY_SUBSCRIPTION`, `TELEMETRY_SOURCE=pubsub` |
 | **Cloud Storage** | Per-asset documents under `assets/<assetId>/` | `GCS_BUCKET` |
@@ -338,12 +338,12 @@ docker run -p 8080:8080 twinforge-ai     # http://localhost:8080
 ## Testing
 
 ```bash
-npm test               # 72 Vitest tests
+npm test               # 73 Vitest tests
 npm run build && npm run test:e2e   # 9 Playwright tests against the production server
 cd services/vision && uv run pytest # 16 pytest tests for the Python vision service
 ```
 
-- **Unit and integration tests** (`tests/`, 72 tests), including a check that the landing story's figures are engine-derived:
+- **Unit and integration tests** (`tests/`, 73 tests), including a check that the landing story's figures are engine-derived:
   - seed reproducibility and entity counts
   - health and status rules, OLS and trend estimation, change-point detection
   - KPIs
@@ -391,6 +391,6 @@ tests/ e2e/            Vitest and Playwright suites
 - **Single tenant, per-instance state.** One factory per server, stored in a local JSON file. Cloud Run instances do not share state (hence max-instances 1), and state resets when an instance is recycled. A production version would use Firestore, Cloud SQL or BigQuery.
 - **No authentication or authorization.**
 - **Cloud adapters are not verified against live services in this build.** BigQuery, Pub/Sub, Cloud Storage and Vertex AI calls are implemented and are exercised only when configured. MQTT is a reachability probe; subscription is not implemented.
-- **Twin Builder limits.** Machines on a line run in series, with up to 4 process lines plus one packing area and 8 machines per line. Parallel or batch steps are approximated. Default rates, prices, stock and the sample orders are typical values until real systems are connected. The AI steps are tested with recorded responses and need Vertex AI to run.
+- **Twin Builder limits.** Machines on a line run in series, with up to 4 process lines plus one packing area and 8 machines per line. Parallel or batch steps are approximated. Default rates, prices, stock and the sample orders are typical values until real systems are connected. The AI steps use Gemini 3.5 Flash on Vertex AI (asia-southeast1); without it, template mode is used.
 - **Time model.** Live telemetry advances 2 minutes of plant time every 4 seconds while the app is open in a visible tab. Fast-forward runs the same model in larger jumps.
 - **Desktop-first.** Pages work on phones (no horizontal page scrolling), but the twin canvas and wide tables are best on a laptop or larger screen.

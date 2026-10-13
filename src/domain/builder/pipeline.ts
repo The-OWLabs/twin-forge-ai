@@ -174,5 +174,5 @@ export async function refineSpec(spec: TwinSpec, instruction: string, ai: Builde
   const { ops, explanation } = await ai.refine(spec, instruction);
   const result = applyOps(spec, ops, { source: "requirement", note: `Changed by the agent at your request: “${instruction.slice(0, 200)}”`, refs: [] });
   const validation = validateSpec(result.spec);
-  return { ...result, spec: validation.spec ?? result.spec, explanation, validation };
+  return { ...result, spec: validation.spec ?? result.spec, explanation, validation, proposed: ops };
 }

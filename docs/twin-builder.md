@@ -1,6 +1,6 @@
 # Twin Builder
 
-**Status (14 Oct 2026):** built and tested. Template mode works everywhere. The AI steps (reading drawings, web research, chat edits) need Gemini on Vertex AI, which is being enabled on `twin-forge`.
+**Status (14 Oct 2026):** built, tested and live with Gemini 3.5 Flash on Vertex AI (`twin-forge`, asia-southeast1). Template mode remains the fallback when AI is unavailable.
 
 New users build their own digital twin by giving the agent what they have:
 - a drawing of the plant: floor plan, process-flow diagram, P&ID, equipment layout, hand sketch or photo
@@ -115,9 +115,11 @@ Connections are planned per line, machine or site and saved with the twin. The *
 
 ## Enabling the AI steps
 
-1. Enable the Vertex AI API on the project.
-2. Locally: `gcloud auth application-default login` and `gcloud auth application-default set-quota-project twin-forge`, then `GOOGLE_CLOUD_PROJECT=twin-forge` in `.env.local`.
-3. On Firebase App Hosting: grant `roles/aiplatform.user` to `firebase-app-hosting-compute@twin-forge.iam.gserviceaccount.com`, uncomment `GOOGLE_CLOUD_PROJECT` in `apphosting.yaml`, and roll out.
+1. Enable the Vertex AI API on the project (done for `twin-forge`).
+2. Locally: `gcloud auth application-default login` and `gcloud auth application-default set-quota-project twin-forge`, then `GOOGLE_CLOUD_PROJECT=twin-forge` and `GOOGLE_CLOUD_LOCATION=asia-southeast1` in `.env.local`.
+3. On Firebase App Hosting: grant `roles/aiplatform.user` to `firebase-app-hosting-compute@twin-forge.iam.gserviceaccount.com` (done) and set the variables in `apphosting.yaml` (done).
+
+Calls retry once if Vertex stalls or returns 429/5xx. On Gemini 3.x, thinking tokens count toward the output limit, so each call leaves headroom for them.
 
 Google Search grounding is billed per grounded request. When grounded results are shown, the review screen also displays the Google Search suggestions, as Google's terms require.
 
@@ -127,4 +129,4 @@ Google Search grounding is billed per grounded request. When grounded results ar
 - **Up to 4 process lines** and one packing area per twin, with up to 8 machines per line.
 - **Typical values.** Default rates, prices, stock and the sample order book are typical values until real systems are connected. They are listed in the build's audit entry and in the review's assumptions.
 - **Drawings are interpreted, not measured.** Element positions on the drawing are shown for checking. They do not set the twin's geometry, which uses the standard isometric layout.
-- **Untested against Gemini.** The AI steps are covered by tests with recorded responses. They will be exercised against Gemini on Vertex AI once it is enabled on `twin-forge`.
+- **Model behaviour varies between runs.** Unit tests use recorded responses. Against Gemini 3.5 Flash, a two-line bottling drawing was read correctly: 11 machines with accurate boxes and utilities excluded. A full draft with research takes about 70 s, and chat edits 5–15 s. Each chat edit shows exactly which operations were applied or rejected, whatever the model says.

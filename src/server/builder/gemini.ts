@@ -123,7 +123,15 @@ const DRAFT_SCHEMA = {
   required: ["site", "lines", "products", "materials", "integrations", "assumptions", "questions"],
 };
 
-const OP_FIELDS = Object.keys(SpecOpSchema.shape).filter((k) => k !== "op");
+const OP_FIELDS = Object.keys(SpecOpSchema.shape).filter((k) => k !== "op" && !["archetype", "kind", "position", "lineId", "machineId"].includes(k));
+/** Fields models confuse most, described explicitly. */
+const OP_DESCRIPTIONS = {
+  archetype: { type: ["string", "null"], enum: [...ASSET_KINDS, null], description: "Machine type. Required for add_machine; optional for update_machine and add_line." },
+  kind: { type: ["string", "null"], enum: [...INTEGRATION_KINDS, null], description: "Connection type. Only for add_integration." },
+  position: { type: ["number", "null"], description: "0-based index in the line's machine list (add_machine, move_machine). To insert after the machine at index i, use i + 1." },
+  lineId: { type: ["string", "null"], description: "Existing line id from the spec." },
+  machineId: { type: ["string", "null"], description: "Existing machine id from the spec." },
+};
 const REFINE_SCHEMA = {
   type: "object",
   properties: {
@@ -134,6 +142,7 @@ const REFINE_SCHEMA = {
         type: "object",
         properties: {
           op: { type: "string", enum: SpecOpSchema.shape.op.options },
+          ...OP_DESCRIPTIONS,
           ...Object.fromEntries(
             OP_FIELDS.map((k) => [
               k,
@@ -149,7 +158,8 @@ const REFINE_SCHEMA = {
             ]),
           ),
         },
-        required: ["op"],
+        // Every field is required (null when it does not apply): optional fields get silently dropped otherwise.
+        required: ["op", ...Object.keys(OP_DESCRIPTIONS), ...OP_FIELDS],
       },
     },
   },
@@ -233,7 +243,7 @@ export function geminiBuilderAi(): BuilderAi {
       ]
         .filter(Boolean)
         .join("\n");
-      const { res } = await geminiGenerate({ contents: prompt, config: { tools: [{ googleSearch: {} }], maxOutputTokens: 4096 }, timeoutMs: 90_000 });
+      const { res } = await geminiGenerate({ contents: prompt, config: { tools: [{ googleSearch: {} }], maxOutputTokens: 8192 }, timeoutMs: 90_000 });
       const cand = res.candidates?.[0];
       const gm = (cand?.groundingMetadata ?? {}) as {
         groundingChunks?: { web?: { uri?: string; title?: string } }[];
@@ -263,12 +273,12 @@ export function geminiBuilderAi(): BuilderAi {
         "You are the Twin Builder agent of an industrial digital-twin platform. Propose the factory structure as JSON matching the schema.",
         "",
         "Rules:",
-        "- Use ONLY these machine archetypes. Map each real machine to the closest archetype and keep its real name in `name`:",
+        "- Use ONLY these machine archetypes. Map each real machine to the closest archetype. `name` is a short descriptive name plus the tag shown on the drawing, if any (for example \"Blow molder BM-101\"):",
         ARCHETYPE_CATALOG,
         "- The simulator supports 1–4 process lines and at most one packing / end-of-line area (role \"packing\") that receives all process-line output. List machines in material-flow order, at most 8 per line. Represent parallel identical machines as one machine with their combined rate and say so in `note`.",
         "- Provenance (`source`): \"blueprint\" only for elements on the blueprint reading (set `blueprintElement` to its id); \"requirement\" for what the user asked for; \"reference\" only when supported by the research notes, citing their [R#] ids in `refs`; \"template\" for elements kept from the given template; otherwise \"default\" for your own typical assumptions.",
         "- Numbers: give ratePerHour, prices and costs ONLY when stated in the requirements, the blueprint or the cited research; otherwise use null and the system will derive stated defaults. Never invent supplier names, addresses or credentials.",
-        "- Integrations: only connections the user asked for or that the blueprint shows (PLC, SCADA, historian, cameras). `target` is a line name, a machine name, or \"site\".",
+        "- Integrations: only connections the user asked for or that the blueprint shows (PLC, SCADA, historian, cameras). `target` is a line name, a machine name, or \"site\". If the user asks to monitor something without naming the protocol, pick the most likely interface, set source to \"default\" and explain the choice in `note`.",
         "- Put every assumption you make in `assumptions`, and ask up to 6 short `questions` where information that matters is missing.",
         "- If a template is given, start from it and change it to match the requirements and blueprint.",
         "",
@@ -291,13 +301,14 @@ export function geminiBuilderAi(): BuilderAi {
         "You edit a factory digital-twin spec by returning edit operations as JSON. Apply exactly what the user asks, nothing more.",
         "Use existing ids from the spec for lineId, machineId, productId, materialId, integrationId and questionId. For new items give a `name`.",
         `Machine archetypes (archetype field): ${ASSET_KINDS.join(", ")}. Connection kinds (kind field): ${INTEGRATION_KINDS.join(", ")}. For add_integration, target is a line id, machine id or "site".`,
-        "Only set numbers the user states. Never include credentials. If the request cannot be done with these operations, return no ops and explain why.",
+        "Do every part of the request that these operations can express. Skip only the parts they cannot (for example an unsupported protocol) and say which parts you skipped and why in `explanation`.",
+        "Only set numbers the user states. Never include credentials.",
         "",
         `SPEC: ${JSON.stringify(compactSpec(spec))}`,
         "",
         `USER REQUEST: ${instruction.slice(0, 2000)}`,
       ].join("\n");
-      const { res } = await geminiGenerate({ contents: prompt, config: { responseMimeType: "application/json", responseJsonSchema: REFINE_SCHEMA, maxOutputTokens: 4096 }, timeoutMs: 60_000 });
+      const { res } = await geminiGenerate({ contents: prompt, config: { responseMimeType: "application/json", responseJsonSchema: REFINE_SCHEMA, maxOutputTokens: 8192 }, timeoutMs: 60_000 });
       const raw = json(res.text) as { explanation?: string; ops?: unknown[] };
       return { explanation: String(raw.explanation ?? "").slice(0, 600), ops: (raw.ops ?? []) as never };
     },

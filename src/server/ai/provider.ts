@@ -22,7 +22,7 @@ export interface AiConfig {
 
 export function aiConfig(): AiConfig {
   const model = process.env.GEMINI_MODEL || "gemini-3.5-flash";
-  const timeoutMs = Number(process.env.AI_TIMEOUT_MS || 12000);
+  const timeoutMs = Number(process.env.AI_TIMEOUT_MS || 30000);
   const useVertex = (process.env.GOOGLE_GENAI_USE_VERTEXAI ?? "true").toLowerCase() !== "false";
   const project = process.env.GOOGLE_CLOUD_PROJECT;
   const location = process.env.GOOGLE_CLOUD_LOCATION || "global";
@@ -105,7 +105,7 @@ export function ungroundedFigures(text: string, input: NarrativeInput) {
 }
 
 async function callGemini(cfg: AiConfig, input: NarrativeInput): Promise<Narrative> {
-  const { GoogleGenAI } = await import("@google/genai");
+  const { GoogleGenAI, ThinkingLevel } = await import("@google/genai");
   const ai =
     cfg.provider === "vertex"
       ? new GoogleGenAI({ vertexai: true, project: cfg.project, location: cfg.location, httpOptions: { timeout: cfg.timeoutMs } })
@@ -121,7 +121,10 @@ async function callGemini(cfg: AiConfig, input: NarrativeInput): Promise<Narrati
         responseMimeType: "application/json",
         responseJsonSchema: RESPONSE_JSON_SCHEMA,
         temperature: 0.2,
-        maxOutputTokens: 1200,
+        // Thinking tokens count toward the output limit on Gemini 3.x, so leave headroom.
+        maxOutputTokens: 4096,
+        // A briefing written from fixed facts needs little reasoning; low thinking keeps it fast.
+        thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
         abortSignal: controller.signal,
       },
     });
@@ -153,7 +156,7 @@ export async function generateNarrative(input: NarrativeInput): Promise<Narrativ
   }
   runtime.calls++;
   try {
-    return await callGemini(cfg, input);
+    return await withRetry(() => callGemini(cfg, input));
   } catch (e) {
     const msg = e instanceof Error ? (e.name === "AbortError" ? `timed out after ${cfg.timeoutMs} ms` : e.message) : String(e);
     runtime.lastError = `${new Date().toISOString()} — ${msg}`.slice(0, 400);
@@ -175,7 +178,7 @@ export async function testAi(): Promise<{ ok: boolean; detail: string }> {
     conflicts: [],
   };
   try {
-    const n = await callGemini(cfg, sample);
+    const n = await withRetry(() => callGemini(cfg, sample));
     return { ok: true, detail: `${n.model} responded (${runtime.lastLatencyMs} ms).` };
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
@@ -263,7 +266,7 @@ export async function analyzeMedia(
     const res = await ai.models.generateContent({
       model: cfg.model,
       contents: [{ role: "user", parts: [{ inlineData: { mimeType, data: bytes.toString("base64") } }, { text: prompt }] }],
-      config: { responseMimeType: "application/json", responseJsonSchema: responseSchema, temperature: 0, maxOutputTokens: 2048, abortSignal: controller.signal },
+      config: { responseMimeType: "application/json", responseJsonSchema: responseSchema, temperature: 0, maxOutputTokens: 8192, abortSignal: controller.signal },
     });
     const parsed = MediaSchema.parse(JSON.parse(res.text ?? ""));
     const allowed = new Set(context.categories);
@@ -283,6 +286,20 @@ export async function analyzeMedia(
 
 /* ───────────────────────────── shared call helper ───────────────────────────── */
 
+/** Vertex occasionally stalls a request until its deadline; one retry recovers almost all of them. */
+const RETRYABLE = /DEADLINE_EXCEEDED|"code":\s*(429|500|503|504)|UNAVAILABLE|RESOURCE_EXHAUSTED|timed out|fetch failed|ECONNRESET/i;
+async function withRetry<T>(fn: () => Promise<T>, retries = 1): Promise<T> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await fn();
+    } catch (e) {
+      const msg = e instanceof Error ? (e.name === "AbortError" ? "timed out" : e.message) : String(e);
+      if (attempt >= retries || !RETRYABLE.test(msg)) throw e;
+      await new Promise((r) => setTimeout(r, /429|RESOURCE_EXHAUSTED/.test(msg) ? 2000 : 300));
+    }
+  }
+}
+
 export interface GeminiCall {
   contents: unknown;
   config?: Record<string, unknown>;
@@ -294,6 +311,10 @@ export interface GeminiCall {
  * Returns the raw response so callers can read text and grounding metadata.
  */
 export async function geminiGenerate(call: GeminiCall) {
+  return withRetry(() => geminiGenerateOnce(call));
+}
+
+async function geminiGenerateOnce(call: GeminiCall) {
   const cfg = aiConfig();
   if (cfg.provider === "none") throw new Error("Gemini is not configured");
   const { GoogleGenAI } = await import("@google/genai");
