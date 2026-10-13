@@ -19,7 +19,7 @@ It ships with one complete scenario: an electronics plant with three lines where
 6. [AI agents](#ai-agents)
 7. [API reference](#api-reference)
 8. [Google Cloud integrations](#google-cloud-integrations)
-9. [Deploy to Cloud Run](#deploy-to-cloud-run)
+9. [Deploy (Firebase App Hosting or Cloud Run)](#deploy-to-firebase-app-hosting)
 10. [Testing](#testing)
 11. [Project structure](#project-structure)
 12. [Known limitations](#known-limitations)
@@ -222,6 +222,23 @@ Everything works **without credentials**. Each integration activates when its en
 Use **Integrations → Test connection** to verify each configured service.
 
 ---
+
+## Deploy to Firebase App Hosting
+
+The repo is configured for [Firebase App Hosting](https://firebase.google.com/docs/app-hosting) (Next.js on Cloud Run, managed by Firebase). The project needs the **Blaze** plan.
+
+- `apphosting.yaml`: runtime settings. **`maxInstances: 1`**, because demo state lives in the instance's `/tmp`.
+- `.firebaserc` / `firebase.json`: default project `twin-forge`, backend `twinforge` (region `asia-southeast1`).
+
+Deploy the current local source:
+
+```bash
+firebase deploy --only apphosting --project twin-forge
+```
+
+To deploy automatically on every push to `main`, connect the GitHub repository to the backend: Firebase console → **App Hosting** → `twinforge` → **Settings → Deployment** → connect `The-OWLabs/twin-forge-ai`, live branch `main`, root directory `/`.
+
+**Cost.** App Hosting bills the underlying Cloud Build, Cloud Run, Artifact Registry and bandwidth usage. Light demo traffic stays inside Blaze's monthly no-cost allowances. Each open dashboard tab polls telemetry every 4 s, roughly 45 MB/hour of bandwidth against a 10 GiB free allowance. Set a budget alert in Cloud Billing.
 
 ## Deploy to Cloud Run
 
