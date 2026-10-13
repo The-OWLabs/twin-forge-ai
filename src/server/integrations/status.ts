@@ -3,6 +3,7 @@ import { aiConfig, aiRuntime, testAi } from "@/server/ai/provider";
 import { persistenceInfo } from "@/server/store";
 import type { Recommendation, ScenarioRun } from "@/domain/types";
 import { bigQuery, cloudStorage, mqtt, pubSub } from "./adapters";
+import { testVisionService, visionService } from "./vision-service";
 
 export type IntegrationState = "active-simulated" | "not-configured" | "configured-untested" | "connected" | "error";
 
@@ -60,6 +61,7 @@ export function integrationStatuses(): IntegrationStatus[] {
   const ps = stateFor("pubsub", pubSub.configured());
   const gcs = stateFor("gcs", cloudStorage.configured());
   const mq = stateFor("mqtt", mqtt.configured());
+  const vs = stateFor("vision-service", visionService.configured());
   const persistence = persistenceInfo();
   const onCloudRun = !!process.env.K_SERVICE;
 
@@ -89,6 +91,18 @@ export function integrationStatuses(): IntegrationStatus[] {
       fallback: "Deterministic template narrative from simulation outputs.",
       lastCheckedAt: checks["vertex-ai"]?.at ?? rt.lastSuccessAt,
       testable: ai.provider !== "none",
+    },
+    {
+      id: "vision-service",
+      name: "Vision service (FastAPI + OpenCV)",
+      service: "Cloud Run · Python",
+      purpose: "Deterministic machine-vision checks: golden-board comparison, barcode/QR reading, image quality and video stoppages.",
+      state: vs.state,
+      detail: vs.detail ?? (visionService.configured() ? `${visionService.url()} — run a connectivity test or an inspection to verify.` : "Machine-vision checks are off. Station-log reviews (and Gemini, if configured) still work."),
+      env: envList("VISION_SERVICE_URL"),
+      fallback: "Station-log review from the plant model.",
+      lastCheckedAt: vs.at,
+      testable: visionService.configured(),
     },
     {
       id: "bigquery",
@@ -185,6 +199,9 @@ export async function testIntegration(id: string): Promise<Check> {
       case "mqtt":
         if (!mqtt.configured()) return { ok: false, detail: "Not configured (MQTT_BROKER_URL)." };
         return { ok: true, detail: await mqtt.test() };
+      case "vision-service":
+        if (!visionService.configured()) return { ok: false, detail: "Not configured (VISION_SERVICE_URL)." };
+        return testVisionService();
       default:
         return { ok: false, detail: `Integration ${id} has no connectivity test.` };
     }
@@ -198,9 +215,14 @@ export async function testIntegration(id: string): Promise<Check> {
   const check = { ...result, at };
   // Only record checks for configured integrations so unconfigured ones never appear "connected" or "error".
   const configured =
-    id === "vertex-ai" ? aiConfig().provider !== "none" : id === "bigquery" ? bigQuery.configured() : id === "pubsub" ? pubSub.configured() : id === "gcs" ? cloudStorage.configured() : id === "mqtt" ? mqtt.configured() : false;
+    id === "vertex-ai" ? aiConfig().provider !== "none" : id === "bigquery" ? bigQuery.configured() : id === "pubsub" ? pubSub.configured() : id === "gcs" ? cloudStorage.configured() : id === "mqtt" ? mqtt.configured() : id === "vision-service" ? visionService.configured() : false;
   if (configured) checks[id] = check;
   return check;
+}
+
+/** Record the outcome of a real call (not a test) so the status reflects actual use. */
+export function recordCheck(id: string, ok: boolean, detail: string) {
+  checks[id] = { ok, detail, at: new Date().toISOString() };
 }
 
 /** Best-effort mirroring of scenario runs and decisions to BigQuery when configured. Never throws. */

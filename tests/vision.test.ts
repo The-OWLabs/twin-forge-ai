@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { DomainError } from "@/domain/actions";
 import { cameraView, computeQuality, inspectionFrames } from "@/domain/quality";
-import { dispositionReview, logCameraView, reviewInspectionLog, setCameraStream } from "@/domain/vision";
+import { dispositionReview, findingsFromInspection, logCameraView, reviewInspectionLog, setCameraStream, type ImageInspectionResult, type VideoInspectionResult } from "@/domain/vision";
 import { crisis, demo, NOW } from "./helpers";
 
 describe("camera layout", () => {
@@ -96,5 +96,63 @@ describe("camera access and reviews", () => {
     dispositionReview(s, r.id, "confirmed", "Checked at rework", "QA Lead", NOW);
     expect(s.visionReviews[0].disposition).toBe("confirmed");
     expect(() => dispositionReview(s, r.id, "dismissed", "", "QA Lead", NOW)).toThrow(DomainError);
+  });
+});
+
+describe("vision service results → review findings", () => {
+  const image: ImageInspectionResult = {
+    kind: "image",
+    width: 1200,
+    height: 800,
+    quality: { sharpness: 180, brightness: 90, contrast: 40, usable: true, issues: [] },
+    codes: [{ format: "EAN_13", data: "4006381333931", box: { x: 0.1, y: 0.1, w: 0.2, h: 0.1 }, symbolContrast: 27, contrastGrade: "D" }],
+    comparison: {
+      alignment: "homography",
+      alignmentNote: "",
+      inliers: 420,
+      threshold: 40,
+      minAreaPct: 0.05,
+      changedPct: 1.2,
+      defects: [{ box: { x: 0.7, y: 0.6, w: 0.08, h: 0.13 }, areaPct: 1.0, meanDiff: 51 }],
+      truncated: false,
+    },
+    engine: "OpenCV 4.14.0",
+    durationMs: 200,
+  };
+
+  it("maps deviations and codes to measured findings with boxes", () => {
+    const { summary, findings } = findingsFromInspection(image);
+    expect(summary).toContain("1 region differs from the golden reference");
+    const dev = findings.find((f) => f.category === "Deviation from golden reference")!;
+    expect(dev.severity).toBe("major");
+    expect(dev.confidence).toBe(1);
+    expect(dev.box).toEqual(image.comparison!.defects[0].box);
+    expect(findings.find((f) => f.category === "Barcode grade below C")!.description).toContain("Indicative only");
+  });
+
+  it("flags unusable images and still periods in video", () => {
+    const blurry = findingsFromInspection({ ...image, quality: { ...image.quality, usable: false, issues: ["blurry"] }, comparison: null, codes: [] });
+    expect(blurry.findings[0].category).toBe("Image not usable for inspection");
+    const video: VideoInspectionResult = {
+      kind: "video",
+      fps: 10,
+      durationSec: 10,
+      analysedSec: 10,
+      truncated: false,
+      sampleFps: 2,
+      framesAnalysed: 20,
+      motionThresholdPct: 1,
+      movingPct: 60,
+      segments: [],
+      stillPeriods: [{ startSec: 4, endSec: 8, durationSec: 4 }],
+      quality: { blurryFrames: 0, underexposedFrames: 0, overexposedFrames: 0 },
+      codes: [],
+      series: [],
+      engine: "OpenCV 4.14.0",
+      durationMs: 300,
+    };
+    const v = findingsFromInspection(video);
+    expect(v.findings).toHaveLength(1);
+    expect(v.findings[0]).toMatchObject({ category: "Line motion stopped", timestampSec: 4, severity: "minor" });
   });
 });

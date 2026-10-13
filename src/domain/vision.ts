@@ -28,6 +28,10 @@ export const VISION_CATEGORIES = [
   "Safety: PPE not visible (advisory)",
   "Safety: person in restricted zone (advisory)",
   "Housekeeping: spill or obstruction",
+  "Deviation from golden reference",
+  "Image not usable for inspection",
+  "Code read",
+  "Line motion stopped",
   "No defect visible",
   "Other",
 ] as const;
@@ -144,4 +148,139 @@ export function dispositionReview(state: FactoryState, id: string, disposition: 
     refs: {},
   });
   return r;
+}
+
+/* ───────────────────────────── vision service (OpenCV) results ───────────────────────────── */
+
+type NBox = { x: number; y: number; w: number; h: number };
+
+export interface ServiceCode {
+  format: string;
+  data: string;
+  box?: NBox;
+  symbolContrast?: number | null;
+  contrastGrade: string | null;
+  firstSec?: number;
+}
+
+export interface ImageInspectionResult {
+  kind: "image";
+  width: number;
+  height: number;
+  quality: { sharpness: number; brightness: number; contrast: number; usable: boolean; issues: string[] };
+  codes: ServiceCode[];
+  comparison: {
+    alignment: "homography" | "resize";
+    alignmentNote: string;
+    inliers: number;
+    threshold: number;
+    minAreaPct: number;
+    changedPct: number;
+    defects: { box: NBox; areaPct: number; meanDiff: number }[];
+    truncated: boolean;
+  } | null;
+  engine: string;
+  durationMs: number;
+}
+
+export interface VideoInspectionResult {
+  kind: "video";
+  fps: number;
+  durationSec: number;
+  analysedSec: number;
+  truncated: boolean;
+  sampleFps: number;
+  framesAnalysed: number;
+  motionThresholdPct: number;
+  movingPct: number;
+  segments: { state: "moving" | "still"; startSec: number; endSec: number }[];
+  stillPeriods: { startSec: number; endSec: number; durationSec: number }[];
+  quality: { blurryFrames: number; underexposedFrames: number; overexposedFrames: number };
+  codes: ServiceCode[];
+  series: { t: number; changedPct: number }[];
+  engine: string;
+  durationMs: number;
+}
+
+export type InspectionResult = ImageInspectionResult | VideoInspectionResult;
+
+const pctText = (v: number) => `${v < 0.1 ? v.toFixed(2) : v.toFixed(1)}%`;
+const LOW_GRADES = new Set(["D", "F"]);
+
+/** Turn a deterministic OpenCV result into review findings (confidence 1 = measured, not predicted). */
+export function findingsFromInspection(r: InspectionResult): { summary: string; findings: VisionFinding[] } {
+  const findings: VisionFinding[] = [];
+  const codeFinding = (c: ServiceCode): VisionFinding => {
+    const low = !!c.contrastGrade && LOW_GRADES.has(c.contrastGrade);
+    return {
+      timestampSec: c.firstSec ?? null,
+      category: low && c.format !== "QR_CODE" ? "Barcode grade below C" : "Code read",
+      description: `${c.format} "${c.data}"${c.contrastGrade ? ` · indicative symbol-contrast grade ${c.contrastGrade}${c.symbolContrast != null ? ` (${c.symbolContrast}%)` : ""}` : ""}. Indicative only: a formal ISO/IEC 15416 grade needs a calibrated verifier.`,
+      severity: low ? "major" : "info",
+      confidence: 1,
+      ...(c.box ? { box: c.box } : {}),
+    };
+  };
+
+  if (r.kind === "image") {
+    if (!r.quality.usable) {
+      findings.push({
+        timestampSec: null,
+        category: "Image not usable for inspection",
+        description: `Image is ${r.quality.issues.join(", ")} (sharpness ${r.quality.sharpness}, brightness ${r.quality.brightness}, contrast ${r.quality.contrast}). Retake before judging the part.`,
+        severity: "major",
+        confidence: 1,
+      });
+    }
+    if (r.comparison) {
+      for (const d of r.comparison.defects) {
+        findings.push({
+          timestampSec: null,
+          category: "Deviation from golden reference",
+          description: `Region at ${Math.round((d.box.x + d.box.w / 2) * 100)}% across, ${Math.round((d.box.y + d.box.h / 2) * 100)}% down differs from the golden board (${pctText(d.areaPct)} of the image, mean difference ${d.meanDiff}). Check for a missing, extra or misplaced part.`,
+          severity: d.areaPct >= 0.5 ? "major" : "minor",
+          confidence: 1,
+          box: d.box,
+        });
+      }
+    }
+    findings.push(...r.codes.map(codeFinding));
+    if (!findings.length) {
+      findings.push({ timestampSec: null, category: "No defect visible", description: r.comparison ? "No region differs from the golden reference above the threshold." : "Image is usable; no codes found. Add a golden reference image to compare parts.", severity: "info", confidence: 1 });
+    }
+    const deviations = r.comparison?.defects.length ?? 0;
+    const summary = [
+      `${r.width}×${r.height} image`,
+      r.quality.usable ? "usable for inspection" : `not usable (${r.quality.issues.join(", ")})`,
+      r.comparison ? `${deviations} region${deviations === 1 ? " differs" : "s differ"} from the golden reference (${r.comparison.alignment === "homography" ? `aligned with ${r.comparison.inliers} feature matches` : "not aligned; compared after resizing"})` : "no golden reference supplied",
+      `${r.codes.length} code${r.codes.length === 1 ? "" : "s"} read`,
+    ].join(" · ");
+    return { summary: `${summary}. ${r.engine}, deterministic.`, findings };
+  }
+
+  for (const s of r.stillPeriods) {
+    findings.push({
+      timestampSec: s.startSec,
+      category: "Line motion stopped",
+      description: `No motion for ${s.durationSec.toFixed(1)} s (${s.startSec.toFixed(1)}–${s.endSec.toFixed(1)} s). On a fixed camera over a conveyor this usually means the line stopped; confirm against the line's PLC state.`,
+      severity: s.durationSec >= 30 ? "major" : "minor",
+      confidence: 1,
+    });
+  }
+  const badFrames = r.quality.blurryFrames + r.quality.underexposedFrames + r.quality.overexposedFrames;
+  if (badFrames > r.framesAnalysed * 0.2) {
+    findings.push({
+      timestampSec: null,
+      category: "Image not usable for inspection",
+      description: `${badFrames} of ${r.framesAnalysed} sampled frames are blurry or badly exposed. Check focus, lighting and lens cleanliness.`,
+      severity: "minor",
+      confidence: 1,
+    });
+  }
+  findings.push(...r.codes.map(codeFinding));
+  if (!findings.length) findings.push({ timestampSec: null, category: "No defect visible", description: "Continuous motion and usable frames throughout the clip.", severity: "info", confidence: 1 });
+  return {
+    summary: `${r.analysedSec.toFixed(1)} s of video analysed (${r.framesAnalysed} frames at ${r.sampleFps} fps${r.truncated ? ", truncated" : ""}) · moving ${r.movingPct}% of the time · ${r.stillPeriods.length} still period${r.stillPeriods.length === 1 ? "" : "s"} · ${r.codes.length} code${r.codes.length === 1 ? "" : "s"} read. ${r.engine}, deterministic.`,
+    findings,
+  };
 }

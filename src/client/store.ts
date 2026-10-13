@@ -18,6 +18,7 @@ import type {
   VisionReview,
 } from "@/domain/types";
 import type { Anomaly } from "@/domain/anomaly";
+import type { InspectionResult } from "@/domain/vision";
 import { api, ApiError, streamNdjson } from "./api";
 
 /* ───────────────────────────── Factory store ───────────────────────────── */
@@ -78,6 +79,7 @@ interface FactoryStore {
   setCameraStream: (id: string, kind: "simulated" | "hls" | "mp4" | "mjpeg", url: string | null) => Promise<boolean>;
   reviewInspectionLog: (cameraId: string) => Promise<VisionReview | undefined>;
   analyzeMedia: (file: File, cameraId: string | null) => Promise<VisionReview | undefined>;
+  inspectWithService: (file: File, reference: File | null, cameraId: string | null) => Promise<{ review: VisionReview; result: InspectionResult } | undefined>;
   dispositionReview: (id: string, disposition: "confirmed" | "dismissed", note: string) => Promise<boolean>;
 }
 
@@ -422,6 +424,24 @@ export const useFactory = create<FactoryStore>((set, get) => ({
         return data.review;
       },
       (r) => `${r.id}: Gemini returned ${r.findings.length} finding(s) — pending your review`,
+    );
+  },
+
+  inspectWithService: async (file, reference, cameraId) => {
+    return get().run(
+      "visionInspect",
+      async () => {
+        const form = new FormData();
+        form.append("file", file);
+        if (reference) form.append("reference", reference);
+        if (cameraId) form.append("cameraId", cameraId);
+        const res = await fetch("/api/vision/inspect", { method: "POST", body: form, cache: "no-store" });
+        const data = (await res.json().catch(() => null)) as { review?: VisionReview; result?: InspectionResult; state?: FactoryState; error?: string } | null;
+        if (!res.ok || !data?.review || !data.result || !data.state) throw new ApiError(data?.error ?? `Inspection failed (${res.status})`, res.status);
+        get().apply(data.state);
+        return { review: data.review, result: data.result };
+      },
+      (r) => `${r.review.id}: ${r.review.findings.length} finding(s) measured — pending your review`,
     );
   },
 

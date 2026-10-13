@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { CheckCircle2, CircleSlash, Cloud, Database, FileText, KeyRound, Loader2, PlugZap, Radio, Server, Sparkles, XCircle, HardDrive, Cpu } from "lucide-react";
+import { CheckCircle2, CircleSlash, Cloud, Database, FileText, KeyRound, Loader2, PlugZap, Radio, Server, Sparkles, XCircle, HardDrive, Cpu, ScanEye } from "lucide-react";
 import { PageHeader } from "@/components/page";
 import { Badge, Button, Card, CardBody, CardHeader, type Tone } from "@/components/ui/primitives";
 import { useFactory } from "@/client/store";
@@ -36,6 +36,7 @@ const ICON: Record<string, typeof Cloud> = {
   mqtt: Server,
   persistence: HardDrive,
   "cloud-run": Cloud,
+  "vision-service": ScanEye,
 };
 
 export default function IntegrationsPage() {

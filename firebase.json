@@ -3,7 +3,18 @@
     {
       "backendId": "twinforge",
       "rootDir": "/",
-      "ignore": ["node_modules", ".git", ".next", ".next-dev", ".data", ".data-dev", "test-results", "playwright-report", "firebase-debug.log"]
+      "ignore": [
+        "node_modules",
+        ".git",
+        ".next",
+        ".next-dev",
+        ".data",
+        ".data-dev",
+        "test-results",
+        "playwright-report",
+        "firebase-debug.log",
+        "services"
+      ]
     }
   ]
 }

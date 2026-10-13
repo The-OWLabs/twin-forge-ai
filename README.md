@@ -94,6 +94,7 @@ The fastest path is **Demo controls → Run Factory Crisis Demo** (top-right). I
 | Live view plays a real HLS / MP4 / MJPEG stream when a camera is pointed at a gateway URL (https only) | ✅ implemented; needs a gateway |
 | Visual Quality: FPY, DPMO, rolled throughput yield, defect Pareto, hourly reject trend, vibration ↔ reject correlation, camera wall, standards and privacy panel | ✅ |
 | Visual reviews: deterministic station-log review, Gemini review of uploaded clips or photos, human confirm / dismiss | ✅ Gemini part needs credentials |
+| Python vision service (FastAPI + OpenCV): golden-board comparison with alignment, barcode/QR reading with an indicative grade, image quality, video stoppage detection; results drawn over the upload and stored as reviews | ✅ runs locally / in Docker; Cloud Run deploy is Phase 2 of [the plan](docs/python-services-plan.md) |
 | What-if engine: baseline plus three alternatives plus a custom plan, 10+ adjustable parameters, comparison table, charts, timeline, assumptions | ✅ |
 | Human approval: approve, reject, rollback, execution status, directive tracking | ✅ |
 | Sustainability: energy per unit, by-line energy, idle waste, scrap, avoidable-waste estimates, scenario energy and waste | ✅ |
@@ -106,7 +107,7 @@ The fastest path is **Demo controls → Run Factory Crisis Demo** (top-right). I
 
 ## Architecture
 
-One deployable service: **Next.js 15 (App Router, TypeScript)** for the UI and the JSON API. There is no second backend to keep in sync.
+**Next.js 15 (App Router, TypeScript)** serves the UI and the JSON API, owns all state and runs the deterministic engine. An optional **Python vision service** (FastAPI + OpenCV, `services/vision`) handles machine-vision checks; it is stateless, and Next.js calls it server-to-server. The plan for Python services is in [docs/python-services-plan.md](docs/python-services-plan.md).
 
 ```
 Browser (React 19, Tailwind 4, React Flow, Recharts, Zustand)
@@ -125,9 +126,12 @@ Next.js Route Handlers (/api/*)            ← thin: validate (zod) → domain c
  ├── src/server/   server-only adapters
  │     store.ts        file-backed state (globalThis cache + atomic JSON write)
  │     ai/provider.ts  Gemini (Vertex AI / API key) + deterministic fallback
- │     integrations/*  BigQuery · Pub/Sub · Cloud Storage · MQTT · honest status
+ │     integrations/*  BigQuery · Pub/Sub · Cloud Storage · MQTT · vision service · honest status
  │
- └── content/docs  local maintenance manuals (Cloud Storage fallback)
+ ├── content/docs  local maintenance manuals (Cloud Storage fallback)
+ │
+ └──► services/vision (Python, optional)   FastAPI + OpenCV on Cloud Run, called with a Google ID token
+       golden-board comparison · barcode/QR reading · image quality · video stoppages
 ```
 
 **Single source of truth.** The server owns one `FactoryState` (see `src/domain/types.ts`): lines, assets, telemetry, production history, inventory, orders, work orders, directives, incidents, analyses, scenario runs, recommendations and audit. Every page renders from it. The simulator and dashboard forecast run the *same* domain code client-side on a snapshot, so what-if sliders respond instantly, and the server recomputes whenever a run is recorded.
@@ -197,6 +201,8 @@ The workflow (`src/domain/agents/pipeline.ts`) runs on a frozen snapshot, so liv
 
 **Gemini video review.** Upload a clip or photo (MP4, WebM, MOV, JPEG, PNG or WebP, up to 15 MB). Gemini returns findings restricted to a fixed category list, with a JSON schema, temperature 0 and zod validation. Results are advisory: every review lands as *awaiting human review*, and nothing is accepted or rejected automatically. Without credentials the upload is disabled and the API returns 503; the deterministic station-log review still works.
 
+**Machine-vision check (Python service).** With the vision service running, **Visual Quality → Machine-vision check** takes a part photo and, optionally, a photo of a known-good part (the *golden reference*). The service aligns the two, normalises lighting and boxes every region that differs. It also reads barcodes and QR codes, rates whether the photo is sharp and lit well enough to judge, and finds still periods in a clip. These are deterministic OpenCV measurements, not a trained model. See [services/vision](services/vision/README.md).
+
 **Safety and privacy.** Video analytics are not safety functions (IEC 61496 / ISO 13849) and never replace guarding or interlocks. Area cameras blur faces, footage has a fixed retention period, analytics are limited to stated purposes, and every live view is audited. This reflects how India's DPDP Act, 2023 treats workplace video as personal data.
 
 ---
@@ -221,6 +227,7 @@ The workflow (`src/domain/agents/pipeline.ts`) runs on a frozen snapshot, so liv
 | `GET /api/cameras` · `PATCH /api/cameras/:id` · `POST /api/cameras/:id/view` | Cameras with their current views · set stream source (https gateway URL) · log a live view |
 | `GET /api/quality` | FPY, DPMO, RTY, Pareto and correlations (24 h) |
 | `POST /api/vision/review-log` · `POST /api/vision/analyze` · `PATCH /api/vision/reviews/:id` | Station-log review · Gemini review of an uploaded file (multipart `file`, optional `cameraId`) · confirm or dismiss |
+| `POST /api/vision/inspect` | Machine-vision check on the Python service (multipart `file` image or video, optional `reference` golden image and `cameraId`) |
 
 Inputs are validated with zod. Errors return `{ error, issues? }` with 400, 404 or 409 status codes.
 
@@ -249,6 +256,7 @@ Everything works **without credentials**. Each integration activates when its en
 | **Pub/Sub** | Telemetry ingestion: `{assetId, vibration, temperature, powerKw}` messages override simulated measurements | `PUBSUB_TELEMETRY_SUBSCRIPTION`, `TELEMETRY_SOURCE=pubsub` |
 | **Cloud Storage** | Per-asset documents under `assets/<assetId>/` | `GCS_BUCKET` |
 | **Cloud Run** | Hosting (detected via `K_SERVICE`) | See below |
+| **Vision service** (Cloud Run, Python) | OpenCV checks behind `POST /api/vision/inspect` | `VISION_SERVICE_URL`; on Cloud Run, grant the web app's service account `roles/run.invoker` ([plan, Phase 2](docs/python-services-plan.md#phase-2-deploy-to-cloud-run-next-1-hour)) |
 | MQTT | TCP reachability probe only | `MQTT_BROKER_URL` |
 
 > **Model note.** `gemini-2.5-flash` is scheduled for retirement in October 2026, so the default is `gemini-3.5-flash`. Confirm the model ID and region are enabled for your project in Vertex AI Model Garden, or set `GEMINI_MODEL`.
@@ -299,11 +307,12 @@ docker run -p 8080:8080 twinforge-ai     # http://localhost:8080
 ## Testing
 
 ```bash
-npm test               # 49 Vitest tests
+npm test               # 51 Vitest tests
 npm run build && npm run test:e2e   # 8 Playwright tests against the production server
+cd services/vision && uv run pytest # 16 pytest tests for the Python vision service
 ```
 
-- **Unit and integration tests** (`tests/`, 49 tests), including a check that the landing story's figures are engine-derived:
+- **Unit and integration tests** (`tests/`, 51 tests), including a check that the landing story's figures are engine-derived:
   - seed reproducibility and entity counts
   - health and status rules, OLS and trend estimation, change-point detection
   - KPIs
@@ -316,6 +325,8 @@ npm run build && npm run test:e2e   # 8 Playwright tests against the production 
   - the LLM grounding check and deterministic fallback
   - visual quality: scrap fully attributed to causes, FPY / Pareto consistency, the robot ↔ AOI correlation in the crisis, deterministic inspection frames, thermal readings matching the twin
   - cameras: https-only stream URLs, audited live views, station-log reviews and the human disposition guard
+  - mapping of vision-service results to review findings
+- **Python vision service** (`services/vision/tests`, 16 tests, synthetic media): a missing IC found where it should be, a rotated and shifted part aligned, lighting changes ignored, QR and EAN-13 decoding with grades, deterministic output, a video stoppage found at the right time, and API limits.
 - **End-to-end tests** (`e2e/demo.spec.ts`, 8 tests): camera card → audited live view → Visual Quality review confirmed by a person; camera API validation and honest Gemini status; isometric selection and rotation, theme persistence, every landing-story chapter appearing on scroll; every page renders with no console errors; the full guided crisis demo (incident → agents → scenario sensitivity → twin highlight → approval → fast-forward → audit); reset reproducibility; API validation.
 
 ---
@@ -330,6 +341,8 @@ src/
   client/              API client, Zustand stores (factory, UI prefs, simulator workbench), hooks
   domain/              plant model, telemetry, simulation, agents, quality, vision, recommendations, actions, KPIs, seed
   server/              persistence, AI provider, integrations, documents, request schemas
+services/vision/       Python vision service (FastAPI + OpenCV), tests, Dockerfile
+docs/                  plans (python-services-plan.md)
 content/docs/          demo maintenance manuals and procedures (fictional)
 infra/                 BigQuery schema, Cloud Run deploy script
 tests/ e2e/            Vitest and Playwright suites

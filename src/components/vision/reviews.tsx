@@ -1,9 +1,10 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Check, FileVideo, ScanSearch, Sparkles, Upload, X } from "lucide-react";
+import { Check, FileVideo, Image as ImageIcon, ScanEye, ScanSearch, Sparkles, Upload, X } from "lucide-react";
 import { useFactory } from "@/client/store";
 import type { FactoryState, VisionFinding, VisionReview } from "@/domain/types";
+import type { InspectionResult } from "@/domain/vision";
 import { cn } from "@/lib/cn";
 import { fmtSimTime } from "@/lib/format";
 import { Badge, Button, EmptyState, Input, Label, Select } from "../ui/primitives";
@@ -11,25 +12,37 @@ import { Badge, Button, EmptyState, Input, Label, Select } from "../ui/primitive
 const SEVERITY_TONE: Record<VisionFinding["severity"], "neutral" | "warning" | "critical" | "accent"> = { info: "accent", minor: "neutral", major: "warning", critical: "critical" };
 const ACCEPT = "video/mp4,video/webm,video/quicktime,image/jpeg,image/png,image/webp";
 
-type GeminiStatus = { state: string; detail: string } | null;
+type Status = { state: string; detail: string } | null;
 
-/** Reads the honest integration status so the uploader never pretends Gemini is available. */
-function useGeminiStatus(): GeminiStatus {
-  const [s, setS] = useState<GeminiStatus>(null);
+/** Reads the honest integration status so an uploader never pretends a service is available. */
+function useIntegrationStatus(ids: string[], refresh = 0): Record<string, Status> {
+  const [s, setS] = useState<Record<string, Status>>({});
+  const key = ids.join(",");
   useEffect(() => {
     let alive = true;
     fetch("/api/integrations", { cache: "no-store" })
       .then((r) => r.json())
       .then((d: { integrations: { id: string; state: string; detail: string }[] }) => {
-        const v = d.integrations.find((i) => i.id === "vertex-ai");
-        if (alive) setS(v ? { state: v.state, detail: v.detail } : { state: "not-configured", detail: "" });
+        if (!alive) return;
+        setS(Object.fromEntries(key.split(",").map((id) => {
+          const v = d.integrations.find((i) => i.id === id);
+          return [id, v ? { state: v.state, detail: v.detail } : { state: "not-configured", detail: "" }];
+        })));
       })
-      .catch(() => alive && setS({ state: "error", detail: "Could not read integration status." }));
+      .catch(() => alive && setS(Object.fromEntries(key.split(",").map((id) => [id, { state: "error", detail: "Could not read integration status." }]))));
     return () => {
       alive = false;
     };
-  }, []);
+  }, [key, refresh]);
   return s;
+}
+
+function StatusBadge({ status }: { status: Status | undefined }) {
+  return (
+    <Badge tone={status?.state === "connected" ? "healthy" : status?.state === "not-configured" ? "neutral" : status?.state === "error" ? "critical" : "accent"} className="ml-auto">
+      {!status ? "checking…" : status.state === "not-configured" ? "not configured" : status.state.replace(/-/g, " ")}
+    </Badge>
+  );
 }
 
 export function ReviewTools({ state }: { state: FactoryState }) {
@@ -37,7 +50,9 @@ export function ReviewTools({ state }: { state: FactoryState }) {
   const reviewLog = useFactory((s) => s.reviewInspectionLog);
   const busyAnalyze = useFactory((s) => s.busy.visionAnalyze);
   const busyLog = useFactory((s) => s.busy.visionReview);
-  const gemini = useGeminiStatus();
+  const [refresh, setRefresh] = useState(0);
+  const status = useIntegrationStatus(["vertex-ai", "vision-service"], refresh);
+  const gemini = status["vertex-ai"];
   const inspection = state.cameras.filter((c) => c.kind === "inspection");
   const [cameraId, setCameraId] = useState(inspection[0]?.id ?? "");
   const [file, setFile] = useState<File | null>(null);
@@ -74,9 +89,7 @@ export function ReviewTools({ state }: { state: FactoryState }) {
       <div className="rounded-xl border border-line bg-shell p-3.5">
         <p className="flex items-center gap-1.5 text-[13px] font-semibold text-ink">
           <Sparkles className="h-4 w-4 text-agent" /> Review footage with Gemini
-          <Badge tone={gemini?.state === "connected" ? "healthy" : gemini?.state === "not-configured" ? "neutral" : gemini?.state === "error" ? "critical" : "accent"} className="ml-auto">
-            {gemini === null ? "checking…" : gemini.state === "not-configured" ? "not configured" : gemini.state.replace(/-/g, " ")}
-          </Badge>
+          <StatusBadge status={gemini} />
         </p>
         <p className="mt-1 text-[12px] leading-relaxed text-muted">
           Upload a short clip or photo (MP4, WebM, MOV, JPEG, PNG, WebP; up to 15 MB). Gemini reports what it can see using fixed defect categories. Results are advisory and wait for your decision.
@@ -121,6 +134,170 @@ export function ReviewTools({ state }: { state: FactoryState }) {
           </p>
         )}
       </div>
+
+      <MachineVisionCard state={state} status={status["vision-service"]} defaultCameraId={cameraId} onDone={() => setRefresh((n) => n + 1)} />
+    </div>
+  );
+}
+
+const IMAGE_ACCEPT = "image/jpeg,image/png,image/webp,image/bmp";
+const MV_ACCEPT = `${IMAGE_ACCEPT},video/mp4,video/webm,video/quicktime,video/x-msvideo,.avi`;
+const sizeText = (bytes: number) => (bytes < 1024 * 1024 ? `${Math.max(1, Math.round(bytes / 1024))} KB` : `${(bytes / 1024 / 1024).toFixed(1)} MB`);
+
+function MachineVisionCard({ state, status, defaultCameraId, onDone }: { state: FactoryState; status: Status | undefined; defaultCameraId: string; onDone: () => void }) {
+  const inspect = useFactory((s) => s.inspectWithService);
+  const busy = useFactory((s) => s.busy.visionInspect);
+  const [file, setFile] = useState<File | null>(null);
+  const [reference, setReference] = useState<File | null>(null);
+  const [cameraId, setCameraId] = useState(defaultCameraId);
+  const [last, setLast] = useState<{ result: InspectionResult; url: string; reviewId: string } | null>(null);
+  const fileInput = useRef<HTMLInputElement>(null);
+  const refInput = useRef<HTMLInputElement>(null);
+  const available = !!status && status.state !== "not-configured";
+  const isVideo = !!file && (file.type.startsWith("video/") || /\.(mp4|m4v|webm|mov|avi)$/i.test(file.name));
+  const tooBig = !!file && file.size > (isVideo ? 30 : 15) * 1024 * 1024;
+  useEffect(() => () => void (last && URL.revokeObjectURL(last.url)), [last]);
+
+  return (
+    <div className="rounded-xl border border-line bg-shell p-3.5 lg:col-span-2" data-testid="machine-vision">
+      <p className="flex items-center gap-1.5 text-[13px] font-semibold text-ink">
+        <ScanEye className="h-4 w-4 text-accent" /> Machine-vision check (Python service · OpenCV)
+        <StatusBadge status={status} />
+      </p>
+      <p className="mt-1 text-[12px] leading-relaxed text-muted">
+        Deterministic checks, same input → same result. For an <strong className="font-medium text-ink-2">image</strong>: is it sharp and well lit enough to judge, which barcodes and QR codes are on it, and, with a
+        photo of a known-good part as the golden reference, which regions differ from it. For a <strong className="font-medium text-ink-2">video</strong>: when the scene stops moving (possible line stoppage). Findings
+        are measurements for you to judge, not verdicts.
+      </p>
+      <div className="mt-3 flex flex-wrap items-end gap-2">
+        <input ref={fileInput} type="file" accept={MV_ACCEPT} className="hidden" onChange={(e) => setFile(e.target.files?.[0] ?? null)} data-testid="mv-file" />
+        <input ref={refInput} type="file" accept={IMAGE_ACCEPT} className="hidden" onChange={(e) => setReference(e.target.files?.[0] ?? null)} data-testid="mv-reference" />
+        <Button size="sm" variant="outline" onClick={() => fileInput.current?.click()} disabled={!available}>
+          <Upload className="h-3.5 w-3.5" /> {file ? "Change part image / clip" : "Part image or clip"}
+        </Button>
+        <Button size="sm" variant="outline" onClick={() => refInput.current?.click()} disabled={!available || isVideo}>
+          <ImageIcon className="h-3.5 w-3.5" /> {reference ? "Change golden reference" : "Golden reference (optional)"}
+        </Button>
+        <Select aria-label="Station for the machine-vision check" className="min-w-0 flex-1" value={cameraId} onChange={(e) => setCameraId(e.target.value)} disabled={!available}>
+          {state.cameras.map((c) => (
+            <option key={c.id} value={c.id}>
+              {c.id} · {c.zone}
+            </option>
+          ))}
+        </Select>
+        <Button
+          size="sm"
+          variant="primary"
+          loading={busy}
+          disabled={!available || !file || tooBig}
+          onClick={async () => {
+            if (!file) return;
+            const r = await inspect(file, isVideo ? null : reference, cameraId || null);
+            if (r) setLast({ result: r.result, url: URL.createObjectURL(file), reviewId: r.review.id });
+            onDone();
+          }}
+        >
+          Inspect
+        </Button>
+      </div>
+      {(file || reference) && (
+        <p className={cn("mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11.5px]", tooBig ? "text-critical-ink" : "text-ink-2")}>
+          {file && (
+            <span className="flex items-center gap-1.5">
+              <FileVideo className="h-3.5 w-3.5" /> {file.name} · {sizeText(file.size)}{tooBig ? ` — over the ${isVideo ? 30 : 15} MB limit` : ""}
+            </span>
+          )}
+          {reference && !isVideo && (
+            <span className="flex items-center gap-1.5 text-muted">
+              golden: {reference.name}
+              <button className="hover:text-ink" onClick={() => setReference(null)} aria-label="Remove golden reference">
+                <X className="h-3 w-3" />
+              </button>
+            </span>
+          )}
+        </p>
+      )}
+      {status?.state === "not-configured" && (
+        <p className="mt-2 text-[11.5px] leading-relaxed text-warning-ink">
+          The Python vision service isn&apos;t connected to this deployment. Run <code className="font-mono">services/vision</code> and set VISION_SERVICE_URL; see docs/python-services-plan.md.
+        </p>
+      )}
+      {last && <InspectionPreview result={last.result} url={last.url} reviewId={last.reviewId} />}
+    </div>
+  );
+}
+
+function InspectionPreview({ result, url, reviewId }: { result: InspectionResult; url: string; reviewId: string }) {
+  if (result.kind === "image") {
+    const defects = result.comparison?.defects ?? [];
+    return (
+      <div className="mt-3 grid gap-3 md:grid-cols-[minmax(0,1fr)_260px]" data-testid="mv-preview">
+        <div className="relative mx-auto w-fit max-w-full overflow-hidden rounded-lg border border-line bg-black">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={url} alt="Inspected part" className="block max-h-80 max-w-full" />
+          {defects.map((d, i) => (
+            <span key={`d${i}`} className="absolute border-2 border-red-500" style={{ left: `${d.box.x * 100}%`, top: `${d.box.y * 100}%`, width: `${d.box.w * 100}%`, height: `${d.box.h * 100}%` }}>
+              <span className="absolute -top-4 left-0 rounded-sm bg-red-500 px-1 text-[9.5px] leading-4 font-semibold text-white">{i + 1}</span>
+            </span>
+          ))}
+          {result.codes.map((c, i) =>
+            c.box ? (
+              <span key={`c${i}`} className="absolute border-2 border-sky-400" style={{ left: `${c.box.x * 100}%`, top: `${c.box.y * 100}%`, width: `${c.box.w * 100}%`, height: `${c.box.h * 100}%` }} />
+            ) : null,
+          )}
+        </div>
+        <div className="space-y-1.5 text-[12px]">
+          <p className="font-medium text-ink">
+            {reviewId} · {result.engine}
+          </p>
+          <p className={result.quality.usable ? "text-healthy-ink" : "text-warning-ink"}>
+            {result.quality.usable ? "Image usable for inspection" : `Not usable: ${result.quality.issues.join(", ")}`}
+          </p>
+          <p className="text-ink-2">
+            Sharpness {result.quality.sharpness} · brightness {result.quality.brightness} · contrast {result.quality.contrast}
+          </p>
+          {result.comparison ? (
+            <p className="text-ink-2">
+              <span className="font-medium text-ink">{defects.length}</span> region{defects.length === 1 ? " differs" : "s differ"} from the golden reference
+              <span className="text-muted"> · {result.comparison.alignment === "homography" ? `aligned (${result.comparison.inliers} matches)` : "not aligned"}</span>
+            </p>
+          ) : (
+            <p className="text-muted">No golden reference, so parts were not compared.</p>
+          )}
+          {result.codes.map((c) => (
+            <p key={`${c.format}${c.data}`} className="text-ink-2">
+              <span className="text-sky-500">■</span> {c.format} <span className="font-mono text-ink">{c.data}</span> · grade {c.contrastGrade ?? "—"} (indicative)
+            </p>
+          ))}
+          <p className="text-[11px] text-muted">{result.durationMs} ms · findings added below, awaiting your decision.</p>
+        </div>
+      </div>
+    );
+  }
+  const total = Math.max(result.analysedSec, 0.001);
+  return (
+    <div className="mt-3 space-y-2" data-testid="mv-preview">
+      <div className="flex h-5 overflow-hidden rounded-md border border-line" role="img" aria-label="Motion timeline">
+        {result.segments.map((s, i) => (
+          <span
+            key={i}
+            title={`${s.state} ${s.startSec}–${s.endSec} s`}
+            className={s.state === "moving" ? "bg-healthy/70" : "bg-warning/80"}
+            style={{ width: `${((s.endSec - s.startSec) / total) * 100}%` }}
+          />
+        ))}
+      </div>
+      <div className="flex justify-between text-[11px] text-muted">
+        <span>0 s</span>
+        <span>
+          <span className="text-healthy-ink">■</span> moving {result.movingPct}% · <span className="text-warning-ink">■</span> still
+        </span>
+        <span>{result.analysedSec.toFixed(1)} s</span>
+      </div>
+      <p className="text-[12px] text-ink-2">
+        {reviewId} · {result.stillPeriods.length ? result.stillPeriods.map((p) => `still ${p.startSec.toFixed(1)}–${p.endSec.toFixed(1)} s`).join(" · ") : "no still periods"} · {result.framesAnalysed} frames ·{" "}
+        {result.durationMs} ms
+      </p>
     </div>
   );
 }
@@ -157,7 +334,9 @@ function ReviewCard({ state, review }: { state: FactoryState; review: VisionRevi
     <div className={cn("rounded-xl border bg-surface p-3.5", pending ? "border-warning/40" : "border-line")} data-testid="vision-review">
       <div className="flex flex-wrap items-center gap-2">
         <span className="font-mono text-[12px] text-ink">{review.id}</span>
-        <Badge tone={review.source === "gemini" ? "agent" : "neutral"}>{review.source === "gemini" ? `Gemini · ${review.model ?? "model"}` : "Simulated inspection log"}</Badge>
+        <Badge tone={review.source === "gemini" ? "agent" : review.source === "opencv" ? "accent" : "neutral"}>
+          {review.source === "gemini" ? `Gemini · ${review.model ?? "model"}` : review.source === "opencv" ? (review.model ?? "OpenCV · vision service") : "Simulated inspection log"}
+        </Badge>
         {review.cameraId && <Badge tone="accent">{review.cameraId}</Badge>}
         <span className="text-[11.5px] text-muted">{fmtSimTime(state, review.hour)}</span>
         <Badge tone={pending ? "warning" : review.disposition === "confirmed" ? "healthy" : "neutral"} className="ml-auto">
@@ -171,7 +350,7 @@ function ReviewCard({ state, review }: { state: FactoryState; review: VisionRevi
           <table className="w-full min-w-[520px] text-[12px]">
             <thead>
               <tr className="border-b border-line text-left text-[10.5px] tracking-wide text-muted uppercase">
-                <th className="py-1.5 pr-3 font-medium">{review.source === "gemini" ? "Time" : "Offset"}</th>
+                <th className="py-1.5 pr-3 font-medium">{review.source === "simulated-inspection-log" ? "Offset" : "Time"}</th>
                 <th className="py-1.5 pr-3 font-medium">Category</th>
                 <th className="py-1.5 pr-3 font-medium">Detail</th>
                 <th className="py-1.5 pr-3 font-medium">Severity</th>
@@ -187,7 +366,7 @@ function ReviewCard({ state, review }: { state: FactoryState; review: VisionRevi
                   <td className="py-1.5 pr-3">
                     <Badge tone={SEVERITY_TONE[f.severity]}>{f.severity}</Badge>
                   </td>
-                  <td className="tabular py-1.5 text-right text-ink-2">{review.source === "gemini" ? `${Math.round(f.confidence * 100)}%` : "logged"}</td>
+                  <td className="tabular py-1.5 text-right text-ink-2">{review.source === "gemini" ? `${Math.round(f.confidence * 100)}%` : review.source === "opencv" ? "measured" : "logged"}</td>
                 </tr>
               ))}
             </tbody>

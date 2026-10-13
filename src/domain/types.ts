@@ -637,7 +637,9 @@ export interface VisionFinding {
   category: string;
   description: string;
   severity: "info" | "minor" | "major" | "critical";
-  confidence: number; // 0-1, model-reported
+  confidence: number; // 0-1, model-reported; 1 for deterministic measurements
+  /** Region in the inspected image, normalised 0–1 (machine-vision findings). */
+  box?: { x: number; y: number; w: number; h: number };
 }
 
 export interface VisionReview {
@@ -645,7 +647,7 @@ export interface VisionReview {
   cameraId: string | null;
   at: string;
   hour: number;
-  source: "gemini" | "simulated-inspection-log";
+  source: "gemini" | "simulated-inspection-log" | "opencv";
   model?: string;
   fileName: string | null;
   summary: string;

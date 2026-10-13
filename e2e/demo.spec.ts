@@ -189,4 +189,10 @@ test("camera API rejects insecure stream URLs and reports Gemini honestly", asyn
   const upload = await request.post("/api/vision/analyze", { multipart: { file: { name: "frame.png", mimeType: "image/png", buffer: Buffer.from([0x89, 0x50, 0x4e, 0x47]) } } });
   if (vertex.state === "not-configured") expect(upload.status()).toBe(503);
   else expect([201, 502]).toContain(upload.status());
+
+  // Python vision service: an honest 503 when it isn't connected; a real verdict on the input when it is
+  const vision = integrations.integrations.find((i) => i.id === "vision-service")!;
+  const inspect = await request.post("/api/vision/inspect", { multipart: { file: { name: "frame.png", mimeType: "image/png", buffer: Buffer.from([0x89, 0x50, 0x4e, 0x47]) } } });
+  if (vision.state === "not-configured") expect(inspect.status()).toBe(503);
+  else expect([422, 502]).toContain(inspect.status());
 });

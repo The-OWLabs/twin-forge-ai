@@ -23,3 +23,8 @@ env:
   # - variable: GEMINI_MODEL
   #   value: gemini-3.5-flash
   #   availability: [RUNTIME]
+  # Python vision service (optional): Cloud Run URL of services/vision. Grant this backend's service
+  # account roles/run.invoker on that service — see docs/python-services-plan.md.
+  # - variable: VISION_SERVICE_URL
+  #   value: https://twinforge-vision-<hash>.asia-southeast1.run.app
+  #   availability: [RUNTIME]
