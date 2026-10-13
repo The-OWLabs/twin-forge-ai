@@ -7,7 +7,7 @@ const nextConfig: NextConfig = {
   // Allows a side-by-side dev server (NEXT_DIST_DIR=.next-dev) without clobbering a production build.
   distDir: process.env.NEXT_DIST_DIR || ".next",
   eslint: { ignoreDuringBuilds: true },
-  serverExternalPackages: ["@google/genai", "google-auth-library"],
+  serverExternalPackages: ["@google/genai", "google-auth-library", "@google/adk", "@modelcontextprotocol/sdk"],
 };
 
 export default nextConfig;

@@ -232,7 +232,39 @@ test("Twin Builder: describe → draft → review with provenance → plan a con
   const state = (await (await request.get("/api/factory")).json()) as { profile: { name: string }; twinSpec: unknown; dataPlan: { kind: string; status: string }[]; audit: { title: string }[] };
   expect(state.profile.name).toBe("Riverside Bottling");
   expect(state.twinSpec).toBeTruthy();
-  expect(state.dataPlan).toEqual([expect.objectContaining({ kind: "opcua", status: "planned" })]);
+  expect(state.dataPlan).toContainEqual(expect.objectContaining({ kind: "opcua", address: "ns=3;s=Line.Speed", status: "planned" }));
   expect(state.audit[0].title).toContain("Twin Builder");
+  expect(errors).toEqual([]);
+});
+
+test("MCP server: initialize, list tools with read-only hints, call a tool", async ({ request }) => {
+  const headers = { accept: "application/json, text/event-stream", "content-type": "application/json", "mcp-protocol-version": "2025-06-18" };
+  const init = await request.post("/api/mcp", { headers, data: { jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "e2e", version: "1" } } } });
+  expect((await init.json()).result.serverInfo.name).toBe("twinforge");
+  const list = (await (await request.post("/api/mcp", { headers, data: { jsonrpc: "2.0", id: 2, method: "tools/list", params: {} } })).json()) as { result: { tools: { name: string; annotations?: { readOnlyHint?: boolean } }[] } };
+  expect(list.result.tools).toHaveLength(12);
+  expect(list.result.tools.filter((t) => !t.annotations?.readOnlyHint).map((t) => t.name)).toEqual(["propose_plan"]);
+  const call = (await (await request.post("/api/mcp", { headers, data: { jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: "diagnose_asset", arguments: { assetId: "A-ROB-03" } } } })).json()) as { result: { content: { text: string }[] } };
+  expect(JSON.parse(call.result.content[0].text).asset.id).toBe("A-ROB-03");
+  const bad = (await (await request.post("/api/mcp", { headers, data: { jsonrpc: "2.0", id: 4, method: "tools/call", params: { name: "diagnose_asset", arguments: { assetId: "NOPE" } } } })).json()) as { result: { isError: boolean } };
+  expect(bad.result.isError).toBe(true);
+});
+
+test("Copilot (ADK): grounded answer with a visible tool trace", async ({ page, request }) => {
+  const info = (await (await request.get("/api/copilot")).json()) as { available: boolean };
+  test.skip(!info.available, "Gemini is not configured on this server");
+  test.setTimeout(150_000);
+  const errors = collectErrors(page);
+  await request.post("/api/demo/crisis");
+  await page.goto("/dashboard");
+  await page.evaluate(() => localStorage.removeItem("twinforge-copilot"));
+  await page.reload();
+  await page.getByTestId("copilot-open").click();
+  await page.getByLabel("Message to the copilot").fill("Which machine is most at risk right now? Answer briefly.");
+  await page.getByRole("button", { name: "Send to copilot" }).click();
+  const answer = page.getByTestId("copilot-answer").last();
+  await expect(answer.getByText(/figures checked against tool results|not traced to a tool/)).toBeVisible({ timeout: 120_000 });
+  await expect(answer.getByText(/A-ROB-03/).first()).toBeVisible();
+  await expect(answer.getByText(/tool calls? by/)).toBeVisible();
   expect(errors).toEqual([]);
 });

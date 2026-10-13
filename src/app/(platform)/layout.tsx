@@ -10,6 +10,7 @@ import { Toaster } from "@/components/shell/toaster";
 import { Topbar } from "@/components/shell/topbar";
 import { Button, TooltipProvider } from "@/components/ui/primitives";
 import { CameraDialogHost } from "@/components/vision/camera-panel";
+import { CopilotPanel } from "@/components/copilot/copilot-panel";
 
 export default function PlatformLayout({ children }: { children: React.ReactNode }) {
   const [navOpen, setNavOpen] = useState(false);
@@ -53,6 +54,7 @@ export default function PlatformLayout({ children }: { children: React.ReactNode
         </div>
         <DemoGuide />
         <CameraDialogHost />
+        <CopilotPanel />
         <Toaster />
       </div>
     </TooltipProvider>

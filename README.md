@@ -5,6 +5,8 @@
 
 TwinForge AI is a working MVP of an industrial digital-twin platform. It digitizes a factory as a live topology, ingests (simulated) telemetry, watches the line through inspection, thermal and CCTV cameras placed in the twin, runs six specialized AI agents that investigate incidents, compares alternative operating plans on a deterministic plant model, and applies the chosen plan to the twin only after human approval, with a full audit trail.
 
+Operators can ask the **TwinForge Copilot**, a multi-agent system built on Google's Agent Development Kit (ADK). Its specialist agents answer with figures from deterministic tools, and it can propose plans, but only for human approval. External agents can use the same tools through the built-in **MCP server**.
+
 New users build their own twin with the **Twin Builder**: they give an agent their factory's drawing and requirements, and it reads the layout, researches standard setups with cited sources, and drafts a twin. The user reviews every element, with where each one came from, before a deterministic build ([design](docs/twin-builder.md)).
 
 It ships with one complete scenario: an electronics plant with three lines where an assembly robot develops bearing damage just as a critical customer order is due and a key component is in short supply.
@@ -21,12 +23,15 @@ It ships with one complete scenario: an electronics plant with three lines where
 6. [AI agents](#ai-agents)
 7. [Visual quality and cameras](#visual-quality-and-cameras)
 8. [Twin Builder](#twin-builder)
-9. [API reference](#api-reference)
-10. [Google Cloud integrations](#google-cloud-integrations)
-11. [Deploy (Firebase App Hosting or Cloud Run)](#deploy-to-firebase-app-hosting)
-12. [Testing](#testing)
-13. [Project structure](#project-structure)
-14. [Known limitations](#known-limitations)
+9. [Copilot (ADK) and MCP](#copilot-adk-and-mcp)
+10. [API reference](#api-reference)
+11. [Google Cloud integrations](#google-cloud-integrations)
+12. [Deploy (Firebase App Hosting or Cloud Run)](#deploy-to-firebase-app-hosting)
+13. [Testing](#testing)
+14. [Project structure](#project-structure)
+15. [Known limitations](#known-limitations)
+
+The full architecture and design document is [docs/architecture.md](docs/architecture.md).
 
 ---
 
@@ -75,7 +80,8 @@ The fastest path is **Demo controls → Run Factory Crisis Demo** (top-right). I
 5. **Cameras and Visual Quality**: in the Isometric view, click the thermal camera **THM-A1** above robot A3. A card shows what the camera sees (A-ROB-03 running hot); **Watch live stream** opens the live view, and the access is written to the audit trail. **Visual Quality** shows Line A's AOI reject rate rising from ≈1.7% to ≈3.3%, tracking A-ROB-03 vibration (r ≈ 0.89). **Review last 60 units** lists each reject with its IPC-A-610 criterion and waits for you to confirm or dismiss it.
 6. **Approvals**: review actions, evidence, benefits, risks, the impact table and rollback information. Approve it, then **Fast-forward 8 h**: Line B changes over, A-ROB-03 goes into maintenance, returns healthy, and the incident resolves itself.
 7. **Audit Trail**: every alert, agent finding, scenario run, decision, simulated action and resulting state change is listed with links.
-8. **Twin Builder** (sidebar): describe another plant, for example "two PET bottling lines, case packer and palletizer, OPC UA on the fillers", or upload its drawing. Review the draft with provenance badges on every element, plan a data connection, and build. The new twin runs with the same agents, simulator and cameras. **Reset Demo** brings back the crisis factory.
+8. **Ask Copilot** (top bar): ask "Why is Line A rejecting more boards?" The coordinator delegates to the maintenance, quality and planning agents, and every tool call is shown. The answer is checked figure by figure against the tool results. Then say "propose the reroute plan for approval": the copilot pauses for your confirmation and creates a pending recommendation in Approvals.
+9. **Twin Builder** (sidebar): describe another plant, for example "two PET bottling lines, case packer and palletizer, OPC UA on the fillers", or upload its drawing. Review the draft with provenance badges on every element, plan a data connection, and build. The new twin runs with the same agents, simulator and cameras. **Reset Demo** brings back the crisis factory.
 
 **Reset Demo** (Demo controls) restores the exact initial state at any time.
 
@@ -88,6 +94,8 @@ The fastest path is **Demo controls → Run Factory Crisis Demo** (top-right). I
 | Landing page: Apple-style scroll story — the isometric twin stays pinned while the scripted crisis unfolds (build → detect → investigate → simulate → approve → audit); every figure is computed by running the engine on that scenario | ✅ |
 | Light / dark theme toggle (persisted, no flash on load) across the app and landing page | ✅ |
 | **Twin Builder**: the agent reads a blueprint (Gemini, multimodal), researches standard layouts (Google Search grounding, cited) and drafts a twin spec. The user reviews it with provenance on every element, edits directly or by chat, plans data connections and builds. Deterministic validation and compile; template mode without AI | ✅ live on Vertex AI |
+| **TwinForge Copilot on Google ADK (TypeScript)**: coordinator + maintenance, quality and planning specialists (ADK `AgentTool`s) over 12 deterministic tools; a live tool trace; every figure checked against tool results; `propose_plan` behind ADK's human confirmation gate (creates a pending recommendation only); conversation memory | ✅ live on Vertex AI |
+| **MCP server** (`/api/mcp`, Streamable HTTP): the same 12 tools with read-only hints for any agent; a **Python ADK agent** (`services/agents`) that operates the twin over MCP | ✅ |
 | 16 machine archetypes across industries (CNC, mixer, oven, filler, molding, welding, palletizer, pump, manual station, extruder + the original 6), each with physics, sensors, failure mode, defect classes and a 3D shape; 7 industry templates | ✅ |
 | Factory Command Center: OEE, target vs. actual, health distribution, energy, scrap, incidents, shortages, delivery risk, line status, events | ✅ |
 | Digital Twin Studio: React Flow topology (lines, machines, sensors, inventory and order nodes; add, edit and connect assets; drag; zoom, pan and fit), an **isometric view** (extruded machines with status stack-lights, animated belts, warehouse racks and order trucks; rotate, zoom, pan, select), and a 2D floor plan, all with scenario highlighting | ✅ |
@@ -235,6 +243,28 @@ You can edit lines, machines, rates, products and connections directly, or ask t
 
 Design, guarantees and limits: [docs/twin-builder.md](docs/twin-builder.md).
 
+## Copilot (ADK) and MCP
+
+**Copilot.** Click **Ask Copilot** in the top bar. It's built with Google's Agent Development Kit for TypeScript, running inside the app:
+- **Agents.** A coordinator delegates to three specialist agents: maintenance, quality and planning.
+- **Tools.** 12 deterministic TwinForge tools: plant overview, assets, diagnosis, incidents, orders, inventory, what-if simulation, quality, camera views, audit search, the latest analysis, and plan proposals.
+- **Transparency.** Every tool call is shown above the answer.
+- **Grounding.** Every figure in the answer is checked against the tool results, and figures that can't be traced are flagged.
+- **Proposals.** The copilot can't approve or run anything. **propose_plan** pauses for your confirmation (ADK `requireConfirmation`) and then creates a *pending* recommendation that a person approves in Approvals.
+
+**MCP.** `POST /api/mcp` serves the same tools over the Model Context Protocol (Streamable HTTP), so any agent can operate the twin: an ADK agent, Gemini CLI, Claude or an IDE. Read tools carry `readOnlyHint`. Set `TWINFORGE_MCP_TOKEN` to require a bearer token. For example, with Gemini CLI or Claude Code, add an HTTP MCP server pointing to `https://<your-host>/api/mcp`.
+
+**Python ADK agent.** `services/agents` is a separate Python agent that reaches TwinForge only through MCP:
+
+```bash
+cd services/agents
+cp twinforge_mcp_agent/.env.example twinforge_mcp_agent/.env   # Vertex project, region, MCP URL
+uv sync && uv run python ask.py "Which machine is most at risk right now?"
+uv run adk web     # ADK's dev UI with the same agent
+```
+
+Design details: [docs/architecture.md § 7](docs/architecture.md#7-agentic-layers).
+
 ---
 
 ## API reference
@@ -257,6 +287,8 @@ Design, guarantees and limits: [docs/twin-builder.md](docs/twin-builder.md).
 | `GET /api/cameras` · `PATCH /api/cameras/:id` · `POST /api/cameras/:id/view` | Cameras with their current views · set stream source (https gateway URL) · log a live view |
 | `GET /api/quality` | FPY, DPMO, RTY, Pareto and correlations (24 h) |
 | `POST /api/vision/review-log` · `POST /api/vision/analyze` · `PATCH /api/vision/reviews/:id` | Station-log review · Gemini review of an uploaded file (multipart `file`, optional `cameraId`) · confirm or dismiss |
+| `GET /api/copilot` · `POST /api/copilot` | Copilot info · one ADK multi-agent turn (`{sessionId, message}` or `{sessionId, confirm}`), streamed as NDJSON |
+| `POST /api/mcp` | MCP server (Streamable HTTP, stateless): `initialize`, `tools/list`, `tools/call` for the 12 TwinForge tools |
 | `GET /api/builder` · `POST /api/builder/draft` · `POST /api/builder/refine` · `POST /api/builder/validate` · `POST /api/builder/build` | Twin Builder: capabilities and templates · agent draft (multipart, NDJSON stream) · chat edits · deterministic validation · build from a reviewed spec |
 | `POST /api/vision/inspect` | Machine-vision check on the Python service (multipart `file` image or video, optional `reference` golden image and `cameraId`) |
 
@@ -338,12 +370,12 @@ docker run -p 8080:8080 twinforge-ai     # http://localhost:8080
 ## Testing
 
 ```bash
-npm test               # 73 Vitest tests
-npm run build && npm run test:e2e   # 9 Playwright tests against the production server
+npm test               # 81 Vitest tests
+npm run build && npm run test:e2e   # 11 Playwright tests against the production server
 cd services/vision && uv run pytest # 16 pytest tests for the Python vision service
 ```
 
-- **Unit and integration tests** (`tests/`, 73 tests), including a check that the landing story's figures are engine-derived:
+- **Unit and integration tests** (`tests/`, 81 tests), including a check that the landing story's figures are engine-derived:
   - seed reproducibility and entity counts
   - health and status rules, OLS and trend estimation, change-point detection
   - KPIs
@@ -358,8 +390,9 @@ cd services/vision && uv run pytest # 16 pytest tests for the Python vision serv
   - cameras: https-only stream URLs, audited live views, station-log reviews and the human disposition guard
   - mapping of vision-service results to review findings
   - Twin Builder: every template validates cleanly, builds, simulates and runs the six-agent analysis; deterministic builds; industry-appropriate defect classes; validation repairs and errors; and the agent workflow with recorded model responses (blueprint links, citation filtering, unsupported machine types, fallbacks, and chat edits as validated operations). The demo factory is checked byte-identical after the generator refactor.
+- **Agent tools** (`tests/tools.test.ts`): every read tool leaves the twin unchanged; what-if matches the engine; the proposal only creates a pending recommendation; invalid arguments are rejected; no tool can approve, execute or command equipment; numeric grounding of answers.
 - **Python vision service** (`services/vision/tests`, 16 tests, synthetic media): a missing IC found where it should be, a rotated and shifted part aligned, lighting changes ignored, QR and EAN-13 decoding with grades, deterministic output, a video stoppage found at the right time, and API limits.
-- **End-to-end tests** (`e2e/demo.spec.ts`, 9 tests): Twin Builder from description to built twin with a planned connection; camera card → audited live view → Visual Quality review confirmed by a person; camera API validation and honest Gemini status; isometric selection and rotation, theme persistence, every landing-story chapter appearing on scroll; every page renders with no console errors; the full guided crisis demo (incident → agents → scenario sensitivity → twin highlight → approval → fast-forward → audit); reset reproducibility; API validation.
+- **End-to-end tests** (`e2e/demo.spec.ts`, 11 tests): MCP protocol (initialize, tools/list with read-only hints, tools/call, errors); the ADK copilot giving a grounded answer with a tool trace (when Gemini is configured); Twin Builder from description to built twin with a planned connection; camera card → audited live view → Visual Quality review confirmed by a person; camera API validation and honest Gemini status; isometric selection and rotation, theme persistence, every landing-story chapter appearing on scroll; every page renders with no console errors; the full guided crisis demo (incident → agents → scenario sensitivity → twin highlight → approval → fast-forward → audit); reset reproducibility; API validation.
 
 ---
 
@@ -372,10 +405,12 @@ src/
                        assets, agents, simulator, vision (camera feeds, camera card, live view, reviews), landing (scroll story)
   client/              API client, Zustand stores (factory, UI prefs, simulator workbench), hooks
   domain/              plant model, telemetry, simulation, agents, quality, vision, archetypes, builder/ (spec, validation,
-                       compile, templates, edit operations, agent workflow), recommendations, actions, KPIs, seed
+                       compile, templates, edit operations, agent workflow), tools/ (agent tool layer, grounding),
+                       recommendations, actions, KPIs, seed
   server/              persistence, AI provider, integrations, documents, request schemas
 services/vision/       Python vision service (FastAPI + OpenCV), tests, Dockerfile
-docs/                  twin-builder.md, python-services-plan.md
+services/agents/       Python ADK agent that operates the twin over MCP
+docs/                  architecture.md, twin-builder.md, python-services-plan.md
 content/docs/          demo maintenance manuals and procedures (fictional)
 infra/                 BigQuery schema, Cloud Run deploy script
 tests/ e2e/            Vitest and Playwright suites

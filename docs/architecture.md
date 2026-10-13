@@ -1,0 +1,393 @@
+# TwinForge AI: architecture and design
+
+**Version:** 14 Oct 2026, `main`. **Live:** https://twinforge--twin-forge.asia-southeast1.hosted.app
+
+TwinForge AI is an agentic digital twin for manufacturing. It mirrors a factory as a live model, finds problems early, simulates the alternatives, and proposes a plan that a person approves before anything changes. New users build their own twin from a drawing and a description. Operators can ask a multi-agent copilot about the plant, and external agents can use the same tools over MCP.
+
+This document explains how the system is put together and why. Related design documents:
+- [Twin Builder](twin-builder.md)
+- [Python services plan](python-services-plan.md)
+- [README](../README.md): setup and a walkthrough
+
+---
+
+## 1. Design principles
+
+Every part of the system follows these rules. When a design choice was unclear, these decided it.
+
+1. **Numbers come from code, never from a model.** Every metric, forecast, cost and probability is computed by deterministic TypeScript in `src/domain`. Language models explain, extract and orchestrate. Their output is schema-validated, and any figure they state is checked against the computed results.
+2. **People decide.** Agents may *propose*. Approving, rejecting and rolling back are human actions in the UI, recorded in the audit trail. No code path lets an agent approve its own proposal.
+3. **Nothing touches real equipment.** Approved plans change the twin, not machines. Data connectors are read-only by design; the platform has no write path to PLCs.
+4. **Say what is real.** The demo runs on a simulated plant and says so everywhere. Integrations show *Connected* only after a real call succeeds. Agent output carries provenance (where each element came from), and figures that can't be traced are flagged.
+5. **Same input, same output.** The plant model, scenarios, quality model, Twin Builder compiler and machine-vision checks are deterministic. Tests assert byte-identical results.
+6. **Degrade honestly.** Every AI feature has a stated fallback (template mode, deterministic narrative, station-log review) and announces when it is used.
+
+---
+
+## 2. System context
+
+```mermaid
+flowchart LR
+  user([Plant users<br/>operators, engineers, managers])
+  ext([External agents<br/>Python ADK agent, Gemini CLI,<br/>Claude, IDEs])
+  subgraph GCP[Google Cloud · project twin-forge]
+    app[TwinForge web app<br/>Next.js on Firebase App Hosting<br/>Cloud Run · asia-southeast1]
+    vertex[Vertex AI · Gemini 3.5 Flash<br/>asia-southeast1]
+    search[Google Search grounding]
+    vision[Vision service<br/>FastAPI + OpenCV<br/>Cloud Run · planned]
+    other[(BigQuery · Pub/Sub · Cloud Storage<br/>optional adapters)]
+  end
+  plant[[Plant network · future<br/>cameras, PLCs, OPC UA, MQTT]]
+  user -->|browser| app
+  ext -->|MCP Streamable HTTP| app
+  app -->|ADC / service account| vertex
+  vertex --- search
+  app -->|ID token| vision
+  app --- other
+  plant -.->|edge gateway, read-only, planned| other
+```
+
+| Actor | Uses |
+|---|---|
+| Plant user | The web app: command center, twin views, AI operations, what-if simulator, approvals, Visual Quality, Twin Builder, copilot |
+| External agent | `POST /api/mcp`: the same 12 deterministic tools the copilot uses |
+| Vertex AI (Gemini) | Agent briefing text, Twin Builder (reading drawings, grounded research, drafting, chat edits), ADK copilot, optional footage review |
+| Vision service (Python) | Deterministic OpenCV checks behind `POST /api/vision/inspect` |
+
+---
+
+## 3. Containers and deployment
+
+```mermaid
+flowchart TB
+  subgraph browser[Browser]
+    ui[React 19 UI · Tailwind 4 · React Flow · Recharts · Zustand]
+    domc[Domain engine, client copy<br/>instant what-if, validation, previews]
+  end
+  subgraph apphosting[Firebase App Hosting → Cloud Run · max 1 instance]
+    routes[Next.js 15 route handlers · 42 endpoints]
+    doms[Domain engine, server copy]
+    store[(Factory state<br/>in-memory + JSON file in /tmp)]
+    adk[ADK copilot runtime<br/>@google/adk 2.2.1 · in-memory sessions]
+    mcp[MCP server<br/>@modelcontextprotocol/sdk 1.32.1]
+  end
+  subgraph py[Python services]
+    vis[services/vision · FastAPI 0.143 · OpenCV 4.14]
+    pyagent[services/agents · Python ADK 2.12 agent<br/>MCP client]
+  end
+  ui -->|fetch / NDJSON streams| routes
+  routes --> doms --> store
+  routes --> adk --> doms
+  routes --> mcp --> doms
+  routes -->|multipart| vis
+  pyagent -->|MCP| mcp
+```
+
+| Unit | Tech | Runs where | State |
+|---|---|---|---|
+| Web app (UI and API) | Next.js 15.5, React 19, TypeScript 5.9 | Firebase App Hosting (Cloud Run), `asia-southeast1`, 0–1 instances, 1 CPU, 1 GiB | One `FactoryState` in memory, written atomically to `/tmp/twinforge` |
+| Domain engine | Pure TypeScript (`src/domain`, ≈ 8,900 lines) | Server, and in the browser for instant what-if and validation | None (functions over state) |
+| ADK copilot | `@google/adk` 2.2.1 + Gemini on Vertex | Inside the web app | In-memory ADK sessions |
+| MCP server | `@modelcontextprotocol/sdk` 1.32.1, Streamable HTTP, stateless | Inside the web app at `/api/mcp` | None |
+| Vision service | Python 3.13, FastAPI, OpenCV, uv-locked | Local / Docker today; Cloud Run planned | None |
+| Python ADK agent | `google-adk[mcp]` 2.12 | Local CLI or `adk web`; Agent Engine possible | ADK sessions |
+
+**Why one instance?** The demo keeps state in memory so every visitor sees the same factory. Two instances would diverge. Section 12 describes the move to a shared store.
+
+---
+
+## 4. Code structure
+
+```
+src/
+  domain/                 pure, deterministic, isomorphic (server + browser), unit-tested
+    world.ts              plant physics: flow, rates, scrap attribution, energy, wear, trips
+    telemetry.ts          live advance, measured readings, trend estimation, incidents
+    simulation.ts         scenario engine, calibration, metrics, scoring, ranking
+    scenarios.ts          preset plans (reference, continue, preventive, reroute)
+    anomaly.ts            diagnostics: OLS trend, change point, z-score, time to trip
+    agents/               six analysis agents + orchestrator pipeline (deterministic)
+    quality.ts, vision.ts inspection model, cameras, visual reviews
+    archetypes.ts         16 machine archetypes (physics, sensors, defects, rate ranges)
+    builder/              Twin Builder: spec, validation, compile, templates, edit ops, agent workflow
+    tools/                agent tool layer (12 tools) + numeric grounding check
+    seed.ts               plan → FactoryState builder (demo and generated twins)
+    recommendations.ts, actions.ts, commands.ts, kpis.ts, audit.ts
+  server/                 server-only adapters
+    store.ts              state persistence
+    ai/provider.ts        Gemini calls: config, retries, timeouts, narrative grounding
+    builder/gemini.ts     Twin Builder prompts and schemas
+    copilot/              ADK agents, runner, Gemini schema conversion
+    tools/store.ts        binds the tool layer to live state
+    integrations/         BigQuery, Pub/Sub, GCS, MQTT, vision service; honest status
+  app/                    Next.js routes: pages + /api/*
+  client/                 Zustand stores (factory, UI prefs, simulator, builder, copilot)
+  components/             UI: shell, twin (topology, iso, floor plan), vision, builder, copilot…
+services/
+  vision/                 Python FastAPI + OpenCV service (tests, Dockerfile)
+  agents/                 Python ADK agent that uses TwinForge over MCP
+tests/ e2e/               Vitest (81) and Playwright (11); services/vision has pytest (16)
+docs/                     this document, Twin Builder, Python services plan
+```
+
+**Layering rule:** `domain` imports nothing from `server`, `app` or `components`. Route handlers stay thin: validate input (zod), call a domain function, persist, respond. The browser imports the same domain code so the simulator and builder respond instantly.
+
+---
+
+## 5. Domain model
+
+`FactoryState` (`src/domain/types.ts`) is the single source of truth. Every page renders from it.
+
+| Group | Entities |
+|---|---|
+| Structure | `profile`, `lines` (process "assembly" lines feeding an optional packing line), `assets` (machines with sensors, thresholds, condition), `connections`, `cameras` |
+| Demand and supply | `products` (with BOMs via line capabilities), `inventory` (stock, reorder point, inbound POs, expedite options), `orders` |
+| Time series | `telemetry` (per asset, 10-min history), `latest`, `production` (hourly per line, scrap attributed by cause), `healthHistory` |
+| Operations | `incidents`, `workOrders`, `maintenanceHistory`, `directives` (approved actions being executed), `finishedGoods` |
+| Intelligence | `analyses` (agent runs), `scenarioRuns`, `recommendations`, `visionReviews` |
+| Governance | `audit` (every alert, finding, decision and action), `costModel`, `counters` |
+| Twin Builder | `twinSpec` (the reviewed spec with provenance), `dataPlan` (planned connections) |
+
+---
+
+## 6. The plant engine
+
+### 6.1 Physics (`world.ts`)
+The same step function drives the live twin (2 simulated minutes per 4 s tick) and the what-if engine (15-minute steps):
+- Each line's rate is the minimum of its machines' rates. A line stops for maintenance, a changeover, an unplanned trip, or missing materials.
+- **Wear.** Hidden condition (vibration and temperature excess, and their slopes) degrades a machine. Crossing its trip threshold causes an unplanned stop of `unplannedRepairHours`.
+- **Scrap.** Each machine's vibration adds to its line's scrap rate. Scrap is attributed by cause (baseline process or a specific machine), and the quality model turns that into defect classes.
+- **Materials and orders.** Materials are consumed per BOM. Packed output fills orders by priority and due time, and late units carry penalties.
+- **Energy.** Each machine draws idle and load power, plus extra draw from friction when it vibrates.
+
+### 6.2 What the system knows vs what is true
+Agents and forecasts never read the hidden condition. They see measured telemetry with seeded noise. The scenario engine calibrates each machine from that telemetry (OLS trend plus a change-point test) and simulates forward. The demo crisis is therefore discovered from data, not looked up.
+
+### 6.3 Scenarios and scoring
+- **Plans:** a reference plan (the asset assumed healthy), plus *continue*, *preventive maintenance* and *reroute + maintain*. Custom plans can change the maintenance start and length, speed, reroute share, expedited POs, order quantity and priority, energy price and horizon.
+- **Score:** delivery 40%, cost 30%, risk 20%, sustainability 10%. Plans that run into a trip are demoted (an asset-protection policy).
+- **Demo crisis outcome:**
+  - *Continue:* A-ROB-03 trips at about h+16.5, with roughly 700 late units and about $58K cost.
+  - *Reroute + maintain:* 0 late units, about $13.7K cost, score about 82.
+
+### 6.4 From approval to execution
+Approving a recommendation creates **directives** (maintenance window, allocation change, speed change). The plant engine executes them on the twin over simulated time. Each directive can be rolled back, and each step is written to the audit trail.
+
+---
+
+## 7. Agentic layers
+
+TwinForge has three kinds of agent, each with a clear trust boundary.
+
+| Layer | What decides | What the model does | Guardrails |
+|---|---|---|---|
+| **Analysis pipeline** (6 agents: maintenance, quality, production, supply, energy, orchestrator) | Deterministic code computes every finding, forecast and ranking | Gemini writes the briefing text only | JSON schema; every figure must appear in the computed facts, otherwise a deterministic narrative is used |
+| **Twin Builder** | Deterministic validation and compiler | Reads drawings, researches with Google Search, drafts a spec, turns chat into edit operations | Fixed archetype catalog, provenance per element, citations from grounding metadata only, validated edit operations, human review before build |
+| **ADK copilot and MCP** | 12 deterministic tools | Chooses tools, delegates to specialists, explains results | Read tools can't change state; one proposal tool behind ADK's confirmation gate; answers checked for untraced figures; no approve, execute or equipment tools exist |
+
+### 7.1 Analysis pipeline
+`OBSERVE → INVESTIGATE → PREDICT → SIMULATE → RECOMMEND → HUMAN APPROVAL`
+- **How it runs.** The pipeline works on a frozen snapshot and streams each stage's real output as NDJSON. Only a person can approve the resulting recommendation.
+- **Speed.** Small pauses between stages are for readability only.
+- **Briefing.** Gemini 3.5 Flash with low thinking writes it in about 5.5 s, followed by the grounding check.
+
+### 7.2 Twin Builder
+Full design: [twin-builder.md](twin-builder.md).
+- **Workflow:** read the drawing (multimodal), research the industry (Google Search grounding, cited), draft a `TwinSpec`, then validate.
+- **Model draft, code decides.** Code resolves ids, blueprint boxes and citations. A claim the model can't back (a non-existent drawing element, an invalid citation) is downgraded to *assumption*.
+- **Edits.** Chat and manual edits share 18 validated edit operations.
+- **Build.** The compiler (`compileSpec`) builds the twin with the same engine as the demo.
+- **Measured:** about 78 s for a full draft with research on the live site.
+
+### 7.3 ADK copilot (multi-agent)
+
+```mermaid
+flowchart TB
+  q([User question]) --> root
+  subgraph adk[Google ADK · TypeScript · Gemini 3.5 Flash]
+    root[twinforge_copilot<br/>coordinator]
+    m[maintenance_analyst]
+    ql[quality_analyst]
+    p[planning_analyst]
+    root -- AgentTool --> m
+    root -- AgentTool --> ql
+    root -- AgentTool --> p
+  end
+  root --> t1[get_plant_overview · search_audit]
+  root --> t2[propose_plan<br/>requireConfirmation]
+  m --> t3[list_assets · diagnose_asset<br/>list_incidents · get_latest_analysis]
+  ql --> t4[get_quality · get_camera_view]
+  p --> t5[get_orders · get_inventory · run_what_if]
+  t2 -. pauses .-> conf{{User confirms in UI}}
+  conf -->|yes| rec[(Pending recommendation)]
+  rec --> appr{{Person approves in Approvals}}
+```
+
+- **Agents.** A coordinator with three specialists, each wrapped as an ADK `AgentTool`. Specialists can run in parallel (observed). The coordinator has its own tools for overview, audit search and proposals.
+- **Tools.** All 12 are deterministic functions from `src/domain/tools/twin-tools.ts`. The model sees Gemini function schemas generated from the tools' zod shapes, and every call is validated again in code.
+- **Human in the loop.** `propose_plan` uses ADK's `requireConfirmation`: the run pauses with an `adk_request_confirmation` event, the UI shows a confirmation card, and the run resumes only with the user's answer. Even then it only creates a *pending* recommendation.
+- **Transparency.** Every tool call, including the specialists' calls inside their own runners, streams to the UI through a per-request `AsyncLocalStorage` sink. Each answer shows its tool trace.
+- **Grounding.** Figures in the answer are checked against the deterministic tool outputs of the whole conversation, within the precision stated. A specialist's own text doesn't count as a source. A difference between two tool figures is accepted but labelled *derived*. Anything else is flagged as not traced.
+- **Sessions.** ADK `InMemorySessionService`, one session per browser conversation, so follow-up questions work.
+- **Measured:** 8–23 s per answer, and confirmation turns take about 2 s. In tests, 19 of 19 figures were traced.
+
+### 7.4 MCP server and the Python ADK agent
+- **MCP server.** `/api/mcp` serves the same 12 tools over MCP Streamable HTTP (stateless, JSON responses). Read tools carry `readOnlyHint: true`. `propose_plan` is the only non-read tool, and it only creates a pending item. Optional bearer token: `TWINFORGE_MCP_TOKEN`.
+- **Python ADK agent.** `services/agents` uses `McpToolset` with a read-only tool filter. It shows the twin being operated by a separate agent, in another language and process, with no code shared. Measured: 4 tool calls and a grounded answer in about 15 s.
+
+---
+
+## 8. Visual quality and cameras
+
+- **Inspection model.** Scrap attribution in the plant model is mapped to defect classes. Electronics plants use IPC-A-610J Class 2, and other industries use their machines' own defect classes. From these, the model computes FPY, DPMO, rolled throughput yield, a Pareto and vibration ↔ reject correlations (r = 0.89 in the crisis).
+- **Cameras in the twin.** Area CCTV, AOI and final inspection, radiometric thermal, dock and stores, shown in all three views.
+  - Feeds are rendered from twin state and labelled simulated.
+  - Live view plays HLS, MP4 or MJPEG from an https gateway.
+  - Every live view is audited, and face blur and retention are recorded per camera, reflecting the DPDP Act.
+- **Reviews.** Three sources, each waiting for a human to confirm or dismiss:
+  - deterministic station-log reviews
+  - Gemini footage review (advisory)
+  - OpenCV checks from the Python vision service: golden-board comparison with ORB and RANSAC alignment, barcode and QR reading with an indicative ISO/IEC 15416 grade, image quality, video stoppages
+
+---
+
+## 9. Key flows
+
+### 9.1 Live telemetry loop
+Every 4 s, the browser calls `POST /api/telemetry/tick`. The server advances the plant 2 simulated minutes (throttled server-side, so many tabs don't speed it up) and returns the new state. The store applies it, and every page re-renders from the same state.
+
+### 9.2 Crisis → decision
+1. **Demo controls → crisis:** the scripted bearing damage on A-ROB-03 starts.
+2. **AI Operations:** the pipeline streams its stages and commits an analysis, a scenario run and a pending recommendation.
+3. **What-If:** the user explores plans; the same engine runs in the browser, so results are instant.
+4. **Approvals:** a person approves, the twin executes the directives, and the result is audited.
+
+### 9.3 Twin Builder
+Upload, then `POST /api/builder/draft` (NDJSON: read, research, draft, validate), then review and edit (client-side operations and validation, chat through `/api/builder/refine`), then `POST /api/builder/build`. The compiled twin replaces the factory.
+
+### 9.4 Copilot
+`POST /api/copilot {sessionId, message}` streams NDJSON events: `tool_call`, `tool_result`, `confirm`, `answer` with grounding, then `done`. A confirmation is sent as `POST /api/copilot {sessionId, confirm: {callId, confirmed}}`.
+
+---
+
+## 10. API surface (42 route handlers)
+
+| Area | Endpoints |
+|---|---|
+| Factory and simulation | `GET/POST /api/factory`, `/api/factory/reset`, `/api/demo/crisis`, `/api/telemetry/{tick,live}`, `/api/sim/advance`, `/api/faults` |
+| Assets | `/api/assets`, `/api/assets/:id`, `/api/assets/:id/telemetry`, `/api/connections`, `/api/anomalies`, `/api/documents[/:id]` |
+| Intelligence | `/api/agents/analyze` (NDJSON), `/api/scenarios`, `/api/scenarios/compare`, `/api/recommendations[/:id/{approve,reject,rollback}]`, `/api/kpis`, `/api/audit` |
+| Quality and vision | `/api/quality`, `/api/cameras[/:id[/view]]`, `/api/vision/{analyze,inspect,review-log}`, `/api/vision/reviews/:id` |
+| Twin Builder | `/api/builder`, `/api/builder/{draft,refine,validate,build}` |
+| Agents | `/api/copilot` (NDJSON), `/api/mcp` (MCP) |
+| Platform | `/api/health`, `/api/integrations`, `/api/integrations/test`, `/api` (index) |
+
+Validation errors return 400 with field issues, unknown ids 404, conflicts 409, unsupported media 415 and oversize 413. Unconfigured AI returns 503 with a clear message.
+
+---
+
+## 11. AI configuration and behaviour
+
+| Setting | Value | Why |
+|---|---|---|
+| Model | `gemini-3.5-flash` on Vertex AI | Current fast Gemini model; `gemini-2.5-flash` is being retired |
+| Region | `asia-southeast1` | Co-located with App Hosting. The `global` endpoint stalled on about 1 in 4 test calls, and `us-central1` doesn't serve this model. |
+| Auth | Application Default Credentials; App Hosting service account has `roles/aiplatform.user` | No keys in code or the browser |
+| Retries | One retry on stall, 429 or 5xx | Recovers transient Vertex stalls |
+| Output budget | ≥ 4,096 tokens (8–16K for builder calls) | On Gemini 3.x, thinking tokens count toward the output limit |
+| Thinking | Low for the briefing and copilot; default for builder drafting | Speed where reasoning is light |
+| Structured output | `responseJsonSchema` + zod on every structured call | Malformed output never reaches state |
+| Grounded research | `googleSearch` tool; citations from grounding metadata; Search suggestions displayed | Required by Google's terms; prevents invented sources |
+| Fallbacks | Deterministic narrative, template mode, station-log review | The demo works without AI |
+
+**Cost.** Per-token pricing; each Twin Builder run with research adds a few grounded searches. A demo's usage costs cents to a few dollars. A billing budget alert is recommended.
+
+---
+
+## 12. Security, safety and privacy
+
+- **No control path.** There are no endpoints or tools that write to equipment. Connectors are read-only by construction, and approved plans execute only in the twin.
+- **Human approval.** Recommendations from the pipeline, the operator or the copilot are always *pending* until a person approves them. Approve, reject and rollback exist only as UI routes; no agent tool can call them.
+- **Audit.** Alerts, agent findings, scenario runs, proposals (with who proposed them), decisions, executed actions, camera live views and visual reviews are all audited.
+- **Secrets.** Server-side only. `.env.local` is git-ignored, and the browser never sees credentials. Stream URLs must be https, except localhost for testing.
+- **Uploads.** Size and type limits: 15 MB for images and drawings, 30 MB for video. Files are processed in memory or a temp file and never stored. The vision service is designed to be private on Cloud Run, called with Google ID tokens.
+- **Privacy.** Camera face blur, retention and purpose are recorded per camera, and live views are audited, following India's DPDP Act. Video analytics are advisory and never safety functions (IEC 61496 / ISO 13849).
+- **Known gaps (demo scope).** There is no user login or authorization, and the public MCP endpoint is open unless `TWINFORGE_MCP_TOKEN` is set. Production would add Firebase Auth, per-tenant authorization and a token on MCP.
+
+---
+
+## 13. Persistence and scaling
+
+**Today:**
+- one factory per deployment
+- state held in memory and in an atomic JSON file (on serverless, `/tmp`)
+- max 1 instance
+- the factory resets when Cloud Run recycles the instance
+- copilot sessions are in memory
+
+**Next step to production:**
+1. Move `FactoryState` to Firestore (one document tree per factory, transactions for `mutate`). `store.ts` is the only file that reads or writes state.
+2. Firebase Auth and per-factory access rules; multiple factories per tenant.
+3. ADK `DatabaseSessionService` or Vertex AI sessions for the copilot.
+4. Lift the instance cap and run the plant clock as a scheduled job (Cloud Scheduler), not per browser tick.
+5. Pub/Sub ingestion from the edge gateway for real telemetry (the adapter already exists).
+
+---
+
+## 14. Testing
+
+| Suite | Count | Covers |
+|---|---|---|
+| Vitest (`tests/`) | 81 | Seed reproducibility; physics, KPIs and trend estimation; scenario outcomes, sensitivity and ranking; agent pipeline; approvals, rejection and rollback; LLM grounding and fallback; quality and cameras; Twin Builder templates, validation, compile and agent workflow with recorded responses; the tool layer (read-only guarantee, proposal semantics, argument validation); numeric grounding |
+| Playwright (`e2e/`) | 11 | Every page renders with no console errors; guided crisis demo; reset; API validation; iso view and theme; landing story; cameras and Visual Quality; Twin Builder end to end; MCP protocol; ADK copilot with a grounded answer (runs when Gemini is configured) |
+| pytest (`services/vision`) | 16 | Golden comparison (missing part, rotated part, lighting), codes, quality, video stoppage, determinism, API limits |
+
+The e2e suite runs against local production builds and against the live URL (`E2E_BASE_URL`). With AI on, the Twin Builder and copilot tests exercise real Gemini.
+
+---
+
+## 15. Deployment and operations
+
+| Task | How |
+|---|---|
+| Deploy the web app | Push to `main`, then `firebase apphosting:rollouts:create twinforge --git-commit <sha> --force --project twin-forge` |
+| Configuration | `apphosting.yaml` (runtime env, instance limits); `.env.local` for local work (git-ignored) |
+| AI access | Vertex AI API enabled; ADC locally (`gcloud auth application-default login`); App Hosting service account has `roles/aiplatform.user` |
+| Health | `GET /api/health`; Integrations page with real connectivity tests |
+| Vision service | `docker build services/vision`; Cloud Run deploy in [python-services-plan.md](python-services-plan.md), Phase 2 |
+| Python ADK agent | `cd services/agents && uv run python ask.py "…"` or `uv run adk web` |
+
+---
+
+## 16. Key design decisions
+
+| Decision | Alternatives considered | Reason |
+|---|---|---|
+| One Next.js app owns state, API and the engine | Separate FastAPI backend | The engine runs in the browser too, for instant what-if; a second backend would duplicate it or add a network round trip per change |
+| Deterministic engine; LLMs only explain, extract and orchestrate | LLM agents that reason about numbers | Reproducibility and no invented figures; every number is testable |
+| Machine-archetype library + spec compiler for "any factory" | Full process-graph engine | Covers most discrete and packaging plants in days, not weeks, without rewriting the engine the demo depends on |
+| ADK in TypeScript, inside the app | Python ADK on Agent Engine | Same process as the tools and state, so no extra service or latency. Python ADK is still used, as an external MCP client, to prove interoperability. |
+| Coordinator + specialists as `AgentTool`s | One agent with all tools; agent transfer | The coordinator keeps control of the conversation and the confirmation gate; specialists stay focused and can run in parallel |
+| One tool layer shared by the copilot and MCP | Separate tool sets | A single place to enforce validation, read-only semantics and grounding |
+| `asia-southeast1` for Vertex | `global` | Measured stalls on `global`; co-located with hosting |
+| Python only where its libraries win (OpenCV, edge protocols) | Python everywhere | Keeps one language on the critical path |
+
+---
+
+## 17. Limitations and roadmap
+
+**Limitations:**
+- simulated plant data only
+- single tenant and no authentication
+- per-instance state
+- machines on a line run in series
+- the vision service is not yet deployed
+- connectors other than Pub/Sub are planned, not built
+
+**Roadmap:**
+1. Deploy the vision service to Cloud Run (private) and connect it on the live site.
+2. Firestore state, Firebase Auth, and multiple factories.
+3. Twin Builder self-correction loop on ADK: draft, validate, repair, repeat.
+4. Edge gateway: OPC UA, Modbus and MQTT read-only, publishing to Pub/Sub; live camera analytics at the edge.
+5. Learned inspection (anomaly detection trained on good parts), validated with an MSA study before use; Gemma on-prem for plants without cloud access.
+6. A2A endpoint so enterprise agents can delegate to TwinForge.

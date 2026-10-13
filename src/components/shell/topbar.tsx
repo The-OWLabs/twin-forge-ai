@@ -2,7 +2,8 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ChevronDown, FastForward, Menu, MapPin, Pause, Play, RotateCcw, Siren, Sparkles, Database, Cpu } from "lucide-react";
+import { Bot, ChevronDown, FastForward, Menu, MapPin, Pause, Play, RotateCcw, Siren, Sparkles, Database, Cpu } from "lucide-react";
+import { useCopilot } from "@/client/copilot";
 import { useFactory, useUi } from "@/client/store";
 import { fmtSimTime } from "@/lib/format";
 import { cn } from "@/lib/cn";
@@ -183,9 +184,19 @@ export function Topbar({ onMenu }: { onMenu: () => void }) {
           </Tip>
         </div>
       )}
+      <CopilotButton />
       <SystemStatus />
       <ThemeToggle />
       <DemoControls />
     </header>
+  );
+}
+
+function CopilotButton() {
+  const setOpen = useCopilot((s) => s.setOpen);
+  return (
+    <Button variant="agent" size="sm" onClick={() => setOpen(true)} aria-label="Ask TwinForge Copilot" data-testid="copilot-open">
+      <Bot className="h-3.5 w-3.5" /> <span className="hidden md:inline">Ask Copilot</span>
+    </Button>
   );
 }

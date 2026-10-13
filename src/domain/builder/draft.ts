@@ -235,8 +235,9 @@ export function specFromDraft(
     targetByName.set(l.name.toLowerCase(), l.id);
     for (const m of l.machines) targetByName.set(m.name.toLowerCase(), m.id);
   }
+  // "simulated" is the default for every machine, so planning it adds nothing; drop it.
   const integrations = draft.integrations
-    .filter((i) => (INTEGRATION_KINDS as readonly string[]).includes(i.kind))
+    .filter((i) => (INTEGRATION_KINDS as readonly string[]).includes(i.kind) && i.kind !== "simulated")
     .map((i) => ({
       id: uniqueId(`conn ${i.kind} ${i.target}`, taken),
       target: targetByName.get(i.target.trim().toLowerCase()) ?? i.target,

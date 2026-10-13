@@ -1,6 +1,6 @@
 # Python services plan (FastAPI)
 
-**Status (14 Oct 2026):** Phase 1 is built and tested locally. Phase 2 (deploy) is the next step. Phases 3–5 come after the hackathon.
+**Status (14 Oct 2026):** Phase 1 (the vision service) is built and tested locally. Phase 2 (deploy) is the next step. Phases 3–5 come after the hackathon. A second Python component, `services/agents` (a Python ADK agent that uses TwinForge over MCP), is also built; see [architecture § 7.4](architecture.md#74-mcp-server-and-the-python-adk-agent).
 
 ## Decision
 
