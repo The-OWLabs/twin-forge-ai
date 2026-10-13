@@ -1,0 +1,24 @@
+import { z } from "zod";
+import { refineSpec } from "@/domain/builder/pipeline";
+import { geminiBuilderAi } from "@/server/builder/gemini";
+import { json, parseBody, route } from "@/server/http";
+
+export const dynamic = "force-dynamic";
+export const maxDuration = 90;
+
+const Body = z.object({ spec: z.unknown(), instruction: z.string().trim().min(2).max(2000) });
+
+/** Chat refinement: Gemini proposes edit operations; they are applied and validated in code. */
+export const POST = route(async (req: Request) => {
+  const { spec, instruction } = await parseBody(req, Body);
+  const ai = geminiBuilderAi();
+  if (!ai.available) return json({ error: "Chat edits need Gemini (Vertex AI), which is not configured on this server. You can still edit everything directly." }, 503);
+  const { validateSpec } = await import("@/domain/builder/validate");
+  const v = validateSpec(spec);
+  if (!v.spec) return json({ error: "The current spec is invalid", issues: v.issues.map((i) => `${i.path}: ${i.message}`) }, 400);
+  try {
+    return json(await refineSpec(v.spec, instruction, ai));
+  } catch (e) {
+    return json({ error: `The agent could not apply that: ${e instanceof Error ? e.message.slice(0, 200) : String(e)}` }, 502);
+  }
+});

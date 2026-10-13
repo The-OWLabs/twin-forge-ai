@@ -6,15 +6,12 @@
  * defect classes an AOI / final-inspection station would report. Camera "views" are pure
  * functions of the shared factory state, so simulated feeds always agree with the twin.
  */
+import { ARCHETYPES, ASSET_KINDS, type DefectClass } from "./archetypes";
 import { hashString, linearFit, mean, round } from "./math";
 import { readingsFor } from "./telemetry";
 import type { Asset, AssetKind, Camera, FactoryState, LineHourRecord } from "./types";
 
-export interface DefectClass {
-  type: string;
-  share: number;
-  criterion: string;
-}
+export type { DefectClass };
 
 const ASSEMBLY_PROCESS: DefectClass[] = [
   { type: "Solder bridging", share: 0.3, criterion: "IPC-A-610 soldering criteria" },
@@ -28,27 +25,22 @@ const PACKAGING_PROCESS: DefectClass[] = [
   { type: "Carton seal open", share: 0.35, criterion: "Pack-out seal criteria" },
   { type: "Count mismatch", share: 0.25, criterion: "Pack-out count check" },
 ];
-const BY_MACHINE: Record<AssetKind, DefectClass[]> = {
-  robot: [
-    { type: "Component misalignment / skew", share: 0.6, criterion: "IPC-A-610 component placement criteria" },
-    { type: "Missing component", share: 0.25, criterion: "IPC-A-610 component presence" },
-    { type: "Tombstoning", share: 0.15, criterion: "IPC-A-610 chip component criteria" },
-  ],
-  press: [
-    { type: "Press-fit pin damage", share: 0.55, criterion: "IPC-A-610 press-fit pin criteria" },
-    { type: "Incomplete press-fit seating", share: 0.45, criterion: "IPC-A-610 press-fit pin criteria" },
-  ],
-  conveyor: [{ type: "Handling damage / scratches", share: 1, criterion: "IPC-A-610 damage criteria" }],
-  camera: [{ type: "Handling damage / scratches", share: 1, criterion: "IPC-A-610 damage criteria" }],
-  packager: [
-    { type: "Carton seal open", share: 0.8, criterion: "Pack-out seal criteria" },
-    { type: "Seal burn / film damage", share: 0.2, criterion: "Pack-out seal criteria" },
-  ],
-  labeler: [{ type: "Label skew / missing", share: 1, criterion: "Label placement criteria" }],
-};
+const BY_MACHINE: Record<AssetKind, DefectClass[]> = Object.fromEntries(ASSET_KINDS.map((k) => [k, ARCHETYPES[k].defects])) as Record<AssetKind, DefectClass[]>;
+
+/** Electronics sites use IPC-A-610 classes; other industries use their machines' own defect classes. */
+export const usesIpc = (state: Pick<FactoryState, "profile">) => /electron|pcb|smt|semicon|circuit/i.test(`${state.profile.industry} ${state.profile.productionType}`);
+
+function processDefects(state: FactoryState, lineId: string): DefectClass[] {
+  const line = state.lines.find((l) => l.id === lineId);
+  if (line?.kind === "packaging") return PACKAGING_PROCESS;
+  if (usesIpc(state)) return ASSEMBLY_PROCESS;
+  const kinds = [...new Set((line?.assetIds ?? []).map((id) => state.assets.find((a) => a.id === id)?.kind).filter((k): k is AssetKind => !!k && k !== "camera" && k !== "conveyor"))];
+  const all = kinds.flatMap((k) => BY_MACHINE[k].map((d) => ({ ...d, share: d.share / kinds.length })));
+  return all.length ? all : [{ type: "Process defect (unclassified)", share: 1, criterion: "Product specification" }];
+}
 
 export function defectMix(state: FactoryState, lineId: string, cause: string): DefectClass[] {
-  if (cause === "process") return state.lines.find((l) => l.id === lineId)?.kind === "packaging" ? PACKAGING_PROCESS : ASSEMBLY_PROCESS;
+  if (cause === "process") return processDefects(state, lineId);
   const a = state.assets.find((x) => x.id === cause);
   return a ? BY_MACHINE[a.kind] : ASSEMBLY_PROCESS;
 }

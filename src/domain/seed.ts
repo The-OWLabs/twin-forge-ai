@@ -6,6 +6,7 @@
  * plant model for 24 simulated hours of "pre-history" so that telemetry, production
  * records and energy history are produced by the same physics that drives the live twin.
  */
+import { ARCHETYPES, ASSET_KIND_LABEL, ASSET_KINDS, machineTemplate, type MachineTemplate } from "./archetypes";
 import { DEFAULT_COST_MODEL } from "./constants";
 import { computeHealthScore, classifyStatus } from "./health";
 import { createRng, gaussian, round } from "./math";
@@ -22,8 +23,6 @@ import type {
   MaintenanceRecord,
   Product,
   ProductionLine,
-  SensorSpec,
-  Thresholds,
 } from "./types";
 
 export const SCHEMA_VERSION = 4;
@@ -53,149 +52,9 @@ export const DEMO_BLUEPRINT: FactoryBlueprint = {
   isDemo: true,
 };
 
-interface MachineTemplate {
-  code: string;
-  label: string;
-  manufacturer: string;
-  model: string;
-  criticality: Asset["criticality"];
-  nominalRate: number;
-  ratedPowerKw: number;
-  idlePowerKw: number;
-  baseline: { vibration: number; temperature: number };
-  thresholds: Thresholds;
-  maintenanceIntervalHours: number;
-  sensors: Omit<SensorSpec, "id">[];
-  failureMode: string;
-}
+const TEMPLATES = Object.fromEntries(ASSET_KINDS.map((k) => [k, machineTemplate(k)])) as Record<AssetKind, MachineTemplate>;
 
-const TEMPLATES: Record<AssetKind, MachineTemplate> = {
-  conveyor: {
-    code: "CNV",
-    label: "Infeed Conveyor",
-    manufacturer: "Movex Drives",
-    model: "MX-400 belt drive",
-    criticality: "C",
-    nominalRate: 200,
-    ratedPowerKw: 3.2,
-    idlePowerKw: 1.1,
-    baseline: { vibration: 1.6, temperature: 41 },
-    thresholds: { vibrationAlarm: 4.5, vibrationTrip: 7.1, temperatureAlarm: 70, temperatureTrip: 85 },
-    maintenanceIntervalHours: 3000,
-    sensors: [
-      { kind: "vibration", model: "VB-200 accelerometer", sampleRateHz: 1000 },
-      { kind: "power", model: "PM-3 power meter", sampleRateHz: 1 },
-    ],
-    failureMode: "Drive roller bearing wear",
-  },
-  press: {
-    code: "PRS",
-    label: "Press-Fit Station",
-    manufacturer: "Hydrotek",
-    model: "PF-60 servo press",
-    criticality: "B",
-    nominalRate: 150,
-    ratedPowerKw: 18,
-    idlePowerKw: 4.5,
-    baseline: { vibration: 2.2, temperature: 52 },
-    thresholds: { vibrationAlarm: 5.6, vibrationTrip: 9.0, temperatureAlarm: 80, temperatureTrip: 92 },
-    maintenanceIntervalHours: 2500,
-    sensors: [
-      { kind: "vibration", model: "VB-200 accelerometer", sampleRateHz: 1000 },
-      { kind: "temperature", model: "TC-K thermocouple", sampleRateHz: 2 },
-      { kind: "power", model: "PM-3 power meter", sampleRateHz: 1 },
-    ],
-    failureMode: "Ball-screw preload loss",
-  },
-  robot: {
-    code: "ROB",
-    label: "Assembly Robot",
-    manufacturer: "Axion Robotics",
-    model: "AX-6 six-axis cell",
-    criticality: "A",
-    nominalRate: 120,
-    ratedPowerKw: 7.5,
-    idlePowerKw: 2.1,
-    baseline: { vibration: 2.6, temperature: 56 },
-    thresholds: { vibrationAlarm: 7.1, vibrationTrip: 11.2, temperatureAlarm: 85, temperatureTrip: 95 },
-    maintenanceIntervalHours: 2000,
-    sensors: [
-      { kind: "vibration", model: "VB-300 triaxial accelerometer", sampleRateHz: 2000 },
-      { kind: "temperature", model: "RTD-100 joint probe", sampleRateHz: 2 },
-      { kind: "power", model: "PM-3 power meter", sampleRateHz: 1 },
-      { kind: "counter", model: "Cycle counter (PLC tag)", sampleRateHz: 1 },
-    ],
-    failureMode: "Joint-4 gearbox bearing wear",
-  },
-  camera: {
-    code: "CAM",
-    label: "AOI Inspection Camera",
-    manufacturer: "Optiq Vision",
-    model: "AOI-3D inline",
-    criticality: "B",
-    nominalRate: 180,
-    ratedPowerKw: 1.2,
-    idlePowerKw: 0.7,
-    baseline: { vibration: 0.6, temperature: 38 },
-    thresholds: { vibrationAlarm: 2.0, vibrationTrip: 3.5, temperatureAlarm: 60, temperatureTrip: 72 },
-    maintenanceIntervalHours: 4000,
-    sensors: [
-      { kind: "vision", model: "12 MP 3D AOI head", sampleRateHz: 30 },
-      { kind: "temperature", model: "Board temp sensor", sampleRateHz: 1 },
-    ],
-    failureMode: "Illumination module overheating",
-  },
-  packager: {
-    code: "PKG",
-    label: "Carton Packer",
-    manufacturer: "Paxon Systems",
-    model: "CP-280 case packer",
-    criticality: "A",
-    nominalRate: 280,
-    ratedPowerKw: 22,
-    idlePowerKw: 6.5,
-    baseline: { vibration: 3.0, temperature: 60 },
-    thresholds: { vibrationAlarm: 7.1, vibrationTrip: 11.0, temperatureAlarm: 82, temperatureTrip: 92 },
-    maintenanceIntervalHours: 2200,
-    sensors: [
-      { kind: "vibration", model: "VB-200 accelerometer", sampleRateHz: 1000 },
-      { kind: "temperature", model: "Seal-heater thermocouple", sampleRateHz: 2 },
-      { kind: "power", model: "PM-3 power meter", sampleRateHz: 1 },
-    ],
-    failureMode: "Seal-heater controller drift",
-  },
-  labeler: {
-    code: "LBL",
-    label: "Label & Seal Unit",
-    manufacturer: "Paxon Systems",
-    model: "LS-300 print-apply",
-    criticality: "B",
-    nominalRate: 300,
-    ratedPowerKw: 5,
-    idlePowerKw: 1.6,
-    baseline: { vibration: 1.8, temperature: 45 },
-    thresholds: { vibrationAlarm: 4.5, vibrationTrip: 7.1, temperatureAlarm: 70, temperatureTrip: 82 },
-    maintenanceIntervalHours: 3000,
-    sensors: [
-      { kind: "vibration", model: "VB-200 accelerometer", sampleRateHz: 1000 },
-      { kind: "power", model: "PM-3 power meter", sampleRateHz: 1 },
-    ],
-    failureMode: "Applicator pad wear",
-  },
-};
-
-export const ASSET_KIND_LABEL: Record<AssetKind, string> = {
-  conveyor: "Conveyor",
-  press: "Industrial press",
-  robot: "Assembly robot",
-  camera: "Inspection camera",
-  packager: "Packaging machine",
-  labeler: "Labeling unit",
-};
-
-export function machineTemplate(kind: AssetKind) {
-  return TEMPLATES[kind];
-}
+export { ASSET_KIND_LABEL, machineTemplate };
 
 const PRODUCTS: (Product & { bom: { itemId: string; qty: number }[]; rate: number })[] = [
   {
@@ -354,7 +213,7 @@ const CUSTOMERS = ["Kestrel Robotics", "Halden Energy Systems", "Corvid Medical 
 
 function makeAsset(kind: AssetKind, lineCode: string, index: number, lineName: string, rng: () => number): Asset {
   const t = TEMPLATES[kind];
-  const id = `${lineCode}-${t.code}-${String(index + 1).padStart(2, "0")}`;
+  const id = assetIdFor(kind, lineCode, index);
   const jitter = (v: number, pct: number) => round(v * (1 + (rng() - 0.5) * pct), 2);
   const baseline = { vibration: jitter(t.baseline.vibration, 0.08), temperature: jitter(t.baseline.temperature, 0.04) };
   return {
@@ -394,25 +253,60 @@ const DOCS_BY_KIND: Partial<Record<AssetKind, string[]>> = {
   packager: ["cp280-seal-heater-guide"],
 };
 
-export function buildFactory(blueprint: FactoryBlueprint, anchorISO: string, seed = DEMO_SEED): FactoryState {
-  const rng = createRng(seed);
+/* ───────────────────────────── factory plan ───────────────────────────── */
+
+/** A resolved, engine-ready description of a factory. Built from a blueprint (demo / wizard) or compiled from a TwinSpec. */
+export interface PlanMachine {
+  kind: AssetKind;
+  name?: string;
+  nominalRate?: number;
+}
+
+export interface PlanLine {
+  code: string;
+  name: string;
+  kind: "assembly" | "packaging";
+  machines: PlanMachine[];
+  capabilities: LineCapability[];
+  allocation: Record<string, number>;
+  baseScrapRate: number;
+}
+
+export interface PlanOrder {
+  productId: string;
+  quantity: number;
+  dueHour: number;
+  priority: CustomerOrder["priority"];
+  penaltyPerLateUnit: number;
+}
+
+export interface FactoryPlan {
+  profile: { name: string; industry: string; location: string; productionType: string; dataSource: DataSourceKind; isDemo: boolean };
+  /** Process ("assembly") lines first; an optional packaging line last receives their output. */
+  lines: PlanLine[];
+  products: Product[];
+  inventory: InventoryItem[];
+  orders: PlanOrder[];
+  /** Rehearsal incident: degradation onset on the first line's most critical machine. */
+  seedIncident: boolean;
+  /** Mild background wear (packager seal drift, second-line press) that makes the demo realistic. */
+  backgroundWear: boolean;
+  /** Which acceptance criteria inspection cameras cite. */
+  quality: "electronics" | "generic";
+  customers?: string[];
+}
+
+/** Engine asset id for the machine at `index` on line `lineCode` (stable, used to map spec ids). */
+export const assetIdFor = (kind: AssetKind, lineCode: string, index: number) => `${lineCode}-${TEMPLATES[kind].code}-${String(index + 1).padStart(2, "0")}`;
+
+/** The blueprint used by the demo and the template wizard (electronics product library). */
+export function planFromBlueprint(blueprint: FactoryBlueprint): FactoryPlan {
   const assemblyCount = Math.max(1, Math.min(3, Math.round(blueprint.assemblyLines)));
   const letters = ["A", "B", "C", "D"];
-  const kinds = (blueprint.assetKinds.length ? blueprint.assetKinds : DEMO_BLUEPRINT.assetKinds).filter(
-    (k) => k !== "packager" && k !== "labeler",
-  );
-  const lines: ProductionLine[] = [];
-  const assets: Asset[] = [];
-  const packagingCode = letters[assemblyCount];
+  const kinds = (blueprint.assetKinds.length ? blueprint.assetKinds : DEMO_BLUEPRINT.assetKinds).filter((k) => k !== "packager" && k !== "labeler");
   const usedProducts = PRODUCTS.slice(0, Math.min(PRODUCTS.length, assemblyCount));
-  const packagingLineId = `LINE-${packagingCode}`;
-
+  const lines: PlanLine[] = [];
   for (let li = 0; li < assemblyCount; li++) {
-    const code = letters[li];
-    const lineId = `LINE-${code}`;
-    const lineAssets = (kinds.length ? kinds : (["robot"] as AssetKind[])).map((k, i) => makeAsset(k, code, i, `Line ${code}`, rng));
-    for (const a of lineAssets) a.documentIds = DOCS_BY_KIND[a.kind] ?? [];
-    assets.push(...lineAssets);
     const primary = usedProducts[li];
     const capabilities: LineCapability[] = [
       { productId: primary.id, ratePerHour: primary.rate, designRatePerHour: Math.round(primary.rate * 1.12), changeoverHours: 0.75, bom: primary.bom.map((b) => ({ ...b })) },
@@ -424,54 +318,36 @@ export function buildFactory(blueprint: FactoryBlueprint, anchorISO: string, see
       capabilities.push({ productId: alt.id, ratePerHour: altRate, designRatePerHour: Math.round(altRate * 1.12), changeoverHours: 0.75, bom: alt.bom.map((b) => ({ ...b })) });
     }
     lines.push({
-      id: lineId,
-      code,
-      name: `Assembly Line ${code}`,
+      code: letters[li],
+      name: `Assembly Line ${letters[li]}`,
       kind: "assembly",
-      assetIds: lineAssets.map((a) => a.id),
+      machines: (kinds.length ? kinds : (["robot"] as AssetKind[])).map((kind) => ({ kind })),
       capabilities,
       allocation: { [primary.id]: 1 },
       baseScrapRate: li === 0 ? 0.015 : 0.018,
-      downstreamLineId: packagingLineId,
-      changeoverUntil: null,
-      buffer: {},
-      state: "running",
     });
   }
-  // Packaging line
-  const pkgKinds: AssetKind[] = ["conveyor", "packager", "labeler", "camera"];
-  const pkgAssets = pkgKinds.map((k, i) => {
-    const a = makeAsset(k, packagingCode, i, `Line ${packagingCode}`, rng);
-    if (k === "conveyor") a.name = `Merge Conveyor ${packagingCode}1`;
-    if (k === "camera") a.name = `Final Inspection ${packagingCode}4`;
-    if (k === "conveyor") a.nominalRate = 300;
-    if (k === "camera") a.nominalRate = 320;
-    a.documentIds = DOCS_BY_KIND[k] ?? [];
-    return a;
-  });
-  assets.push(...pkgAssets);
+  const pc = letters[assemblyCount];
   lines.push({
-    id: packagingLineId,
-    code: packagingCode,
-    name: `Packaging Line ${packagingCode}`,
+    code: pc,
+    name: `Packaging Line ${pc}`,
     kind: "packaging",
-    assetIds: pkgAssets.map((a) => a.id),
+    machines: [
+      { kind: "conveyor", name: `Merge Conveyor ${pc}1`, nominalRate: 300 },
+      { kind: "packager" },
+      { kind: "labeler" },
+      { kind: "camera", name: `Final Inspection ${pc}4`, nominalRate: 320 },
+    ],
     capabilities: usedProducts.map((p) => ({ productId: p.id, ratePerHour: 260, designRatePerHour: 290, changeoverHours: 0, bom: [{ itemId: "CTN-S", qty: 1 }] })),
     allocation: Object.fromEntries(usedProducts.map((p) => [p.id, 1 / usedProducts.length])),
     baseScrapRate: 0.003,
-    downstreamLineId: null,
-    changeoverUntil: null,
-    buffer: {},
-    state: "running",
   });
 
-  // Inventory relevant to the products in use
   const itemIds = new Set<string>(["CTN-S"]);
   for (const p of usedProducts) for (const b of p.bom) itemIds.add(b.itemId);
   const inventory = INVENTORY.filter((i) => itemIds.has(i.id)).map((i) => ({ ...i, inbound: i.inbound.map((s) => ({ ...s })) }));
 
   // Orders: the primary line's product carries the critical, tight-deadline order.
-  const orders: CustomerOrder[] = [];
   const orderPlan: { productIdx: number; qtyHours: number; due: number; priority: CustomerOrder["priority"]; penalty: number }[] = [
     { productIdx: 0, qtyHours: 21.7, due: 24, priority: "critical", penalty: 18 },
     { productIdx: 1, qtyHours: 16.4, due: 40, priority: "high", penalty: 8 },
@@ -479,23 +355,76 @@ export function buildFactory(blueprint: FactoryBlueprint, anchorISO: string, see
     { productIdx: 1, qtyHours: 12.7, due: 64, priority: "standard", penalty: 5 },
     { productIdx: 2, qtyHours: 18, due: 36, priority: "high", penalty: 9 },
   ];
-  let orderNo = 1042;
-  for (const plan of orderPlan) {
-    const p = usedProducts[plan.productIdx];
+  const orders: PlanOrder[] = [];
+  for (const o of orderPlan) {
+    const p = usedProducts[o.productIdx];
     if (!p) continue;
-    orders.push({
-      id: `ORD-${orderNo}`,
-      customer: CUSTOMERS[(orderNo - 1042) % CUSTOMERS.length],
-      productId: p.id,
-      quantity: Math.round((p.rate * plan.qtyHours) / 100) * 100,
-      fulfilled: 0,
-      dueHour: plan.due,
-      priority: plan.priority,
-      penaltyPerLateUnit: plan.penalty,
-      completedHour: null,
-    });
-    orderNo++;
+    orders.push({ productId: p.id, quantity: Math.round((p.rate * o.qtyHours) / 100) * 100, dueHour: o.due, priority: o.priority, penaltyPerLateUnit: o.penalty });
   }
+
+  return {
+    profile: { name: blueprint.name, industry: blueprint.industry, location: blueprint.location, productionType: blueprint.productionType, dataSource: blueprint.dataSource, isDemo: blueprint.isDemo },
+    lines,
+    products: usedProducts.map(({ id, name, sku, unitMaterialCost, unitPrice, inspectionOpportunities }) => ({ id, name, sku, unitMaterialCost, unitPrice, inspectionOpportunities })),
+    inventory,
+    orders,
+    seedIncident: blueprint.seedIncident,
+    backgroundWear: true,
+    quality: "electronics",
+  };
+}
+
+export function buildFactory(blueprint: FactoryBlueprint, anchorISO: string, seed = DEMO_SEED): FactoryState {
+  return buildFromPlan(planFromBlueprint(blueprint), anchorISO, seed);
+}
+
+export function buildFromPlan(plan: FactoryPlan, anchorISO: string, seed = DEMO_SEED): FactoryState {
+  const rng = createRng(seed);
+  const lines: ProductionLine[] = [];
+  const assets: Asset[] = [];
+  const pkgPlan = plan.lines.find((l) => l.kind === "packaging");
+  const packagingLineId = pkgPlan ? `LINE-${pkgPlan.code}` : null;
+
+  for (const pl of plan.lines) {
+    const lineId = `LINE-${pl.code}`;
+    const lineAssets = pl.machines.map((m, i) => {
+      const a = makeAsset(m.kind, pl.code, i, pl.name, rng);
+      if (m.name) a.name = m.name;
+      if (m.nominalRate) a.nominalRate = m.nominalRate;
+      a.documentIds = DOCS_BY_KIND[m.kind] ?? [];
+      return a;
+    });
+    assets.push(...lineAssets);
+    lines.push({
+      id: lineId,
+      code: pl.code,
+      name: pl.name,
+      kind: pl.kind,
+      assetIds: lineAssets.map((a) => a.id),
+      capabilities: pl.capabilities.map((c) => ({ ...c, bom: c.bom.map((b) => ({ ...b })) })),
+      allocation: { ...pl.allocation },
+      baseScrapRate: pl.baseScrapRate,
+      downstreamLineId: pl.kind === "assembly" ? packagingLineId : null,
+      changeoverUntil: null,
+      buffer: {},
+      state: "running",
+    });
+  }
+  const inventory = plan.inventory.map((i) => ({ ...i, inbound: i.inbound.map((s) => ({ ...s })) }));
+
+  let orderNo = 1042;
+  const customers = plan.customers?.length ? plan.customers : CUSTOMERS;
+  const orders: CustomerOrder[] = plan.orders.map((o) => ({
+    id: `ORD-${orderNo}`,
+    customer: customers[(orderNo++ - 1042) % customers.length],
+    productId: o.productId,
+    quantity: o.quantity,
+    fulfilled: 0,
+    dueHour: o.dueHour,
+    priority: o.priority,
+    penaltyPerLateUnit: o.penaltyPerLateUnit,
+    completedHour: null,
+  }));
 
   // Maintenance history (past ~6 months)
   const maintenanceHistory: MaintenanceRecord[] = [];
@@ -529,20 +458,20 @@ export function buildFactory(blueprint: FactoryBlueprint, anchorISO: string, see
     schemaVersion: SCHEMA_VERSION,
     seed,
     profile: {
-      id: blueprint.isDemo ? "demo-plant-2" : `factory-${seed.toString(36)}`,
-      name: blueprint.name,
-      industry: blueprint.industry,
-      location: blueprint.location,
-      productionType: blueprint.productionType,
-      dataSource: blueprint.dataSource,
+      id: plan.profile.isDemo ? "demo-plant-2" : `factory-${seed.toString(36)}`,
+      name: plan.profile.name,
+      industry: plan.profile.industry,
+      location: plan.profile.location,
+      productionType: plan.profile.productionType,
+      dataSource: plan.profile.dataSource,
       createdAt: anchorISO,
-      isDemo: blueprint.isDemo,
+      isDemo: plan.profile.isDemo,
     },
     clock: { hour: -24, tick: 0, anchorISO, liveTelemetry: true, lastTickAt: 0, lastHistoryHour: -24 },
     lines,
     assets,
     connections: [],
-    products: usedProducts.map(({ id, name, sku, unitMaterialCost, unitPrice, inspectionOpportunities }) => ({ id, name, sku, unitMaterialCost, unitPrice, inspectionOpportunities })),
+    products: plan.products.map((p) => ({ ...p })),
     inventory,
     orders: [],
     telemetry: Object.fromEntries(assets.map((a) => [a.id, []])),
@@ -557,7 +486,7 @@ export function buildFactory(blueprint: FactoryBlueprint, anchorISO: string, see
     analyses: [],
     scenarioRuns: [],
     recommendations: [],
-    cameras: buildCameras(lines, assets),
+    cameras: buildCameras(lines, assets, plan.quality),
     visionReviews: [],
     audit: [],
     costModel: { ...DEFAULT_COST_MODEL },
@@ -570,15 +499,17 @@ export function buildFactory(blueprint: FactoryBlueprint, anchorISO: string, see
     assets.find((a) => a.lineId === firstLine.id && a.kind === "robot") ??
     assets.find((a) => a.lineId === firstLine.id && a.criticality === "A") ??
     assets.find((a) => a.lineId === firstLine.id);
-  const packer = pkgAssets.find((a) => a.kind === "packager");
-  if (packer) {
-    packer.condition.temperatureExcess = 2;
-    packer.condition.temperatureSlope = 0.11;
-    packer.condition.failureMode = TEMPLATES.packager.failureMode;
+  if (plan.backgroundWear) {
+    const packer = assets.find((a) => a.lineId === packagingLineId && a.kind === "packager");
+    if (packer) {
+      packer.condition.temperatureExcess = 2;
+      packer.condition.temperatureSlope = 0.11;
+      packer.condition.failureMode = TEMPLATES.packager.failureMode;
+    }
+    const secondPress = assets.find((a) => a.lineId === lines[1]?.id && a.kind === "press");
+    if (secondPress) secondPress.condition.vibrationExcess = 0.5;
   }
-  const secondPress = assets.find((a) => a.lineId === lines[1]?.id && a.kind === "press");
-  if (secondPress) secondPress.condition.vibrationExcess = 0.5;
-  if (target && blueprint.seedIncident) {
+  if (target && plan.seedIncident) {
     target.lastMaintenanceHour = -(target.maintenanceIntervalHours + 52);
   }
 
@@ -593,7 +524,7 @@ export function buildFactory(blueprint: FactoryBlueprint, anchorISO: string, see
     nowISO: anchorISO,
     recordEvents: false,
     beforeStep: (world) => {
-      if (!onsetApplied && target && blueprint.seedIncident && world.hour >= onsetHour - 1e-9) {
+      if (!onsetApplied && target && plan.seedIncident && world.hour >= onsetHour - 1e-9) {
         const m = world.machines[target.id];
         m.vibSlope = 0.22;
         m.tempSlope = 0.25;
@@ -607,7 +538,7 @@ export function buildFactory(blueprint: FactoryBlueprint, anchorISO: string, see
   state.clock.hour = 0;
   state.inventory.forEach((i, idx) => (i.onHand = t0Inventory[idx].onHand));
   state.orders = orders;
-  state.finishedGoods = Object.fromEntries(usedProducts.map((p) => [p.id, 0]));
+  state.finishedGoods = Object.fromEntries(plan.products.map((p) => [p.id, 0]));
 
   // 30-day daily health history (seeded, consistent with today's condition).
   for (const a of state.assets) {
@@ -616,7 +547,7 @@ export function buildFactory(blueprint: FactoryBlueprint, anchorISO: string, see
     for (let d = -29; d <= 0; d++) {
       const noise = gaussian(seed, `${a.id}:hh:${d}`) * 1.2;
       let score: number;
-      if (a.id === target?.id && blueprint.seedIncident) {
+      if (a.id === target?.id && plan.seedIncident) {
         score = d >= -1 ? today + (d === -1 ? 14 : 0) : 94 - (29 + d) * 0.18 + noise;
       } else {
         score = Math.min(99.5, today + (-d) * 0.04 + noise);
@@ -633,7 +564,7 @@ export function buildFactory(blueprint: FactoryBlueprint, anchorISO: string, see
   }
 
   // Seeded open incident for the degrading asset.
-  if (target && blueprint.seedIncident) {
+  if (target && plan.seedIncident) {
     state.incidents.push({
       id: "INC-2041",
       assetId: target.id,
@@ -649,7 +580,7 @@ export function buildFactory(blueprint: FactoryBlueprint, anchorISO: string, see
   }
 
   state.audit = [];
-  if (target && blueprint.seedIncident) {
+  if (target && plan.seedIncident) {
     state.audit.push({
       id: "EVT-10001",
       hour: -3.5,
@@ -668,8 +599,8 @@ export function buildFactory(blueprint: FactoryBlueprint, anchorISO: string, see
     at: anchorISO,
     category: "system",
     actor: "System",
-    title: blueprint.isDemo ? "Demo factory loaded" : "Digital twin created",
-    detail: `${blueprint.name}: ${state.lines.length} lines, ${state.assets.length} assets, ${state.orders.length} open orders. Data source: ${blueprint.dataSource === "demo" ? "simulated demo telemetry" : blueprint.dataSource.toUpperCase() + " selected (not connected — simulated telemetry in use)"}.`,
+    title: plan.profile.isDemo ? "Demo factory loaded" : "Digital twin created",
+    detail: `${plan.profile.name}: ${state.lines.length} lines, ${state.assets.length} assets, ${state.orders.length} open orders. Data source: ${plan.profile.dataSource === "demo" ? "simulated demo telemetry" : plan.profile.dataSource.toUpperCase() + " selected (not connected — simulated telemetry in use)"}.`,
     severity: "info",
     refs: {},
   });
@@ -684,7 +615,7 @@ export function buildFactory(blueprint: FactoryBlueprint, anchorISO: string, see
  * dock / stores cameras. Inspection placement follows IPC-A-610 practice: inspect after every
  * step that can introduce a defect, and verify labels/barcodes at final pack-out.
  */
-function buildCameras(lines: ProductionLine[], assets: Asset[]): Camera[] {
+function buildCameras(lines: ProductionLine[], assets: Asset[], quality: FactoryPlan["quality"] = "electronics"): Camera[] {
   const cams: Camera[] = [];
   const privacy = { faceBlur: true, retentionDays: 30 };
   for (const l of lines) {
@@ -709,10 +640,18 @@ function buildCameras(lines: ProductionLine[], assets: Asset[]): Camera[] {
       const pack = l.kind === "packaging";
       cams.push({
         id: `VIS-${a.id}`,
-        name: pack ? `${a.name} (pack-out verification)` : `${a.name} (post-placement AOI)`,
+        name: pack ? `${a.name} (pack-out verification)` : quality === "electronics" ? `${a.name} (post-placement AOI)` : `${a.name} (inline inspection)`,
         kind: "inspection",
-        purpose: pack ? "100% final inspection: label OCR, barcode grade, carton seal and count" : "100% automated optical inspection after placement and press-fit",
-        standard: pack ? "ISO/IEC 15416 / 15415 barcode print quality · label & seal criteria" : "IPC-A-610J Class 2 acceptance · J-STD-001 soldering requirements",
+        purpose: pack
+          ? "100% final inspection: label OCR, barcode grade, carton seal and count"
+          : quality === "electronics"
+            ? "100% automated optical inspection after placement and press-fit"
+            : "100% inline inspection of the line's output against the product specification",
+        standard: pack
+          ? "ISO/IEC 15416 / 15415 barcode print quality · label & seal criteria"
+          : quality === "electronics"
+            ? "IPC-A-610J Class 2 acceptance · J-STD-001 soldering requirements"
+            : "Product specification and visual inspection standard (site-defined)",
         zone: l.name,
         lineId: l.id,
         assetId: a.id,
@@ -726,19 +665,23 @@ function buildCameras(lines: ProductionLine[], assets: Asset[]): Camera[] {
       });
     }
   }
+  // Thermal camera on the first process line's hottest-running critical cell (the robot cell in the demo).
   const firstAssembly = lines.find((l) => l.kind === "assembly");
-  const robot = assets.find((a) => a.lineId === firstAssembly?.id && a.kind === "robot");
-  if (firstAssembly && robot) {
+  const hot = (a: Asset) => a.kind !== "camera" && a.sensors.some((x) => x.kind === "temperature");
+  const lineAssets = assets.filter((a) => a.lineId === firstAssembly?.id);
+  const focus = lineAssets.find((a) => a.kind === "robot") ?? lineAssets.find((a) => a.criticality === "A" && hot(a)) ?? lineAssets.find(hot);
+  if (firstAssembly && focus) {
+    const covers = focus.kind === "robot" ? lineAssets.filter((a) => a.kind === "robot" || a.kind === "press") : lineAssets.filter(hot).slice(0, 3);
     cams.push({
       id: `THM-${firstAssembly.code}1`,
-      name: `${firstAssembly.name} robot cell (thermal)`,
+      name: `${firstAssembly.name} ${focus.kind === "robot" ? "robot" : ARCHETYPES[focus.kind].name.toLowerCase()} cell (thermal)`,
       kind: "thermal",
       purpose: "Radiometric thermography of drive trains and motors — early warning for friction and overheating",
       standard: "ISO 18434-1 condition-monitoring thermography",
       zone: firstAssembly.name,
       lineId: firstAssembly.id,
       assetId: null,
-      covers: assets.filter((a) => a.lineId === firstAssembly.id && (a.kind === "robot" || a.kind === "press")).map((a) => a.id),
+      covers: covers.map((a) => a.id),
       analytics: ["thermal"],
       resolution: "640×480 radiometric",
       fps: 9,

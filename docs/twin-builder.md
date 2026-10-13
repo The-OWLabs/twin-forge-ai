@@ -1,0 +1,130 @@
+# Twin Builder
+
+**Status (14 Oct 2026):** built and tested. Template mode works everywhere. The AI steps (reading drawings, web research, chat edits) need Gemini on Vertex AI, which is being enabled on `twin-forge`.
+
+New users build their own digital twin by giving the agent what they have:
+- a drawing of the plant: floor plan, process-flow diagram, P&ID, equipment layout, hand sketch or photo
+- requirements in plain language
+- optionally, a standard layout to start from
+
+The agent does most of the work: it reads the drawing, researches how plants like it are set up, and drafts the twin. The user reviews every element, sees where each one came from, edits it directly or by chatting with the agent, plans data connections, and builds. Open it at **/onboarding** or from **Twin Builder** in the sidebar.
+
+## How it avoids made-up twins
+
+A language model can misread a drawing or invent a number. The builder is designed so that neither reaches the twin unnoticed.
+
+| Rule | How it is enforced |
+|---|---|
+| The model only proposes; code decides | Gemini fills fixed JSON schemas (zod-validated). IDs, links between elements, blueprint boxes and citations are resolved in code (`src/domain/builder/draft.ts`). |
+| Only known machine types | Every machine maps to one of 16 archetypes with physics templates (`src/domain/archetypes.ts`). An unknown type becomes a manual station and is listed as an assumption for the user to fix. |
+| Every element says where it came from | Each line, machine, product, material and connection carries a provenance tag: blueprint, your requirement, cited source, template, assumption, or your edit. The review screen shows it on every row. |
+| Claims must be backed | "From the blueprint" requires a matching element on the drawing. "Cited source" requires a valid reference from the Google Search grounding metadata. Otherwise the tag is downgraded to *assumption*. |
+| No invented numbers | The model may only give rates, prices and costs that the user, the drawing or a cited source states. Everything else stays empty and is filled by stated, deterministic defaults, which are listed in the build's audit entry. |
+| Deterministic validation | `validateSpec` checks structure, references, typical rate ranges and bottlenecks, repairs what is safe to repair, and reports everything it changed. Only a spec without errors can be built. |
+| Human review before build | Nothing is built until the user presses **Build my digital twin**. |
+| Deterministic build | `compileSpec` turns a reviewed spec into the twin with the same engine as the demo. The same spec and seed always give the same twin, and the demo factory is byte-identical after the refactor (fingerprint-tested). |
+| Honest fallbacks | Without Gemini, or if a call fails, the builder says so and starts from a template matched by keywords. It never pretends to have read a drawing or searched the web. |
+
+## Workflow
+
+```
+ drawing + requirements + (template)
+            │
+  READ      │  Gemini (multimodal) → machines, lines, flows, boxes on the drawing   ┐
+  RESEARCH  │  Gemini + Google Search grounding → notes with [R#] citations          │ model proposes
+  DRAFT     │  Gemini (JSON schema) → lines, machines, products, connections         ┘
+            ▼
+  VALIDATE  │  deterministic checks, repairs, rate derivation                        ┐
+  REVIEW    │  person edits directly or chats ("add a second filler") →              │ code decides,
+            │  validated edit operations, attributed to the user                     │ person approves
+  BUILD     ▼  deterministic compile → live twin + planned data connections          ┘
+```
+
+The workflow is `runBuilder` in `src/domain/builder/pipeline.ts`. The model sits behind an injected interface (`BuilderAi`), so the same code runs with Gemini (`src/server/builder/gemini.ts`), with recorded responses in tests, and without AI. Each stage streams its real output to the browser as NDJSON.
+
+## The twin spec
+
+`TwinSpec` (`src/domain/builder/spec.ts`) is the reviewable contract between the agent and the compiler:
+
+- **site:** name, industry, location, production type.
+- **lines:** 1–4 process lines and an optional packing / end-of-line area that receives their output. Each has up to 8 machines in flow order, each with an archetype, an optional rate and an optional box on the drawing.
+- **products:** unit, rate, price, material cost and bill of materials. **materials:** unit, cost, lead time and stock.
+- **integrations:** planned data connections per line, machine or site (simulated, Pub/Sub, camera RTSP, MQTT, OPC UA, Modbus, historian, ERP). Never credentials.
+- **references, assumptions, questions, options:** the options are the rehearsal incident and whether lines can run each other's products.
+
+Edits from the review screen and from the agent's chat use the same 18 edit operations (`src/domain/builder/ops.ts`). Each one is validated, and invalid ones are rejected with a reason.
+
+## Machine archetypes
+
+The original 6 archetypes are conveyor, press, robot, inspection camera, packaging machine and labeler. The builder adds 10 more:
+- CNC machine
+- mixer / blender
+- oven / furnace / dryer
+- filling machine
+- molding machine (injection or blow)
+- welding cell
+- palletizer
+- pump / transfer unit
+- manual / semi-automatic station
+- extruder
+
+Each archetype has:
+- representative physics (rate, power, vibration and temperature baselines and limits, maintenance interval)
+- sensors
+- a failure mode
+- defect classes (for example ISO 5817 weld imperfections, molding short shots and flash, fill-level tolerance)
+- a typical rate range
+- an isometric 3D shape
+
+The defaults are labelled as simulation values, not OEM data. Inspection cameras cite IPC-A-610 only in electronics plants; other industries use their machines' own defect classes.
+
+## Templates
+
+Seven reviewable starting layouts:
+- electronics SMT
+- PET bottling
+- automotive CNC machining
+- plastics injection molding
+- industrial bakery
+- stamping and welding
+- pharma oral solid dose
+
+They are labelled as typical configurations, not real plants. All seven pass validation with no warnings and run the full six-agent analysis in tests.
+
+## Data connections ("integrate whatever you want")
+
+Connections are planned per line, machine or site and saved with the twin. The **Integrations** page lists them as *planned · not connected* until a connector is configured and verified.
+
+| Kind | Status today |
+|---|---|
+| Simulated | Active |
+| Pub/Sub telemetry | Implemented. Set `PUBSUB_TELEMETRY_SUBSCRIPTION`; messages `{assetId, vibration, temperature, powerKw}` drive the twin. |
+| Camera (RTSP/ONVIF) | Implemented for viewing, through an HLS gateway URL on the camera. |
+| MQTT, OPC UA, Modbus | Planned: a read-only edge gateway ([Python services plan](python-services-plan.md), Phase 4) |
+| Historian, ERP | Planned |
+
+## API
+
+| Endpoint | Purpose |
+|---|---|
+| `GET /api/builder` | AI availability, templates, archetypes, connection kinds |
+| `POST /api/builder/draft` | Multipart (`blueprint` PNG/JPEG/WebP/PDF ≤ 15 MB, `requirements`, `name`, `industry`, `location`, `templateId`, `research`). Streams the agent's stages as NDJSON. The drawing is not stored. |
+| `POST /api/builder/refine` | `{spec, instruction}`: the agent's edit operations, applied and validated (needs Gemini) |
+| `POST /api/builder/validate` | `{spec}`: deterministic checks (no AI) |
+| `POST /api/builder/build` | `{spec}`: builds the twin and replaces the current factory |
+
+## Enabling the AI steps
+
+1. Enable the Vertex AI API on the project.
+2. Locally: `gcloud auth application-default login` and `gcloud auth application-default set-quota-project twin-forge`, then `GOOGLE_CLOUD_PROJECT=twin-forge` in `.env.local`.
+3. On Firebase App Hosting: grant `roles/aiplatform.user` to `firebase-app-hosting-compute@twin-forge.iam.gserviceaccount.com`, uncomment `GOOGLE_CLOUD_PROJECT` in `apphosting.yaml`, and roll out.
+
+Google Search grounding is billed per grounded request. When grounded results are shown, the review screen also displays the Google Search suggestions, as Google's terms require.
+
+## Limitations
+
+- **Lines run in series.** Parallel stations are modelled by their combined rate. Branching flows, buffers between stations and batch steps are approximated. A full process-graph engine was considered and deferred.
+- **Up to 4 process lines** and one packing area per twin, with up to 8 machines per line.
+- **Typical values.** Default rates, prices, stock and the sample order book are typical values until real systems are connected. They are listed in the build's audit entry and in the review's assumptions.
+- **Drawings are interpreted, not measured.** Element positions on the drawing are shown for checking. They do not set the twin's geometry, which uses the standard isometric layout.
+- **Untested against Gemini.** The AI steps are covered by tests with recorded responses. They will be exercised against Gemini on Vertex AI once it is enabled on `twin-forge`.

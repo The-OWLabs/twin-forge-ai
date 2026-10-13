@@ -5,6 +5,8 @@
 
 TwinForge AI is a working MVP of an industrial digital-twin platform. It digitizes a factory as a live topology, ingests (simulated) telemetry, watches the line through inspection, thermal and CCTV cameras placed in the twin, runs six specialized AI agents that investigate incidents, compares alternative operating plans on a deterministic plant model, and applies the chosen plan to the twin only after human approval, with a full audit trail.
 
+New users build their own twin with the **Twin Builder**: they give an agent their factory's drawing and requirements, and it reads the layout, researches standard setups with cited sources, and drafts a twin. The user reviews every element, with where each one came from, before a deterministic build ([design](docs/twin-builder.md)).
+
 It ships with one complete scenario: an electronics plant with three lines where an assembly robot develops bearing damage just as a critical customer order is due and a key component is in short supply.
 
 ---
@@ -18,12 +20,13 @@ It ships with one complete scenario: an electronics plant with three lines where
 5. [How the numbers are produced](#how-the-numbers-are-produced)
 6. [AI agents](#ai-agents)
 7. [Visual quality and cameras](#visual-quality-and-cameras)
-8. [API reference](#api-reference)
-9. [Google Cloud integrations](#google-cloud-integrations)
-10. [Deploy (Firebase App Hosting or Cloud Run)](#deploy-to-firebase-app-hosting)
-11. [Testing](#testing)
-12. [Project structure](#project-structure)
-13. [Known limitations](#known-limitations)
+8. [Twin Builder](#twin-builder)
+9. [API reference](#api-reference)
+10. [Google Cloud integrations](#google-cloud-integrations)
+11. [Deploy (Firebase App Hosting or Cloud Run)](#deploy-to-firebase-app-hosting)
+12. [Testing](#testing)
+13. [Project structure](#project-structure)
+14. [Known limitations](#known-limitations)
 
 ---
 
@@ -72,6 +75,7 @@ The fastest path is **Demo controls → Run Factory Crisis Demo** (top-right). I
 5. **Cameras and Visual Quality**: in the Isometric view, click the thermal camera **THM-A1** above robot A3. A card shows what the camera sees (A-ROB-03 running hot); **Watch live stream** opens the live view, and the access is written to the audit trail. **Visual Quality** shows Line A's AOI reject rate rising from ≈1.7% to ≈3.3%, tracking A-ROB-03 vibration (r ≈ 0.89). **Review last 60 units** lists each reject with its IPC-A-610 criterion and waits for you to confirm or dismiss it.
 6. **Approvals**: review actions, evidence, benefits, risks, the impact table and rollback information. Approve it, then **Fast-forward 8 h**: Line B changes over, A-ROB-03 goes into maintenance, returns healthy, and the incident resolves itself.
 7. **Audit Trail**: every alert, agent finding, scenario run, decision, simulated action and resulting state change is listed with links.
+8. **Twin Builder** (sidebar): describe another plant, for example "two PET bottling lines, case packer and palletizer, OPC UA on the fillers", or upload its drawing. Review the draft with provenance badges on every element, plan a data connection, and build. The new twin runs with the same agents, simulator and cameras. **Reset Demo** brings back the crisis factory.
 
 **Reset Demo** (Demo controls) restores the exact initial state at any time.
 
@@ -83,7 +87,8 @@ The fastest path is **Demo controls → Run Factory Crisis Demo** (top-right). I
 |---|---|
 | Landing page: Apple-style scroll story — the isometric twin stays pinned while the scripted crisis unfolds (build → detect → investigate → simulate → approve → audit); every figure is computed by running the engine on that scenario | ✅ |
 | Light / dark theme toggle (persisted, no flash on load) across the app and landing page | ✅ |
-| Onboarding wizard (factory, location, lines, assets, data source, review) and parametric twin generation | ✅ |
+| **Twin Builder**: the agent reads a blueprint (Gemini, multimodal), researches standard layouts (Google Search grounding, cited) and drafts a twin spec. The user reviews it with provenance on every element, edits directly or by chat, plans data connections and builds. Deterministic validation and compile; template mode without AI | ✅ AI steps need Vertex AI |
+| 16 machine archetypes across industries (CNC, mixer, oven, filler, molding, welding, palletizer, pump, manual station, extruder + the original 6), each with physics, sensors, failure mode, defect classes and a 3D shape; 7 industry templates | ✅ |
 | Factory Command Center: OEE, target vs. actual, health distribution, energy, scrap, incidents, shortages, delivery risk, line status, events | ✅ |
 | Digital Twin Studio: React Flow topology (lines, machines, sensors, inventory and order nodes; add, edit and connect assets; drag; zoom, pan and fit), an **isometric view** (extruded machines with status stack-lights, animated belts, warehouse racks and order trucks; rotate, zoom, pan, select), and a 2D floor plan, all with scenario highlighting | ✅ |
 | Asset management: search, filters, sort, detail sheet linked to the twin | ✅ |
@@ -207,6 +212,31 @@ The workflow (`src/domain/agents/pipeline.ts`) runs on a frozen snapshot, so liv
 
 ---
 
+## Twin Builder
+
+Open **Twin Builder** (sidebar, or **Create your twin** on the landing page). Give it any of:
+- a drawing (floor plan, process-flow diagram, P&ID, layout sketch or photo; PNG, JPEG, WebP or PDF)
+- requirements in plain language
+- a standard layout to start from
+
+The agent then works in four stages, each streamed live:
+1. **Read** recognises machines, lines and flow on the drawing.
+2. **Research** finds how plants like yours are set up, with citations.
+3. **Draft** proposes lines, machines, products, materials and data connections.
+4. **Validate** runs deterministic checks.
+
+**Review before build.** Every element shows where it came from: *blueprint*, *your requirement*, *cited source*, *template*, *assumption* or *your edit*. The model can only use the 16 known machine archetypes and may only state numbers that you, the drawing or a cited source provide. A claim it can't back is downgraded to *assumption*.
+
+You can edit lines, machines, rates, products and connections directly, or ask the agent ("add a second filler at 6,000 bottles/h"). Its changes are applied as validated operations. **Build my digital twin** compiles the reviewed spec deterministically, with the same engine as the demo. The defaults it applies are recorded in the audit trail.
+
+**Without AI** (no Gemini configured) the builder says so, matches your description to one of 7 industry templates by keywords, and the review and build work the same way.
+
+**Connections.** Plan data connections per line or machine: Pub/Sub and camera streams work today; OPC UA, Modbus and MQTT are planned through an edge gateway. The Integrations page lists them as planned until they are verified.
+
+Design, guarantees and limits: [docs/twin-builder.md](docs/twin-builder.md).
+
+---
+
 ## API reference
 
 `GET /api` returns the endpoint list. The main operations:
@@ -227,6 +257,7 @@ The workflow (`src/domain/agents/pipeline.ts`) runs on a frozen snapshot, so liv
 | `GET /api/cameras` · `PATCH /api/cameras/:id` · `POST /api/cameras/:id/view` | Cameras with their current views · set stream source (https gateway URL) · log a live view |
 | `GET /api/quality` | FPY, DPMO, RTY, Pareto and correlations (24 h) |
 | `POST /api/vision/review-log` · `POST /api/vision/analyze` · `PATCH /api/vision/reviews/:id` | Station-log review · Gemini review of an uploaded file (multipart `file`, optional `cameraId`) · confirm or dismiss |
+| `GET /api/builder` · `POST /api/builder/draft` · `POST /api/builder/refine` · `POST /api/builder/validate` · `POST /api/builder/build` | Twin Builder: capabilities and templates · agent draft (multipart, NDJSON stream) · chat edits · deterministic validation · build from a reviewed spec |
 | `POST /api/vision/inspect` | Machine-vision check on the Python service (multipart `file` image or video, optional `reference` golden image and `cameraId`) |
 
 Inputs are validated with zod. Errors return `{ error, issues? }` with 400, 404 or 409 status codes.
@@ -307,12 +338,12 @@ docker run -p 8080:8080 twinforge-ai     # http://localhost:8080
 ## Testing
 
 ```bash
-npm test               # 51 Vitest tests
-npm run build && npm run test:e2e   # 8 Playwright tests against the production server
+npm test               # 72 Vitest tests
+npm run build && npm run test:e2e   # 9 Playwright tests against the production server
 cd services/vision && uv run pytest # 16 pytest tests for the Python vision service
 ```
 
-- **Unit and integration tests** (`tests/`, 51 tests), including a check that the landing story's figures are engine-derived:
+- **Unit and integration tests** (`tests/`, 72 tests), including a check that the landing story's figures are engine-derived:
   - seed reproducibility and entity counts
   - health and status rules, OLS and trend estimation, change-point detection
   - KPIs
@@ -326,8 +357,9 @@ cd services/vision && uv run pytest # 16 pytest tests for the Python vision serv
   - visual quality: scrap fully attributed to causes, FPY / Pareto consistency, the robot ↔ AOI correlation in the crisis, deterministic inspection frames, thermal readings matching the twin
   - cameras: https-only stream URLs, audited live views, station-log reviews and the human disposition guard
   - mapping of vision-service results to review findings
+  - Twin Builder: every template validates cleanly, builds, simulates and runs the six-agent analysis; deterministic builds; industry-appropriate defect classes; validation repairs and errors; and the agent workflow with recorded model responses (blueprint links, citation filtering, unsupported machine types, fallbacks, and chat edits as validated operations). The demo factory is checked byte-identical after the generator refactor.
 - **Python vision service** (`services/vision/tests`, 16 tests, synthetic media): a missing IC found where it should be, a rotated and shifted part aligned, lighting changes ignored, QR and EAN-13 decoding with grades, deterministic output, a video stoppage found at the right time, and API limits.
-- **End-to-end tests** (`e2e/demo.spec.ts`, 8 tests): camera card → audited live view → Visual Quality review confirmed by a person; camera API validation and honest Gemini status; isometric selection and rotation, theme persistence, every landing-story chapter appearing on scroll; every page renders with no console errors; the full guided crisis demo (incident → agents → scenario sensitivity → twin highlight → approval → fast-forward → audit); reset reproducibility; API validation.
+- **End-to-end tests** (`e2e/demo.spec.ts`, 9 tests): Twin Builder from description to built twin with a planned connection; camera card → audited live view → Visual Quality review confirmed by a person; camera API validation and honest Gemini status; isometric selection and rotation, theme persistence, every landing-story chapter appearing on scroll; every page renders with no console errors; the full guided crisis demo (incident → agents → scenario sensitivity → twin highlight → approval → fast-forward → audit); reset reproducibility; API validation.
 
 ---
 
@@ -339,10 +371,11 @@ src/
   components/          ui primitives, shell, theme toggle, dashboard, twin (graph, nodes, canvas, floor view), iso (isometric renderer),
                        assets, agents, simulator, vision (camera feeds, camera card, live view, reviews), landing (scroll story)
   client/              API client, Zustand stores (factory, UI prefs, simulator workbench), hooks
-  domain/              plant model, telemetry, simulation, agents, quality, vision, recommendations, actions, KPIs, seed
+  domain/              plant model, telemetry, simulation, agents, quality, vision, archetypes, builder/ (spec, validation,
+                       compile, templates, edit operations, agent workflow), recommendations, actions, KPIs, seed
   server/              persistence, AI provider, integrations, documents, request schemas
 services/vision/       Python vision service (FastAPI + OpenCV), tests, Dockerfile
-docs/                  plans (python-services-plan.md)
+docs/                  twin-builder.md, python-services-plan.md
 content/docs/          demo maintenance manuals and procedures (fictional)
 infra/                 BigQuery schema, Cloud Run deploy script
 tests/ e2e/            Vitest and Playwright suites
@@ -358,6 +391,6 @@ tests/ e2e/            Vitest and Playwright suites
 - **Single tenant, per-instance state.** One factory per server, stored in a local JSON file. Cloud Run instances do not share state (hence max-instances 1), and state resets when an instance is recycled. A production version would use Firestore, Cloud SQL or BigQuery.
 - **No authentication or authorization.**
 - **Cloud adapters are not verified against live services in this build.** BigQuery, Pub/Sub, Cloud Storage and Vertex AI calls are implemented and are exercised only when configured. MQTT is a reachability probe; subscription is not implemented.
-- **Custom factories** created through onboarding use electronics-assembly templates (products, BOMs, orders) for any chosen industry.
+- **Twin Builder limits.** Machines on a line run in series, with up to 4 process lines plus one packing area and 8 machines per line. Parallel or batch steps are approximated. Default rates, prices, stock and the sample orders are typical values until real systems are connected. The AI steps are tested with recorded responses and need Vertex AI to run.
 - **Time model.** Live telemetry advances 2 minutes of plant time every 4 seconds while the app is open in a visible tab. Fast-forward runs the same model in larger jumps.
 - **Desktop-first.** Pages work on phones (no horizontal page scrolling), but the twin canvas and wide tables are best on a laptop or larger screen.

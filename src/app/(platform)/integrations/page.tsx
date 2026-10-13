@@ -5,6 +5,7 @@ import { CheckCircle2, CircleSlash, Cloud, Database, FileText, KeyRound, Loader2
 import { PageHeader } from "@/components/page";
 import { Badge, Button, Card, CardBody, CardHeader, type Tone } from "@/components/ui/primitives";
 import { useFactory } from "@/client/store";
+import { CONNECTION_META } from "@/components/builder/panels";
 
 interface Integration {
   id: string;
@@ -130,6 +131,8 @@ export default function IntegrationsPage() {
         })}
       </div>
 
+      <PlannedConnections />
+
       <Card className="mt-4">
         <CardHeader title="Google Cloud architecture" description="How each service maps onto the platform (see README for setup)" icon={<Cloud className="h-4 w-4" />} />
         <CardBody>
@@ -151,5 +154,32 @@ export default function IntegrationsPage() {
         </CardBody>
       </Card>
     </div>
+  );
+}
+
+/** Data connections planned in the Twin Builder; shown as planned until a connector is configured and verified. */
+function PlannedConnections() {
+  const plan = useFactory((st) => st.state?.dataPlan);
+  if (!plan?.length) return null;
+  return (
+    <Card className="mt-4">
+      <CardHeader title="Planned data connections" description="From the Twin Builder. These are plans, not live connections: the twin keeps using the source shown above until each connector is set up and verified." icon={<PlugZap className="h-4 w-4" />} />
+      <CardBody>
+        <ul className="divide-y divide-line">
+          {plan.map((c) => {
+            const M = CONNECTION_META[c.kind as keyof typeof CONNECTION_META];
+            return (
+              <li key={c.id} className="flex flex-wrap items-center gap-2 py-2 text-[12.5px]">
+                <Badge tone={M?.status === "active" ? "healthy" : M?.status === "ready" ? "accent" : "neutral"}>{M?.label ?? c.kind}</Badge>
+                <span className="text-ink">{c.targetName}</span>
+                <span className="font-mono text-[11px] text-muted">{c.target}</span>
+                {c.address && <span className="font-mono text-[11px] text-ink-2">{c.address}</span>}
+                <span className="ml-auto text-[11.5px] text-muted">{M ? `${M.status === "planned" ? "Planned" : "Ready to configure"} · not connected` : "Planned · not connected"}</span>
+              </li>
+            );
+          })}
+        </ul>
+      </CardBody>
+    </Card>
   );
 }

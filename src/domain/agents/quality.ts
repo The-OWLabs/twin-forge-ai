@@ -1,4 +1,4 @@
-import { computeQuality, defectTrend, recentDefectTypes } from "../quality";
+import { computeQuality, defectTrend, recentDefectTypes, usesIpc } from "../quality";
 import type { AgentFinding, AgentProposal, AgentReport } from "../types";
 import { fmtInt, type AnalysisContext } from "./context";
 
@@ -29,7 +29,7 @@ export function runQualityAgent(ctx: AnalysisContext): AgentReport {
       title: rising
         ? `${focusStation.camera.name.split(" (")[0]}: defect rate up ${pct(focusStation.baselineRate)} → ${pct(focusStation.recentRate)}`
         : `${focusStation.camera.name.split(" (")[0]}: defect rate ${pct(focusStation.recentRate)}`,
-      detail: `${fmtInt(focusStation.inspected)} units inspected in 24 h against IPC-A-610J Class 2 · first-pass yield ${pct(focusStation.fpy)} · ${fmtInt(focusStation.dpmo)} DPMO. ${
+      detail: `${fmtInt(focusStation.inspected)} units inspected in 24 h against ${focusStation.camera.standard?.split(" · ")[0] ?? "the product specification"} · first-pass yield ${pct(focusStation.fpy)} · ${fmtInt(focusStation.dpmo)} DPMO. ${
         top ? `Leading defect class over 24 h: ${top.type} (${pct(top.share, 0)} of rejects).` : ""
       }${recentTop && top && recentTop.type !== top.type ? ` In the last 3 h the mix has shifted: ${recentTop.type} now leads (${pct(recentTop.share, 0)}).` : ""}`,
       severity: rising ? "warning" : "info",
@@ -82,7 +82,7 @@ export function runQualityAgent(ctx: AnalysisContext): AgentReport {
     const lastTwo = focusStation.hourly.slice(-2).reduce((s, h) => s + h.inspected, 0);
     proposals.push({
       title: `Contain: hold and re-inspect the last 2 h of ${focusStation.lineName} output (~${fmtInt(lastTwo)} units)`,
-      detail: "Quarantine units produced since the defect rate rose; re-inspect to IPC-A-610 Class 2 before release. Human disposition of every reject.",
+      detail: `Quarantine units produced since the defect rate rose; re-inspect to ${usesIpc(state) ? "IPC-A-610 Class 2" : "the product specification"} before release. Human disposition of every reject.`,
       priority: "now",
     });
   }
@@ -104,7 +104,7 @@ export function runQualityAgent(ctx: AnalysisContext): AgentReport {
       : "No inspection station on the focus line.",
     inputs: [
       `${q.stations.length} inspection cameras (AOI + pack-out), ${fmtInt(q.totalInspected)} units in 24 h`,
-      "Defect classes mapped to IPC-A-610J Class 2 and ISO/IEC 15416 criteria",
+      usesIpc(state) ? "Defect classes mapped to IPC-A-610J Class 2 and ISO/IEC 15416 criteria" : "Defect classes mapped to each machine's failure modes and ISO/IEC 15416 at pack-out",
       "Hourly vibration telemetry for cross-modal correlation",
     ],
     method:

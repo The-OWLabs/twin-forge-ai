@@ -11,7 +11,17 @@ export type AssetKind =
   | "robot"
   | "camera"
   | "packager"
-  | "labeler";
+  | "labeler"
+  | "cnc"
+  | "mixer"
+  | "oven"
+  | "filler"
+  | "molder"
+  | "welder"
+  | "palletizer"
+  | "pump"
+  | "workstation"
+  | "extruder";
 
 export type AssetStatus = "healthy" | "warning" | "critical" | "offline" | "maintenance";
 export type MachineMode = "running" | "down" | "maintenance";
@@ -656,6 +666,18 @@ export interface VisionReview {
   note: string;
 }
 
+/** A planned data connection from the Twin Builder. Planned only until a connector is configured and verified. */
+export interface DataConnection {
+  id: string;
+  /** Engine id of the line or asset, or "site". */
+  target: string;
+  targetName: string;
+  kind: string;
+  address: string | null;
+  notes: string | null;
+  status: "planned";
+}
+
 export interface FactoryState {
   schemaVersion: number;
   seed: number;
@@ -681,6 +703,9 @@ export interface FactoryState {
   recommendations: Recommendation[];
   cameras: Camera[];
   visionReviews: VisionReview[];
+  /** The reviewed spec this twin was built from (Twin Builder), with provenance. */
+  twinSpec?: import("./builder/spec").TwinSpec | null;
+  dataPlan?: DataConnection[];
   audit: AuditEntry[];
   costModel: CostModel;
   counters: Record<string, number>;

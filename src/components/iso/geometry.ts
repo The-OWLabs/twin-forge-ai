@@ -134,6 +134,127 @@ export function machineParts(kind: AssetKind): { parts: Part[]; height: number }
           { t: "box", u: -0.3, v: 0.2, z0: 0.68, L: 0.3, W: 0.4, H: 0.12, tone: "accent" },
         ],
       };
+    case "cnc":
+      return {
+        height: 1.5,
+        parts: [
+          { t: "box", u: 0, v: 0, z0: 0, L: f.L, W: f.W, H: 1.2, tone: "body" },
+          { t: "box", u: 0.05, v: 0.2, z0: 0.35, L: 0.9, W: f.W - 0.35, H: 0.6, tone: "glass" },
+          { t: "box", u: -0.55, v: f.W / 2 - 0.12, z0: 0.6, L: 0.3, W: 0.12, H: 0.45, tone: "dark" },
+          { t: "box", u: 0, v: 0, z0: 1.2, L: f.L - 0.2, W: f.W - 0.2, H: 0.06, tone: "trim" },
+        ],
+      };
+    case "mixer":
+      return {
+        height: 1.75,
+        parts: [
+          { t: "box", u: 0, v: 0, z0: 0, L: f.L, W: f.W, H: 0.35, tone: "trim" },
+          { t: "box", u: 0, v: 0, z0: 0.35, L: 0.9, W: 0.9, H: 0.75, tone: "white" },
+          { t: "box", u: 0, v: -0.42, z0: 0.35, L: 0.3, W: 0.2, H: 1.25, tone: "body" },
+          { t: "box", u: 0, v: -0.12, z0: 1.38, L: 0.5, W: 0.8, H: 0.22, tone: "body" },
+          { t: "box", u: 0, v: 0.05, z0: 1.15, L: 0.1, W: 0.1, H: 0.23, tone: "dark" },
+        ],
+      };
+    case "oven":
+      return {
+        height: 1.55,
+        parts: [
+          { t: "box", u: 0, v: 0, z0: 0, L: f.L, W: f.W, H: 0.25, tone: "trim" },
+          { t: "box", u: 0, v: 0, z0: 0.25, L: f.L - 0.2, W: f.W, H: 0.75, tone: "body" },
+          { t: "box", u: 0, v: f.W / 2 - 0.04, z0: 0.45, L: f.L - 0.6, W: 0.06, H: 0.12, tone: "accent" },
+          { t: "box", u: 0.7, v: -0.25, z0: 1.0, L: 0.28, W: 0.28, H: 0.45, tone: "dark" },
+          { t: "box", u: -0.7, v: -0.25, z0: 1.0, L: 0.28, W: 0.28, H: 0.3, tone: "dark" },
+        ],
+      };
+    case "filler":
+      return {
+        height: 1.5,
+        parts: [
+          { t: "box", u: 0, v: 0, z0: 0, L: f.L, W: f.W, H: 0.55, tone: "body" },
+          { t: "box", u: 0, v: 0, z0: 0.55, L: 1.1, W: 1.1, H: 0.12, tone: "trim" },
+          { t: "box", u: 0, v: 0, z0: 0.67, L: 0.85, W: 0.85, H: 0.35, tone: "glass" },
+          { t: "box", u: 0, v: 0, z0: 1.02, L: 0.55, W: 0.55, H: 0.3, tone: "white" },
+          { t: "box", u: 0.55, v: 0.55, z0: 0.55, L: 0.16, W: 0.16, H: 0.22, tone: "accent" },
+        ],
+      };
+    case "molder":
+      return {
+        height: 1.4,
+        parts: [
+          { t: "box", u: 0, v: 0, z0: 0, L: f.L, W: f.W, H: 0.6, tone: "body" },
+          { t: "box", u: -0.45, v: 0, z0: 0.6, L: 1.1, W: 0.55, H: 0.35, tone: "trim" },
+          { t: "box", u: 0.55, v: 0, z0: 0.6, L: 0.7, W: 0.75, H: 0.45, tone: "glass" },
+          { t: "box", u: -0.75, v: 0, z0: 0.95, L: 0.3, W: 0.3, H: 0.4, tone: "white" },
+          { t: "box", u: 0.95, v: 0.35, z0: 0.6, L: 0.2, W: 0.12, H: 0.25, tone: "accent" },
+        ],
+      };
+    case "welder":
+      return {
+        height: 1.6,
+        parts: [
+          { t: "box", u: 0, v: 0, z0: 0, L: f.L, W: f.W, H: 0.2, tone: "trim" },
+          { t: "box", u: 0, v: -f.W / 2 + 0.04, z0: 0.2, L: f.L, W: 0.06, H: 1.05, tone: "glass" },
+          { t: "box", u: -f.L / 2 + 0.04, v: 0, z0: 0.2, L: 0.06, W: f.W, H: 1.05, tone: "glass" },
+          { t: "box", u: 0.25, v: 0.2, z0: 0.2, L: 0.6, W: 0.5, H: 0.3, tone: "dark" },
+          { t: "box", u: -0.3, v: 0.1, z0: 0.2, L: 0.4, W: 0.4, H: 0.3, tone: "body" },
+          {
+            t: "arm",
+            points: [
+              [-0.3, 0.1, 0.5],
+              [-0.4, 0.1, 1.25],
+              [0.15, 0.15, 1.15],
+              [0.28, 0.2, 0.72],
+            ],
+          },
+        ],
+      };
+    case "palletizer":
+      return {
+        height: 1.85,
+        parts: [
+          { t: "box", u: 0, v: 0, z0: 0, L: f.L, W: f.W, H: 0.12, tone: "carton" },
+          { t: "box", u: 0, v: 0, z0: 0.12, L: 1.1, W: 1.1, H: 0.3, tone: "carton" },
+          { t: "box", u: 0, v: 0, z0: 0.42, L: 1.1, W: 1.1, H: 0.3, tone: "carton" },
+          { t: "box", u: -f.L / 2 + 0.06, v: -f.W / 2 + 0.06, z0: 0.12, L: 0.1, W: 0.1, H: 1.6, tone: "trim" },
+          { t: "box", u: f.L / 2 - 0.06, v: -f.W / 2 + 0.06, z0: 0.12, L: 0.1, W: 0.1, H: 1.6, tone: "trim" },
+          { t: "box", u: 0, v: -f.W / 2 + 0.06, z0: 1.62, L: f.L, W: 0.12, H: 0.12, tone: "trim" },
+          { t: "box", u: 0.1, v: -0.2, z0: 1.2, L: 0.35, W: 0.35, H: 0.42, tone: "accent" },
+        ],
+      };
+    case "pump":
+      return {
+        height: 0.85,
+        parts: [
+          { t: "box", u: 0, v: 0, z0: 0, L: f.L, W: f.W, H: 0.12, tone: "trim" },
+          { t: "box", u: -0.15, v: 0, z0: 0.12, L: 0.45, W: 0.38, H: 0.38, tone: "body" },
+          { t: "box", u: 0.28, v: 0, z0: 0.12, L: 0.26, W: 0.46, H: 0.46, tone: "accent" },
+          { t: "box", u: 0.28, v: 0, z0: 0.58, L: 0.1, W: 0.1, H: 0.18, tone: "dark" },
+        ],
+      };
+    case "workstation":
+      return {
+        height: 1.45,
+        parts: [
+          { t: "box", u: 0, v: 0, z0: 0.68, L: f.L, W: f.W, H: 0.07, tone: "white" },
+          { t: "box", u: -f.L / 2 + 0.06, v: 0, z0: 0, L: 0.08, W: f.W - 0.1, H: 0.68, tone: "trim" },
+          { t: "box", u: f.L / 2 - 0.06, v: 0, z0: 0, L: 0.08, W: f.W - 0.1, H: 0.68, tone: "trim" },
+          { t: "box", u: 0, v: -f.W / 2 + 0.05, z0: 0.75, L: f.L, W: 0.06, H: 0.55, tone: "trim" },
+          { t: "box", u: -0.2, v: -0.2, z0: 1.05, L: 0.7, W: 0.22, H: 0.05, tone: "body" },
+          { t: "box", u: 0.25, v: 0.05, z0: 0.75, L: 0.3, W: 0.22, H: 0.14, tone: "carton" },
+          { t: "box", u: -0.3, v: 0.1, z0: 0.75, L: 0.1, W: 0.1, H: 0.25, tone: "accent" },
+        ],
+      };
+    case "extruder":
+      return {
+        height: 1.35,
+        parts: [
+          { t: "box", u: 0, v: 0, z0: 0, L: f.L, W: f.W, H: 0.4, tone: "body" },
+          { t: "box", u: 0.2, v: 0, z0: 0.4, L: 1.7, W: 0.3, H: 0.28, tone: "trim" },
+          { t: "box", u: -0.9, v: 0, z0: 0.4, L: 0.5, W: 0.6, H: 0.45, tone: "body" },
+          { t: "box", u: -0.45, v: 0, z0: 0.68, L: 0.32, W: 0.32, H: 0.55, tone: "white" },
+          { t: "box", u: 1.12, v: 0, z0: 0.42, L: 0.12, W: 0.36, H: 0.24, tone: "accent" },
+        ],
+      };
   }
 }
 

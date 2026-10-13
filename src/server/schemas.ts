@@ -1,6 +1,8 @@
 import { z } from "zod";
+import { ASSET_KINDS } from "@/domain/archetypes";
+import type { AssetKind } from "@/domain/types";
 
-const assetKind = z.enum(["conveyor", "press", "robot", "camera", "packager", "labeler"]);
+const assetKind = z.enum(ASSET_KINDS as [AssetKind, ...AssetKind[]]);
 const priority = z.enum(["critical", "high", "standard"]);
 
 export const BlueprintSchema = z.object({

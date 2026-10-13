@@ -10,7 +10,7 @@ import { CAMERA_KIND_META, useCameraModal } from "@/components/vision/camera-pan
 import { CameraFeed } from "@/components/vision/feeds";
 import { CorrelationChart, ParetoChart, RejectTrendChart } from "@/components/vision/quality-charts";
 import { ReviewList, ReviewTools } from "@/components/vision/reviews";
-import { cameraView, computeQuality } from "@/domain/quality";
+import { cameraView, computeQuality, usesIpc } from "@/domain/quality";
 import type { FactoryState } from "@/domain/types";
 import { cn } from "@/lib/cn";
 import { fmtInt } from "@/lib/format";
@@ -43,9 +43,11 @@ export default function QualityPage() {
         description="Inspection cameras next to production: first-pass yield, DPMO and defect Pareto per station, cross-checked against machine condition. Every camera in the plant is one click away, and every visual finding waits for a person to confirm it."
         eyebrow={
           <span className="flex flex-wrap gap-1.5">
-            <Badge tone="accent">
-              <BadgeCheck className="h-3 w-3" /> IPC-A-610J Class 2
-            </Badge>
+            {usesIpc(state) && (
+              <Badge tone="accent">
+                <BadgeCheck className="h-3 w-3" /> IPC-A-610J Class 2
+              </Badge>
+            )}
             <Badge tone="warning">Inspection results derived from the plant model (demo)</Badge>
           </span>
         }
@@ -209,7 +211,7 @@ export default function QualityPage() {
         <Card>
           <CardHeader title="Standards used" description="What each criterion governs in this twin. The demo derives inspection outcomes from the plant model; a real deployment uses the station's own results." />
           <CardBody className="space-y-2.5">
-            {STANDARDS.map((s) => (
+            {STANDARDS.filter((s) => usesIpc(state) || !s.code.startsWith("IPC")).map((s) => (
               <div key={s.code} className="grid gap-1 sm:grid-cols-[190px_1fr] sm:gap-3">
                 <p className="text-[12.5px] font-semibold text-ink">{s.code}</p>
                 <p className="text-[12px] leading-relaxed text-ink-2">{s.scope}</p>

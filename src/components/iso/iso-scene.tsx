@@ -3,7 +3,7 @@
 import { memo, useMemo, type ReactNode } from "react";
 import type { AssetStatus } from "@/domain/types";
 import { boxFaces, floorQuad, localExtents, localToWorld, machineParts, project, pts, rotatePoint, UNIT, type Box, type Part, type Tone, type V3 } from "./geometry";
-import { FOOTPRINT, layoutIso, type IsoModel, type PlacedMachine } from "./model";
+import { FOOTPRINT, layoutIso, type IsoMachine, type IsoModel, type PlacedMachine } from "./model";
 
 export interface IsoHighlight {
   assetIds: string[];
@@ -26,6 +26,8 @@ export interface IsoSceneProps {
   camera?: { focusId?: string | null; zoom?: number } | null;
   /** Render CCTV / inspection / thermal cameras (requires `model.cameras`). */
   showCameras?: boolean;
+  /** Custom machine label text (e.g. name and planned rate in the Twin Builder preview). */
+  labelFor?: (m: IsoMachine) => { title: string; sub: string };
   className?: string;
   title?: string;
 }
@@ -284,6 +286,7 @@ export const IsoScene = memo(function IsoScene({
   sensors = false,
   camera,
   showCameras = false,
+  labelFor,
   className,
   title = "Isometric view of the factory digital twin",
 }: IsoSceneProps) {
@@ -482,8 +485,9 @@ export const IsoScene = memo(function IsoScene({
       if (!show) continue;
       const [wx, wy] = rot(r, pm.x, pm.y);
       const { height } = machineParts(pm.m.kind);
-      const sub = isTarget && highlight?.targetLabel ? highlight.targetLabel : st === "healthy" ? `health ${pm.m.health.toFixed(0)}` : `${st} · health ${pm.m.health.toFixed(0)}`;
-      labelItems.push({ key: wx + wy, node: <Label key={pm.m.id} x={wx} y={wy} z={height + 0.4} title={pm.m.id} sub={sub} color={isTarget ? "var(--color-accent)" : STATUS_COLOR[st]} emphasis={st !== "healthy" || isTarget || selectedId === pm.m.id} /> });
+      const custom = labelFor?.(pm.m);
+      const sub = custom?.sub ?? (isTarget && highlight?.targetLabel ? highlight.targetLabel : st === "healthy" ? `health ${pm.m.health.toFixed(0)}` : `${st} · health ${pm.m.health.toFixed(0)}`);
+      labelItems.push({ key: wx + wy, node: <Label key={pm.m.id} x={wx} y={wy} z={height + 0.4} title={custom?.title ?? pm.m.id} sub={sub} color={isTarget ? "var(--color-accent)" : STATUS_COLOR[st]} emphasis={st !== "healthy" || isTarget || selectedId === pm.m.id} /> });
     }
     for (const t of layout.trucks) {
       if (!t.atRisk && selectedId !== `ord:${t.id}`) continue;

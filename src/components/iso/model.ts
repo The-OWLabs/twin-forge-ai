@@ -142,6 +142,16 @@ export const FOOTPRINT: Record<AssetKind, { L: number; W: number; H: number }> =
   camera: { L: 1.3, W: 1.05, H: 0.62 },
   packager: { L: 1.6, W: 1.35, H: 1.05 },
   labeler: { L: 1.1, W: 0.95, H: 0.78 },
+  cnc: { L: 1.5, W: 1.3, H: 1.0 },
+  mixer: { L: 1.2, W: 1.2, H: 0.6 },
+  oven: { L: 2.4, W: 1.2, H: 0.8 },
+  filler: { L: 1.4, W: 1.4, H: 0.6 },
+  molder: { L: 2.2, W: 0.9, H: 0.6 },
+  welder: { L: 1.4, W: 1.4, H: 0.2 },
+  palletizer: { L: 1.5, W: 1.5, H: 0.2 },
+  pump: { L: 0.9, W: 0.7, H: 0.4 },
+  workstation: { L: 1.2, W: 0.8, H: 0.75 },
+  extruder: { L: 2.4, W: 0.8, H: 0.5 },
 };
 
 const PITCH = 2.7; // machine spacing along flow
@@ -241,5 +251,23 @@ export function layoutIso(model: IsoModel): Layout {
     racks,
     trucks,
     bounds: { x0: Math.min(...xs) - 1.6, y0: Math.min(...ys) - 1.2, x1: Math.max(...xs) + 1.6, y1: Math.max(...ys) + 1.6 },
+  };
+}
+
+/** Preview model for a TwinSpec under review (before it is built): every machine shown healthy. */
+export function isoModelFromSpec(spec: import("@/domain/builder/spec").TwinSpec, rates: Record<string, number> = {}): IsoModel {
+  const ordered = [...spec.lines.filter((l) => l.role === "process"), ...spec.lines.filter((l) => l.role === "packing")];
+  return {
+    lines: ordered.map((l, i) => ({
+      id: l.id,
+      name: l.name,
+      kind: l.role === "packing" ? "packaging" : "assembly",
+      color: SERIES[i % SERIES.length],
+      state: "running",
+      product: l.productIds.map((p) => spec.products.find((x) => x.id === p)?.name ?? p).join(" · "),
+      machines: l.machines.map((m) => ({ id: m.id, name: m.name, kind: m.archetype, status: "healthy", health: 100, throughput: rates[m.id] ?? m.ratePerHour ?? 0, sensors: 0 })),
+    })),
+    inventory: spec.materials.slice(0, 8).map((m) => ({ id: m.id, name: m.name, fill: 0.65, low: false })),
+    orders: [],
   };
 }

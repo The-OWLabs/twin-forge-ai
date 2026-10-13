@@ -280,3 +280,46 @@ export async function analyzeMedia(
     clearTimeout(timer);
   }
 }
+
+/* ───────────────────────────── shared call helper ───────────────────────────── */
+
+export interface GeminiCall {
+  contents: unknown;
+  config?: Record<string, unknown>;
+  timeoutMs: number;
+}
+
+/**
+ * One Gemini call with timeout and runtime bookkeeping (used by the Twin Builder agent).
+ * Returns the raw response so callers can read text and grounding metadata.
+ */
+export async function geminiGenerate(call: GeminiCall) {
+  const cfg = aiConfig();
+  if (cfg.provider === "none") throw new Error("Gemini is not configured");
+  const { GoogleGenAI } = await import("@google/genai");
+  const ai =
+    cfg.provider === "vertex"
+      ? new GoogleGenAI({ vertexai: true, project: cfg.project, location: cfg.location, httpOptions: { timeout: call.timeoutMs } })
+      : new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY, httpOptions: { timeout: call.timeoutMs } });
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), call.timeoutMs);
+  const started = Date.now();
+  runtime.calls++;
+  try {
+    const res = await ai.models.generateContent({
+      model: cfg.model,
+      contents: call.contents as never,
+      config: { ...(call.config ?? {}), abortSignal: controller.signal },
+    });
+    runtime.lastSuccessAt = new Date().toISOString();
+    runtime.lastLatencyMs = Date.now() - started;
+    runtime.lastError = null;
+    return { res, model: `${cfg.model} via ${cfg.provider === "vertex" ? `Vertex AI (${cfg.location})` : "Gemini API"}`, latencyMs: Date.now() - started };
+  } catch (e) {
+    const msg = e instanceof Error ? (e.name === "AbortError" ? `timed out after ${call.timeoutMs} ms` : e.message) : String(e);
+    runtime.lastError = `${new Date().toISOString()} — ${msg}`.slice(0, 400);
+    throw new Error(msg);
+  } finally {
+    clearTimeout(timer);
+  }
+}

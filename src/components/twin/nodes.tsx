@@ -2,7 +2,7 @@
 
 import { memo } from "react";
 import { Handle, Position, type NodeProps, type Node } from "@xyflow/react";
-import { Activity, Bot, Boxes, Camera, Cctv, Gauge, Hammer, Package, Rows3, ScanEye, Tag, Thermometer, ThermometerSun, Truck, Waves, Wrench, Zap, ScanLine } from "lucide-react";
+import { Activity, Blend, Bot, Boxes, Camera, Cctv, Container, Cylinder, Drill, Fan, Flame, Layers, Milk, UserCog, Gauge, Hammer, Package, Rows3, ScanEye, Tag, Thermometer, ThermometerSun, Truck, Waves, Wrench, Zap, ScanLine } from "lucide-react";
 import type { AssetKind } from "@/domain/types";
 import { cn } from "@/lib/cn";
 import { fmtInt } from "@/lib/format";
@@ -16,6 +16,16 @@ export const KIND_ICON: Record<AssetKind, typeof Bot> = {
   camera: Camera,
   packager: Package,
   labeler: Tag,
+  cnc: Drill,
+  mixer: Blend,
+  oven: Flame,
+  filler: Milk,
+  molder: Container,
+  welder: Zap,
+  palletizer: Layers,
+  pump: Fan,
+  workstation: UserCog,
+  extruder: Cylinder,
 };
 
 const hidden = "!h-2 !w-2 !min-h-0 !min-w-0 !border-0 !bg-transparent";

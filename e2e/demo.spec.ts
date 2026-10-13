@@ -196,3 +196,43 @@ test("camera API rejects insecure stream URLs and reports Gemini honestly", asyn
   if (vision.state === "not-configured") expect(inspect.status()).toBe(503);
   else expect([422, 502]).toContain(inspect.status());
 });
+
+test("Twin Builder: describe → draft → review with provenance → plan a connection → build", async ({ page, request }) => {
+  const errors = collectErrors(page);
+  await page.goto("/onboarding");
+  await page.evaluate(() => localStorage.removeItem("twinforge-builder"));
+  await page.reload();
+  await expect(page.getByRole("heading", { name: "Twin Builder" })).toBeVisible();
+  const meta = (await (await request.get("/api/builder")).json()) as { ai: { available: boolean } };
+
+  await page.getByLabel("Requirements").fill("We bottle spring water in PET on one line, then case packing and palletizing.");
+  await page.getByLabel("Factory name").fill("Riverside Bottling");
+  if (meta.ai.available) await page.getByRole("switch", { name: "Research on the web" }).click(); // keep the e2e run offline-fast
+  await page.getByTestId("builder-start").click();
+  const review = page.getByTestId("builder-review");
+  await expect(review).toBeVisible({ timeout: 120_000 });
+  await expect(page.getByTestId("line-editor").first()).toBeVisible();
+  if (!meta.ai.available) await expect(review.getByText("Drafted from a template")).toBeVisible();
+
+  // Manual edit goes through validated operations and is attributed to the user
+  const rate = page.getByTestId("line-editor").first().getByLabel("Rate per hour").first();
+  await rate.fill("15000");
+  await rate.blur();
+  await expect(review.getByText("Your edit").first()).toBeVisible();
+
+  await page.getByRole("tab", { name: "Connections" }).click();
+  await page.getByLabel("Connection type").selectOption("opcua");
+  await page.getByLabel("Address").fill("ns=3;s=Line.Speed");
+  await page.getByRole("button", { name: "Plan" }).click();
+  await expect(page.getByText("ns=3;s=Line.Speed")).toBeVisible();
+
+  await page.getByTestId("builder-build").click();
+  await page.waitForURL("**/twin");
+  await expect(page.getByText("Riverside Bottling").first()).toBeVisible();
+  const state = (await (await request.get("/api/factory")).json()) as { profile: { name: string }; twinSpec: unknown; dataPlan: { kind: string; status: string }[]; audit: { title: string }[] };
+  expect(state.profile.name).toBe("Riverside Bottling");
+  expect(state.twinSpec).toBeTruthy();
+  expect(state.dataPlan).toEqual([expect.objectContaining({ kind: "opcua", status: "planned" })]);
+  expect(state.audit[0].title).toContain("Twin Builder");
+  expect(errors).toEqual([]);
+});

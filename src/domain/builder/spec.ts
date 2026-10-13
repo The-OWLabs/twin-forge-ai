@@ -1,0 +1,135 @@
+/**
+ * TwinSpec: the reviewable, declarative description of a factory that the Twin Builder agent
+ * drafts and a person approves. A deterministic compiler (compile.ts) turns it into a live twin.
+ *
+ * Every element records where it came from (`prov`) so nothing the model proposes is mistaken
+ * for a fact: the blueprint, the user's requirements, a cited reference, a template, a default
+ * assumption, or a manual edit.
+ */
+import { z } from "zod";
+import { ASSET_KINDS } from "../archetypes";
+import type { AssetKind } from "../types";
+
+export const PROVENANCE = ["blueprint", "requirement", "reference", "template", "default", "user"] as const;
+export type ProvenanceSource = (typeof PROVENANCE)[number];
+
+export const ProvSchema = z.object({
+  source: z.enum(PROVENANCE),
+  note: z.string().max(400).nullish(),
+  /** Reference ids (see TwinSpec.references) that support this element. */
+  refs: z.array(z.string().max(12)).max(6).nullish(),
+});
+export type Prov = z.infer<typeof ProvSchema>;
+
+const id = z.string().trim().min(1).max(40);
+const name = z.string().trim().min(1).max(80);
+const num = (max: number) => z.number().finite().positive().max(max).nullable();
+const BoxSchema = z.object({ x: z.number().min(0).max(1), y: z.number().min(0).max(1), w: z.number().min(0).max(1), h: z.number().min(0).max(1) });
+
+export const SpecMachineSchema = z.object({
+  id,
+  name,
+  archetype: z.enum(ASSET_KINDS as [AssetKind, ...AssetKind[]]),
+  /** Sustainable rate in product units per hour (null: derived from the line rate). */
+  ratePerHour: num(200000),
+  notes: z.string().max(300).nullish(),
+  /** Where the element sits on the uploaded blueprint (normalised 0–1). */
+  box: BoxSchema.nullish(),
+  prov: ProvSchema,
+});
+
+export const SpecLineSchema = z.object({
+  id,
+  name,
+  role: z.enum(["process", "packing"]),
+  machines: z.array(SpecMachineSchema).min(1).max(8),
+  productIds: z.array(id).max(4),
+  box: BoxSchema.nullish(),
+  prov: ProvSchema,
+});
+
+export const SpecProductSchema = z.object({
+  id,
+  name,
+  /** Unit the line counts (units, bottles, kg, parts…). */
+  unit: z.string().trim().min(1).max(20).default("units"),
+  ratePerHour: num(200000),
+  unitPrice: num(1e6),
+  unitMaterialCost: num(1e6),
+  materials: z.array(z.object({ materialId: id, qtyPerUnit: z.number().finite().positive().max(10000) })).max(8),
+  prov: ProvSchema,
+});
+
+export const SpecMaterialSchema = z.object({
+  id,
+  name,
+  unit: z.string().trim().min(1).max(20).default("pcs"),
+  onHand: z.number().finite().min(0).max(1e9).nullable(),
+  unitCost: num(1e6),
+  leadTimeHours: num(24 * 120),
+  supplier: z.string().trim().max(80).nullable(),
+  prov: ProvSchema,
+});
+
+export const INTEGRATION_KINDS = ["simulated", "mqtt", "opcua", "modbus", "pubsub", "camera-rtsp", "historian", "erp"] as const;
+export type IntegrationKind = (typeof INTEGRATION_KINDS)[number];
+
+export const SpecIntegrationSchema = z.object({
+  id,
+  /** A line id, a machine id, or "site". */
+  target: id,
+  kind: z.enum(INTEGRATION_KINDS),
+  /** Topic, node id, register map, URL… (never credentials). */
+  address: z.string().trim().max(200).nullable(),
+  notes: z.string().max(300).nullish(),
+  prov: ProvSchema,
+});
+
+export const ReferenceSchema = z.object({ id: z.string().max(12), title: z.string().max(200), url: z.string().url().max(2000), note: z.string().max(400).nullish() });
+
+export const TwinSpecSchema = z.object({
+  version: z.literal(1),
+  site: z.object({
+    name,
+    industry: z.string().trim().min(2).max(80),
+    location: z.string().trim().max(80).default(""),
+    productionType: z.string().trim().max(120).default(""),
+    prov: ProvSchema,
+  }),
+  lines: z.array(SpecLineSchema).min(1).max(5),
+  products: z.array(SpecProductSchema).max(6),
+  materials: z.array(SpecMaterialSchema).max(12),
+  integrations: z.array(SpecIntegrationSchema).max(40),
+  references: z.array(ReferenceSchema).max(20),
+  assumptions: z.array(z.string().max(400)).max(30),
+  questions: z.array(z.object({ id, text: z.string().max(400), answer: z.string().max(400).nullable() })).max(12),
+  /** Blueprint the draft was read from (file name only; the file itself is not stored). */
+  blueprint: z.object({ fileName: z.string().max(160), kind: z.string().max(40), summary: z.string().max(800) }).nullish(),
+  options: z.object({ rehearsalIncident: z.boolean().default(false), linesInterchangeable: z.boolean().default(true) }).default({}),
+});
+
+export type TwinSpec = z.infer<typeof TwinSpecSchema>;
+export type TwinSpecInput = z.input<typeof TwinSpecSchema>;
+export type SpecLine = z.infer<typeof SpecLineSchema>;
+export type SpecMachine = z.infer<typeof SpecMachineSchema>;
+export type SpecProduct = z.infer<typeof SpecProductSchema>;
+export type SpecMaterial = z.infer<typeof SpecMaterialSchema>;
+export type SpecIntegration = z.infer<typeof SpecIntegrationSchema>;
+
+/** Lower-case slug for ids ("Filling Line 1" → "filling-line-1"). */
+export const slug = (s: string, max = 32) =>
+  s
+    .toLowerCase()
+    .normalize("NFKD")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, max) || "x";
+
+/** Unique id from a name within a set of taken ids. */
+export function uniqueId(base: string, taken: Set<string>) {
+  const b = slug(base);
+  let id = b;
+  for (let i = 2; taken.has(id); i++) id = `${b}-${i}`;
+  taken.add(id);
+  return id;
+}
