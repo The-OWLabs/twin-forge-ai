@@ -218,6 +218,7 @@ export type Directive =
       workOrderId: string;
       status: DirectiveStatus;
       recommendationId?: string;
+      ruleId?: string;
     }
   | {
       id: string;
@@ -229,6 +230,7 @@ export type Directive =
       revertAllocation: Record<string, number>;
       status: DirectiveStatus;
       recommendationId?: string;
+      ruleId?: string;
     }
   | {
       id: string;
@@ -240,6 +242,7 @@ export type Directive =
       revertSpeedPct: number;
       status: DirectiveStatus;
       recommendationId?: string;
+      ruleId?: string;
     };
 
 export type DirectiveStatus = "scheduled" | "active" | "completed" | "cancelled";
@@ -462,7 +465,8 @@ export interface TimelineEvent {
     | "order-late"
     | "inbound"
     | "stockout"
-    | "alarm";
+    | "alarm"
+    | "rule";
   label: string;
   assetId?: string;
   lineId?: string;
@@ -514,7 +518,7 @@ export interface ScenarioRun {
   id: string;
   createdHour: number;
   at: string;
-  source: "agent" | "operator";
+  source: "agent" | "operator" | "rule";
   targetAssetId: string;
   results: ScenarioResult[];
   baselineId: string;
@@ -558,7 +562,7 @@ export interface Recommendation {
   id: string;
   createdHour: number;
   at: string;
-  source: "orchestrator" | "operator";
+  source: "orchestrator" | "operator" | "rule";
   analysisId: string | null;
   scenarioRunId: string;
   scenarioId: string;
@@ -690,6 +694,37 @@ export interface MobileRobot {
   lineId: string;
   unitsPerTrip: number;
   speedMps: number;
+  /** Absent: trips follow line output. */
+  trigger?: { kind: "schedule"; everyMinutes: number };
+  /** Waypoints on the floor plan (layout units) the robot passes on each trip. */
+  route?: { x: number; y: number }[];
+}
+
+/**
+ * An automation rule from the Twin Builder playground, compiled to engine ids. Rules act on the
+ * simulated plant only (purchase orders, line allocation, machine speed, maintenance proposals);
+ * they never send commands to real equipment.
+ */
+export type PlantRule =
+  | { id: string; name: string; kind: "inventory"; enabled: boolean; itemId: string; below: number; orderQty: number; leadTimeHours: number }
+  | { id: string; name: string; kind: "maintenance"; enabled: boolean; assetId: string | null; metric: "health" | "vibration"; threshold: number }
+  | {
+      id: string;
+      name: string;
+      kind: "connector";
+      enabled: boolean;
+      lineId: string;
+      when: "upstream-stops" | "downstream-stops" | "buffer-full";
+      action: "divert" | "slow" | "pause";
+      toLineId: string | null;
+      speedPct: number | null;
+      bufferUnits: number | null;
+    };
+
+export interface RuleRuntime {
+  /** Sequence for rule-created purchase orders and directives. */
+  seq: number;
+  rules: Record<string, { active: boolean; directiveIds: string[]; fired: number; lastFiredHour: number | null; assets?: string[] }>;
 }
 
 /** A planned data connection from the Twin Builder. Planned only until a connector is configured and verified. */
@@ -734,6 +769,11 @@ export interface FactoryState {
   dataPlan?: DataConnection[];
   /** Mobile robots from the Twin Builder spec. Absent: none, except the demo plant's derived fleet. */
   mobileRobots?: MobileRobot[];
+  /** Automation rules from the playground. Absent: none. */
+  rules?: PlantRule[];
+  ruleRuntime?: RuleRuntime;
+  /** Floor positions from the playground, by asset id (layout units, rotation in degrees). Absent: automatic layout. */
+  layout?: Record<string, { x: number; y: number; rot: number }>;
   audit: AuditEntry[];
   costModel: CostModel;
   counters: Record<string, number>;

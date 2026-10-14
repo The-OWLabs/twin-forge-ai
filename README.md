@@ -23,13 +23,14 @@ It ships with one complete scenario: an electronics plant with three lines where
 6. [AI agents](#ai-agents)
 7. [Visual quality and cameras](#visual-quality-and-cameras)
 8. [Twin Builder](#twin-builder)
-9. [Copilot (ADK) and MCP](#copilot-adk-and-mcp)
-10. [API reference](#api-reference)
-11. [Google Cloud integrations](#google-cloud-integrations)
-12. [Deploy (Firebase App Hosting or Cloud Run)](#deploy-to-firebase-app-hosting)
-13. [Testing](#testing)
-14. [Project structure](#project-structure)
-15. [Known limitations](#known-limitations)
+9. [Playground](#playground)
+10. [Copilot (ADK) and MCP](#copilot-adk-and-mcp)
+11. [API reference](#api-reference)
+12. [Google Cloud integrations](#google-cloud-integrations)
+13. [Deploy (Firebase App Hosting or Cloud Run)](#deploy-to-firebase-app-hosting)
+14. [Testing](#testing)
+15. [Project structure](#project-structure)
+16. [Known limitations](#known-limitations)
 
 The full architecture and design document is [docs/architecture.md](docs/architecture.md).
 
@@ -100,6 +101,7 @@ The fastest path is **Demo controls → Run Factory Crisis Demo** (top-right). I
 | 16 machine archetypes across industries (CNC, mixer, oven, filler, molding, welding, palletizer, pump, manual station, extruder + the original 6), each with physics, sensors, failure mode, defect classes and a 3D shape; 7 industry templates | ✅ |
 | Factory Command Center: OEE, target vs. actual, health distribution, energy, scrap, incidents, shortages, delivery risk, line status, events | ✅ |
 | Digital Twin Studio: React Flow topology (lines, machines, sensors, inventory and order nodes; add, edit and connect assets; drag; zoom, pan and fit), an **isometric view** (extruded machines with status stack-lights, animated belts, warehouse racks and order trucks; rotate, zoom, pan, select), a 2D floor plan, and a **3D view** (three.js: orbit, pan, zoom, top view, focus, turntable) with a realistic look: concrete floor, cutaway walls and steel columns, painted work zones with safety tape, rounded machine enclosures with HMI panels, jointed robot arms with grippers inside safety fencing, conveyors with frames and rollers, pallet racking, and animated mobile robots. High quality adds ambient occlusion and bloom; Standard is chosen automatically on slow or GPU-less devices. All with scenario highlighting | ✅ |
+| **Playground**: a sandbox copy of the twin on a floor plan. Drag machines and robots from a palette, move, rotate and delete them, wire the flow by dragging between machines, split lines, draw robot routes, and set rules for robot movements, connector actions, inventory and maintenance, by hand or with AI help. Undo/redo, live checks, a 3D preview compiled in the browser, and **Apply** rebuilds the live twin. Rules run inside the plant model (live and What-If) and never touch real equipment | ✅ |
 | Mobile robots (AMRs, AGVs, automated forklifts, tuggers): created by the Twin Builder from your requirements or drawing (count, move, line), reviewable and editable; the demo plant has a derived kitting and pallet fleet. Trip rates follow line output and are shared across a fleet, and robots park with the reason when a line stops or a part runs out | ✅ |
 | Asset management: search, filters, sort, detail sheet linked to the twin | ✅ |
 | Live simulated telemetry (deterministic noise) with pause/resume and fast-forward | ✅ |
@@ -252,6 +254,23 @@ You can edit lines, machines, rates, products, robots and connections directly, 
 
 Design, guarantees and limits: [docs/twin-builder.md](docs/twin-builder.md).
 
+## Playground
+
+Open **Playground** in the sidebar. It starts from a copy of the live twin (the demo plant is read back into an editable spec), or from any of the 7 templates. Nothing changes in the live twin until you press **Apply to twin**; the draft is kept in your browser.
+
+- **Place.** Drag a machine or a robot fleet from the palette onto the floor. Dropped inside a line's bay, a machine joins that line before or after its nearest neighbour; dropped on empty floor, it starts a new process line. Clicking a palette item adds it after the selected machine instead.
+- **Move, rotate, delete.** Drag machines anywhere (positions snap to 0.25 units, about 0.5 m), press **R** to rotate 90°, **Delete** to remove, **Ctrl/⌘ Z** to undo. The first hand placement pins every machine where the automatic layout had it, so nothing else jumps.
+- **Wire the flow.** Drag from a machine's output port to the machine that should come next; select a conveyor to split the line there. Conveyors are drawn straight or L-shaped between hand-placed machines, and each process line merges into the side of the packing line.
+- **Rules.** All four kinds run in the plant model every step, in the live twin and in What-If runs:
+  - *Robot movements:* per fleet, trips either follow line output or run on a fixed schedule (every N minutes), with an optional drawn route.
+  - *Connector actions:* when a line stops, another line takes over its work (re-allocation, with a changeover); when packing stops or the buffer before packing reaches a limit, the line slows down or pauses, and resumes when the buffer has drained to 80% of the limit.
+  - *Inventory triggers:* when stock plus open orders falls below a level (default: the reorder point), a purchase order is placed in whole lots and arrives after the material's lead time.
+  - *Maintenance rules:* when a machine's health falls below, or vibration rises above, a limit, the rule simulates the options and creates a **pending** preventive-maintenance recommendation (once per crossing). A person still approves it.
+- **AI help.** Describe a change in plain words; the AI proposes the same validated edit operations the canvas uses, and every change can be undone. When AI is off, the panel says so and everything still works by hand.
+- **Checks and preview.** Validation runs on every edit (missing references, overlapping machines, rules that can't fire), and the **3D preview** compiles the draft in the browser with the same deterministic compiler that Apply uses.
+
+Every rule action is written to the audit trail as *Automation rule (simulated)*.
+
 ## Copilot (ADK) and MCP
 
 **Copilot.** Click **Ask Copilot** in the top bar. It's built with Google's Agent Development Kit for TypeScript, running inside the app:
@@ -394,12 +413,12 @@ docker run -p 8080:8080 twinforge-ai     # http://localhost:8080
 ## Testing
 
 ```bash
-npm test               # 110 Vitest tests
-npm run build && npm run test:e2e   # 15 Playwright tests against the production server
+npm test               # 117 Vitest tests
+npm run build && npm run test:e2e   # 16 Playwright tests against the production server
 cd services/vision && uv run pytest # 16 pytest tests for the Python vision service
 ```
 
-- **Unit and integration tests** (`tests/`, 110 tests), including a check that the landing story's figures are engine-derived:
+- **Unit and integration tests** (`tests/`, 117 tests), including a check that the landing story's figures are engine-derived:
   - seed reproducibility and entity counts
   - health and status rules, OLS and trend estimation, change-point detection
   - KPIs
@@ -415,10 +434,11 @@ cd services/vision && uv run pytest # 16 pytest tests for the Python vision serv
   - mapping of vision-service results to review findings
   - Twin Builder: every template validates cleanly, builds, simulates and runs the six-agent analysis; deterministic builds; industry-appropriate defect classes; validation repairs and errors; and the agent workflow with recorded model responses (blueprint links, citation filtering, unsupported machine types, fallbacks, and chat edits as validated operations). The demo factory is checked byte-identical after the generator refactor.
 - **Admin and settings** (`tests/admin.test.ts`): signed admin cookies (expiry, tampering, passcode rotation, rate limit); settings overriding the environment, turning off and returning to the deployment value; never overwriting saved settings that could not be read from Cloud Storage; validation (https only, no metadata host); secrets never returned; settings driving the AI and vision adapters; camera source switching with audit; every footage clip shipped with its file, poster and license; stock-outs reported once.
+- **Playground and rules** (`tests/playground-rules.test.ts`): placing, connecting, splitting and deleting machines, with rules that lose their target removed; validation of rules that can't work; inventory triggers ordering whole lots once; a line taking over a stopped line's work and handing it back after the repair; pausing a line while the buffer before packing is full and resuming it after it drains; maintenance rules proposing once per crossing without scheduling anything; What-If runs using the same rules without touching the live plant.
 - **AI providers** (`tests/ai-providers.test.ts`, recorded responses, no network): provider selection and missing settings; Claude JSON through a forced tool, image and PDF blocks, web-search citations and the refusal of video; OpenAI Responses JSON and citation markers; OpenAI-compatible JSON, and honest refusals of web search and PDFs; the ADK adapter translating Gemini contents, schemas and function calls.
 - **Agent tools** (`tests/tools.test.ts`): every read tool leaves the twin unchanged; what-if matches the engine; the proposal only creates a pending recommendation; invalid arguments are rejected; no tool can approve, execute or command equipment; numeric grounding of answers.
 - **Python vision service** (`services/vision/tests`, 16 tests, synthetic media): a missing IC found where it should be, a rotated and shifted part aligned, lighting changes ignored, QR and EAN-13 decoding with grades, deterministic output, a video stoppage found at the right time, and API limits.
-- **End-to-end tests** (`e2e/`, 15 tests): the phone notice and continuing past it; the 3D view rendering with mobile robots and layer toggles; Twin Builder robots from the requirements through review to the built twin; the CCTV control room switching all cameras to reference footage and back (audited, served as video/mp4); integration settings saved from the UI and returned to the deployment value; MCP protocol (initialize, tools/list with read-only hints, tools/call, errors); the ADK copilot giving a grounded answer with a tool trace (when Gemini is configured); Twin Builder from description to built twin with a planned connection; camera card → audited live view → Visual Quality review confirmed by a person; camera API validation and honest Gemini status; isometric selection and rotation, theme persistence, every landing-story chapter appearing on scroll; every page renders with no console errors; the full guided crisis demo (incident → agents → scenario sensitivity → twin highlight → approval → fast-forward → audit); reset reproducibility; API validation.
+- **End-to-end tests** (`e2e/`, 16 tests): the playground (drag from the palette, delete and undo, connect by dragging between machines, add rules, apply to the live twin); the phone notice and continuing past it; the 3D view rendering with mobile robots and layer toggles; Twin Builder robots from the requirements through review to the built twin; the CCTV control room switching all cameras to reference footage and back (audited, served as video/mp4); integration settings saved from the UI and returned to the deployment value; MCP protocol (initialize, tools/list with read-only hints, tools/call, errors); the ADK copilot giving a grounded answer with a tool trace (when Gemini is configured); Twin Builder from description to built twin with a planned connection; camera card → audited live view → Visual Quality review confirmed by a person; camera API validation and honest Gemini status; isometric selection and rotation, theme persistence, every landing-story chapter appearing on scroll; every page renders with no console errors; the full guided crisis demo (incident → agents → scenario sensitivity → twin highlight → approval → fast-forward → audit); reset reproducibility; API validation.
 
 ---
 
@@ -426,12 +446,14 @@ cd services/vision && uv run pytest # 16 pytest tests for the Python vision serv
 
 ```
 src/
-  app/                 routes: landing, onboarding, (platform)/{dashboard,twin,assets,quality,agents,simulator,approvals,sustainability,audit,integrations}, api/*
+  app/                 routes: landing, onboarding, (platform)/{dashboard,twin,playground,assets,quality,agents,simulator,approvals,sustainability,audit,control-room,integrations}, api/*
   components/          ui primitives, shell, theme toggle, dashboard, twin (graph, nodes, canvas, floor view), iso (isometric renderer),
-                       assets, agents, simulator, vision (camera feeds, camera card, live view, reviews), landing (scroll story)
+                       assets, agents, simulator, vision (camera feeds, camera card, live view, reviews), landing (scroll story),
+                       playground (floor plan, palette, inspector, rules, AI help, 3D preview), three (3D view)
   client/              API client, Zustand stores (factory, UI prefs, simulator workbench), hooks
-  domain/              plant model, telemetry, simulation, agents, quality, vision, archetypes, builder/ (spec, validation,
-                       compile, templates, edit operations, agent workflow), tools/ (agent tool layer, grounding),
+  domain/              plant model (with inventory and connector rules), telemetry, simulation, agents, quality, vision,
+                       archetypes, rules (maintenance rules), builder/ (spec, validation, compile, templates, edit
+                       operations, agent workflow, spec from a running twin), tools/ (agent tool layer, grounding),
                        recommendations, actions, KPIs, seed
   server/              persistence, AI provider, integrations, documents, request schemas
 services/vision/       Python vision service (FastAPI + OpenCV), tests, Dockerfile
@@ -452,7 +474,8 @@ tests/ e2e/            Vitest and Playwright suites
 - **Single tenant, per-instance state.** One factory per server, stored in a local JSON file. Cloud Run instances do not share state (hence max-instances 1), and state resets when an instance is recycled. A production version would use Firestore, Cloud SQL or BigQuery.
 - **No per-user login.** Configuration changes (camera sources, integration settings) need the admin passcode; everything else is open to anyone with the URL.
 - **Mobile robots are simulated.** Fleets come from the Twin Builder spec (the demo plant has a derived kitting and pallet fleet); missions and trip rates follow the plant model; no fleet manager is connected (a VDA 5050 or vendor-API adapter would supply real positions). The 3D animation runs at real speed while the plant clock runs 30× faster.
-- **No automatic re-ordering.** Parts without an open purchase order run out after about 55–61 hours of plant time (about 2 hours of an open tab after a reset), and the lines starve. Use **Reset Demo**.
+- **No automatic re-ordering in the demo plant.** Its parts without an open purchase order run out after about 55–61 hours of plant time (about 2 hours of an open tab after a reset), and the lines starve. Use **Reset Demo**, or add inventory rules in the Playground and apply them.
+- **Playground limits.** Machines on a line still run in series in the model, whatever their positions; positions and conveyor shapes are visual. Rules act on the simulation only. A connector rule watches the line and the buffer before packing; there are no buffers between machines.
 - **Cloud adapters are not verified against live services in this build.** BigQuery, Pub/Sub, Cloud Storage and Vertex AI calls are implemented and are exercised only when configured. MQTT is a reachability probe; subscription is not implemented.
 - **Twin Builder limits.** Machines on a line run in series, with up to 4 process lines plus one packing area and 8 machines per line. Parallel or batch steps are approximated. Default rates, prices, stock and the sample orders are typical values until real systems are connected. The AI steps use Gemini 3.5 Flash on Vertex AI (asia-southeast1); without it, template mode is used.
 - **Time model.** Live telemetry advances 2 minutes of plant time every 4 seconds while the app is open in a visible tab. Fast-forward runs the same model in larger jumps.

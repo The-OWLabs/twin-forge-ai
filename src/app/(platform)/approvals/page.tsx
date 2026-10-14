@@ -75,7 +75,7 @@ export default function ApprovalsPage() {
                   </div>
                   <p className="mt-1 line-clamp-2 text-[12px] text-ink-2">{r.title}</p>
                   <p className="mt-1 text-[10.5px] text-muted">
-                    {r.source === "orchestrator" ? "Operations Orchestrator" : "Operator"} · {fmtSimTime(state, r.createdHour)}
+                    {r.source === "orchestrator" ? "Operations Orchestrator" : r.source === "rule" ? "Automation rule" : "Operator"} · {fmtSimTime(state, r.createdHour)}
                   </p>
                 </button>
               ))}
@@ -124,7 +124,7 @@ function RecommendationDetail({ state, rec }: { state: FactoryState; rec: Recomm
               <h3 className="mt-2 text-[17px] font-semibold tracking-tight text-ink">{rec.title}</h3>
               <p className="mt-1 text-[13px] leading-relaxed text-ink-2">{rec.reason}</p>
               <p className="mt-1 text-[11.5px] text-muted">
-                Proposed by {rec.source === "orchestrator" ? "Operations Orchestrator" : "operator"} at {fmtSimTime(state, rec.createdHour)} · based on {rec.scenarioRunId}
+                Proposed by {rec.source === "orchestrator" ? "Operations Orchestrator" : rec.source === "rule" ? "an automation rule" : "operator"} at {fmtSimTime(state, rec.createdHour)} · based on {rec.scenarioRunId}
                 {rec.analysisId ? ` · ${rec.analysisId}` : ""}
               </p>
             </div>

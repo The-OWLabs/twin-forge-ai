@@ -98,6 +98,20 @@ Describe them the way you would to a colleague: "3 AMRs bring components from th
 
 On the review screen the **Mobile robots** card lists each fleet with its source, and lets you change the type, move, line and count, add or remove fleets; or ask the agent ("make it 4 AMRs", "add a tugger for kitting on Line 2"). In the built twin, each robot appears in the 3D view on an aisle route, its trips per hour follow its line's output and are shared across the fleet, and it parks with the reason when its line stops or a part runs out. Robots are simulated: no fleet manager is connected yet (a VDA 5050 or vendor-API adapter would supply real positions).
 
+## Playground
+
+The Playground (`/playground`) edits a sandbox copy of a spec on a floor plan, with the same edit operations as chat and the review screen:
+
+| Operation | What it does |
+|---|---|
+| `place_machine` | Sets a machine's floor position and rotation (multiples of 90°). `add_machine` and `add_line` accept a position too. |
+| `connect` | Makes one machine the next step after another, moving it into that line; an emptied line is removed. |
+| `disconnect` | Splits a process line after a machine; the rest becomes a new line next to it. |
+| `set_robot_route` | Waypoints a robot fleet passes between pick-up and drop-off. Fleets also take a trigger (`output` or `schedule` every N minutes). |
+| `add_rule`, `update_rule`, `remove_rule` | Inventory, maintenance and connector rules (see the README). Removing a line or machine removes the rules and connections that pointed at it. |
+
+Validation drops rules whose references are gone, a divert to a line that isn't a process line, and warns about overlapping machines and rules that can't fire. The demo plant, which predates the builder, is read back into a spec (`specFromState`), so it can be edited the same way.
+
 ## Data connections ("integrate whatever you want")
 
 Connections are planned per line, machine or site and saved with the twin. The **Integrations** page lists them as *planned · not connected* until a connector is configured and verified.
@@ -116,7 +130,7 @@ Connections are planned per line, machine or site and saved with the twin. The *
 |---|---|
 | `GET /api/builder` | AI availability, templates, archetypes, connection kinds |
 | `POST /api/builder/draft` | Multipart (`blueprint` PNG/JPEG/WebP/PDF ≤ 15 MB, `requirements`, `name`, `industry`, `location`, `templateId`, `research`). Streams the agent's stages as NDJSON. The drawing is not stored. |
-| `POST /api/builder/refine` | `{spec, instruction}`: the agent's edit operations, applied and validated (needs Gemini) |
+| `POST /api/builder/refine` | `{spec, instruction}`: the agent's edit operations, applied and validated (needs an AI provider) |
 | `POST /api/builder/validate` | `{spec}`: deterministic checks (no AI) |
 | `POST /api/builder/build` | `{spec}`: builds the twin and replaces the current factory |
 

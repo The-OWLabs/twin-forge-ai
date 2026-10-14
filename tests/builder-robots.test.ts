@@ -61,8 +61,8 @@ describe("mobile robots in the Twin Builder", () => {
     const packing = spec.lines.find((l) => l.role === "packing")!;
     const process = spec.lines.find((l) => l.role === "process")!;
     spec.mobileRobots = [
-      { id: "k", name: "Kitting AMRs", robotType: "amr", mission: "kitting", lineId: packing.id, count: 2, unitsPerTrip: null, speedMps: null, prov: user },
-      { id: "fg", name: "Pallet AGVs", robotType: "agv", mission: "finished-goods", lineId: process.id, count: 1, unitsPerTrip: null, speedMps: null, prov: user },
+      { id: "k", name: "Kitting AMRs", robotType: "amr", mission: "kitting", lineId: packing.id, count: 2, unitsPerTrip: null, speedMps: null, trigger: { kind: "output" as const, everyMinutes: null }, route: [], prov: user },
+      { id: "fg", name: "Pallet AGVs", robotType: "agv", mission: "finished-goods", lineId: process.id, count: 1, unitsPerTrip: null, speedMps: null, trigger: { kind: "output" as const, everyMinutes: null }, route: [], prov: user },
     ];
     const v = validateSpec(spec);
     expect(v.ok).toBe(true);
@@ -71,13 +71,13 @@ describe("mobile robots in the Twin Builder", () => {
     // A transfer to packing needs a packing line.
     const noPacking = bottling();
     noPacking.lines = noPacking.lines.filter((l) => l.role === "process");
-    noPacking.mobileRobots = [{ id: "t", name: "Transfer AMRs", robotType: "amr", mission: "line-transfer", lineId: null, count: 1, unitsPerTrip: null, speedMps: null, prov: user }];
+    noPacking.mobileRobots = [{ id: "t", name: "Transfer AMRs", robotType: "amr", mission: "line-transfer", lineId: null, count: 1, unitsPerTrip: null, speedMps: null, trigger: { kind: "output" as const, everyMinutes: null }, route: [], prov: user }];
     const v2 = validateSpec(noPacking);
     expect(v2.spec!.mobileRobots).toEqual([]);
     expect(v2.issues.some((i) => /needs a packing line/.test(i.message))).toBe(true);
     // Too many robots is an error the person must fix.
     const many = bottling();
-    many.mobileRobots = [1, 2, 3].map((i) => ({ id: `f${i}`, name: `Fleet ${i}`, robotType: "amr" as const, mission: "kitting" as const, lineId: process.id, count: 12, unitsPerTrip: null, speedMps: null, prov: user }));
+    many.mobileRobots = [1, 2, 3].map((i) => ({ id: `f${i}`, name: `Fleet ${i}`, robotType: "amr" as const, mission: "kitting" as const, lineId: process.id, count: 12, unitsPerTrip: null, speedMps: null, trigger: { kind: "output" as const, everyMinutes: null }, route: [], prov: user }));
     expect(validateSpec(many).ok).toBe(false);
   });
 
@@ -85,8 +85,8 @@ describe("mobile robots in the Twin Builder", () => {
     const spec = bottling();
     const process = spec.lines.find((l) => l.role === "process")!;
     spec.mobileRobots = [
-      { id: "k", name: "Kitting AMRs", robotType: "amr", mission: "kitting", lineId: process.id, count: 3, unitsPerTrip: 50, speedMps: null, prov: user },
-      { id: "fg", name: "Pallet forklift", robotType: "forklift-agv", mission: "finished-goods", lineId: null, count: 1, unitsPerTrip: null, speedMps: 1.4, prov: user },
+      { id: "k", name: "Kitting AMRs", robotType: "amr", mission: "kitting", lineId: process.id, count: 3, unitsPerTrip: 50, speedMps: null, trigger: { kind: "output" as const, everyMinutes: null }, route: [], prov: user },
+      { id: "fg", name: "Pallet forklift", robotType: "forklift-agv", mission: "finished-goods", lineId: null, count: 1, unitsPerTrip: null, speedMps: 1.4, trigger: { kind: "output" as const, everyMinutes: null }, route: [], prov: user },
     ];
     const s = compile(spec);
     expect(s.mobileRobots!.map((r) => r.id)).toEqual(["AMR-A1", "AMR-A2", "AMR-A3", "AGF-B1"]);

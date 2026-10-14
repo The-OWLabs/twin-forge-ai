@@ -2,7 +2,7 @@
 
 import { Fragment } from "react";
 import { CartesianGrid, Line, LineChart, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import { AlertOctagon, ArrowDownRight, ArrowUpRight, CheckCircle2, CircleDot, PackageCheck, PackageX, Repeat, Truck, Wrench, Zap, Award } from "lucide-react";
+import { AlertOctagon, ArrowDownRight, ArrowUpRight, CheckCircle2, CircleDot, PackageCheck, PackageX, Repeat, Truck, Wrench, Zap, Award, Workflow } from "lucide-react";
 import type { FactoryState, ScenarioResult, TimelineEvent } from "@/domain/types";
 import { cn } from "@/lib/cn";
 import { fmtHours, fmtInt, fmtMoney, fmtNum, fmtPct } from "@/lib/format";
@@ -243,6 +243,7 @@ export function ConditionChart({ results, alarm, trip }: { results: ScenarioResu
 }
 
 const EVENT_ICON: Record<TimelineEvent["kind"], typeof Wrench> = {
+  rule: Workflow,
   "maintenance-start": Wrench,
   "maintenance-end": CheckCircle2,
   failure: AlertOctagon,

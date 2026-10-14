@@ -16,7 +16,7 @@ test.beforeEach(async ({ request }) => {
 
 test("every page renders without console errors", async ({ page }) => {
   const errors = collectErrors(page);
-  for (const path of ["/", "/onboarding", "/dashboard", "/twin", "/assets", "/quality", "/agents", "/simulator", "/approvals", "/sustainability", "/audit", "/control-room", "/integrations"]) {
+  for (const path of ["/", "/onboarding", "/dashboard", "/twin", "/assets", "/quality", "/agents", "/simulator", "/approvals", "/sustainability", "/audit", "/control-room", "/integrations", "/playground"]) {
     // Wait for rendered content rather than "networkidle": the app polls live telemetry every 4 s.
     await page.goto(path, { waitUntil: "domcontentloaded" });
     await expect(page.locator("h1:visible, h2:visible").first()).toBeVisible();

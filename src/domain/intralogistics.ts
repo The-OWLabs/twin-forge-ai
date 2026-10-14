@@ -44,6 +44,10 @@ export interface Amr {
   /** Line output the trips are sized from, units per hour. */
   lineRate: number;
   tripsPerHour: number;
+  /** Set when trips run on a fixed schedule (playground rule) instead of following line output. */
+  everyMinutes: number | null;
+  /** Waypoints (layout units) set in the playground; empty: the standard aisle route. */
+  route: { x: number; y: number }[];
   status: "active" | "parked";
   reason: string | null;
 }
@@ -118,8 +122,10 @@ function configuredFleet(state: FactoryState, robots: MobileRobot[]): Amr[] {
         ...route,
         unitsPerTrip: r.unitsPerTrip,
         lineRate: Math.round(rate),
-        // The fleet shares the line's trips.
-        tripsPerHour: Math.round((rate / r.unitsPerTrip / n) * 10) / 10,
+        // The fleet shares the line's trips: one every N minutes on a schedule, else sized from output.
+        tripsPerHour: reason ? 0 : r.trigger ? Math.round((60 / r.trigger.everyMinutes / n) * 10) / 10 : Math.round((rate / r.unitsPerTrip / n) * 10) / 10,
+        everyMinutes: r.trigger?.everyMinutes ?? null,
+        route: r.route?.map((p) => ({ ...p })) ?? [],
         status: reason ? "parked" : "active",
         reason,
       },
@@ -153,6 +159,8 @@ function derivedFleet(state: FactoryState): Amr[] {
       unitsPerTrip: KIT_UNITS_PER_TRIP,
       lineRate: Math.round(rate),
       tripsPerHour: Math.round((rate / KIT_UNITS_PER_TRIP) * 10) / 10,
+      everyMinutes: null,
+      route: [],
       status: parked ? "parked" : "active",
       reason: parked,
     });
@@ -178,6 +186,8 @@ function derivedFleet(state: FactoryState): Amr[] {
       unitsPerTrip: PALLET_UNITS_PER_TRIP,
       lineRate: Math.round(rate),
       tripsPerHour: Math.round((rate / PALLET_UNITS_PER_TRIP) * 10) / 10,
+      everyMinutes: null,
+      route: [],
       status: parked ? "parked" : "active",
       reason: parked,
     });

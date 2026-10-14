@@ -11,6 +11,7 @@ import {
   Cctv,
   FlaskConical,
   ScanEye,
+  Shapes,
   Wand2,
 } from "lucide-react";
 
@@ -22,6 +23,7 @@ export const NAV = [
       { href: "/twin", label: "Digital Twin Studio", icon: Network },
       { href: "/assets", label: "Assets", icon: Boxes },
       { href: "/quality", label: "Visual Quality", icon: ScanEye },
+      { href: "/playground", label: "Playground", icon: Shapes },
       { href: "/onboarding", label: "Twin Builder", icon: Wand2 },
     ],
   },

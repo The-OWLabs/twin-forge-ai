@@ -55,6 +55,7 @@ function spec(name: string, industry: string, productionType: string, lines: Spe
     questions: [],
     blueprint: null,
     mobileRobots: [],
+    rules: [],
     options: { rehearsalIncident: false, linesInterchangeable: true },
   };
 }

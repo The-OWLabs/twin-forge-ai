@@ -4,6 +4,7 @@ import { appendAudit } from "./audit";
 import { TICK_HOURS, TICK_INTERVAL_MS } from "./constants";
 import { nextId } from "./ids";
 import { round } from "./math";
+import { runMaintenanceRules } from "./rules";
 import { machineTemplate } from "./seed";
 import { advanceFactory } from "./telemetry";
 import type { Asset, AssetKind, FactoryState } from "./types";
@@ -73,6 +74,7 @@ export function injectFault(state: FactoryState, input: FaultInput, nowISO: stri
   });
   // Advance one tick so the change is reflected in measured telemetry and status.
   advanceFactory(state, TICK_HOURS, { nowISO });
+  runMaintenanceRules(state, nowISO);
   if (input.mode === "restore") {
     for (const inc of state.incidents) {
       if (inc.assetId === asset.id && inc.status !== "resolved") {
@@ -90,12 +92,14 @@ export function liveTick(state: FactoryState, nowMs: number, nowISO: string) {
   if (nowMs - state.clock.lastTickAt < TICK_INTERVAL_MS * 0.8) return false;
   state.clock.lastTickAt = nowMs;
   advanceFactory(state, TICK_HOURS, { nowISO });
+  runMaintenanceRules(state, nowISO);
   return true;
 }
 
 export function fastForward(state: FactoryState, hours: number, nowISO: string) {
   if (!(hours > 0 && hours <= 24)) throw new DomainError("hours must be between 0 and 24");
   advanceFactory(state, hours, { nowISO });
+  runMaintenanceRules(state, nowISO);
   appendAudit(state, nowISO, {
     category: "system",
     actor: "Operator · simulation control",

@@ -143,7 +143,7 @@ const DRAFT_SCHEMA = {
   required: ["site", "lines", "products", "materials", "integrations", "mobileRobots", "assumptions", "questions"],
 };
 
-const OP_FIELDS = Object.keys(SpecOpSchema.shape).filter((k) => k !== "op" && !["archetype", "kind", "position", "lineId", "machineId", "robotType", "mission"].includes(k));
+const OP_FIELDS = Object.keys(SpecOpSchema.shape).filter((k) => k !== "op" && !["archetype", "kind", "position", "lineId", "machineId", "robotType", "mission", "ruleKind", "when", "action", "metric", "triggerKind", "route"].includes(k));
 /** Fields models confuse most, described explicitly. */
 const OP_DESCRIPTIONS = {
   archetype: { type: ["string", "null"], enum: [...ASSET_KINDS, null], description: "Machine type. Required for add_machine; optional for update_machine and add_line." },
@@ -153,6 +153,12 @@ const OP_DESCRIPTIONS = {
   machineId: { type: ["string", "null"], description: "Existing machine id from the spec." },
   robotType: { type: ["string", "null"], enum: [...ROBOT_TYPES, null], description: "Mobile robot type. For add_robot_fleet (default amr) and update_robot_fleet." },
   mission: { type: ["string", "null"], enum: [...ROBOT_MISSIONS, null], description: "Mobile robot move. Required for add_robot_fleet." },
+  ruleKind: { type: ["string", "null"], enum: ["inventory", "maintenance", "connector", null], description: "Rule type. Required for add_rule." },
+  when: { type: ["string", "null"], enum: ["upstream-stops", "downstream-stops", "buffer-full", null], description: "Connector rule trigger: upstream-stops = lineId itself stops; downstream-stops = the packing line after it stops; buffer-full = the buffer between lineId and packing reaches bufferUnits." },
+  action: { type: ["string", "null"], enum: ["divert", "slow", "pause", null], description: "Connector rule action: divert (toLineId takes over lineId's work; only with upstream-stops), slow (lineId to speedPct), pause (lineId stops until the condition clears)." },
+  metric: { type: ["string", "null"], enum: ["health", "vibration", null], description: "Maintenance rule metric: health score (0–100, fires below threshold) or vibration (mm/s, fires above threshold)." },
+  triggerKind: { type: ["string", "null"], enum: ["output", "schedule", null], description: "Robot trips: output = sized from line output; schedule = one trip every everyMinutes." },
+  route: { type: ["array", "null"], items: { type: "object", properties: { x: { type: "number" }, y: { type: "number" } }, required: ["x", "y"] }, description: "set_robot_route waypoints in floor units; [] restores the standard route." },
 };
 const REFINE_SCHEMA = {
   type: "object",
@@ -168,9 +174,9 @@ const REFINE_SCHEMA = {
           ...Object.fromEntries(
             OP_FIELDS.map((k) => [
               k,
-              ["position", "ratePerHour", "unitPrice", "unitMaterialCost", "unitCost", "leadTimeHours", "onHand", "count", "unitsPerTrip", "speedMps"].includes(k)
+              ["position", "ratePerHour", "unitPrice", "unitMaterialCost", "unitCost", "leadTimeHours", "onHand", "count", "unitsPerTrip", "speedMps", "x", "y", "rot", "everyMinutes", "below", "orderQty", "threshold", "speedPct", "bufferUnits"].includes(k)
                 ? nnum
-                : ["clearRate", "value"].includes(k)
+                : ["clearRate", "value", "enabled"].includes(k)
                   ? { type: ["boolean", "null"] }
                   : k === "productIds"
                     ? { type: ["array", "null"], items: { type: "string" } }
@@ -192,11 +198,12 @@ const REFINE_SCHEMA = {
 function compactSpec(spec: TwinSpec) {
   return {
     site: { name: spec.site.name, industry: spec.site.industry, location: spec.site.location, productionType: spec.site.productionType },
-    lines: spec.lines.map((l) => ({ id: l.id, name: l.name, role: l.role, productIds: l.productIds, machines: l.machines.map((m) => ({ id: m.id, name: m.name, archetype: m.archetype, ratePerHour: m.ratePerHour })) })),
+    lines: spec.lines.map((l) => ({ id: l.id, name: l.name, role: l.role, productIds: l.productIds, machines: l.machines.map((m) => ({ id: m.id, name: m.name, archetype: m.archetype, ratePerHour: m.ratePerHour, pos: m.pos ?? null })) })),
     products: spec.products.map((p) => ({ id: p.id, name: p.name, unit: p.unit, ratePerHour: p.ratePerHour, materials: p.materials })),
     materials: spec.materials.map((m) => ({ id: m.id, name: m.name, unit: m.unit })),
     integrations: spec.integrations.map((i) => ({ id: i.id, target: i.target, kind: i.kind, address: i.address })),
-    mobileRobots: spec.mobileRobots.map((f) => ({ id: f.id, name: f.name, robotType: f.robotType, mission: f.mission, lineId: f.lineId, count: f.count, unitsPerTrip: f.unitsPerTrip })),
+    mobileRobots: spec.mobileRobots.map((f) => ({ id: f.id, name: f.name, robotType: f.robotType, mission: f.mission, lineId: f.lineId, count: f.count, unitsPerTrip: f.unitsPerTrip, trigger: f.trigger, route: f.route })),
+    rules: spec.rules.map(({ prov: _prov, ...r }) => r),
     questions: spec.questions,
     options: spec.options,
   };
@@ -283,6 +290,10 @@ export function builderAi(): BuilderAi {
         "Use existing ids from the spec for lineId, machineId, productId, materialId, integrationId and questionId. For new items give a `name`.",
         `Machine archetypes (archetype field): ${ASSET_KINDS.join(", ")}. Connection kinds (kind field): ${INTEGRATION_KINDS.join(", ")}. For add_integration, target is a line id, machine id or "site".`,
         `Mobile robots: add_robot_fleet (mission ${ROBOT_MISSIONS.join("|")}, robotType ${ROBOT_TYPES.join("|")}, lineId of the process line served — null for finished-goods, count, name), update_robot_fleet (fleetId plus the fields to change, e.g. count), remove_robot_fleet (fleetId).`,
+        "Floor plan (playground): positions are in floor units (1 unit ≈ 2 m; machines in a line sit about 2.7 apart, lines about 3.4 apart). place_machine moves a machine (machineId, x, y, rot 0|90|180|270); add_machine and add_line also accept x, y. Unplaced machines (pos null) use the automatic layout.",
+        "Material flow: connect (machineId → targetId) makes targetId the next machine after machineId, moving it into that line; disconnect (machineId) splits its line after that machine. Machines on a line run in series.",
+        "Rules (simulated automation, never real equipment): add_rule with ruleKind inventory (materialId, below = reorder when stock plus open orders fall below it, orderQty), maintenance (machineId or null for every machine, metric, threshold; it proposes maintenance for a person to approve) or connector (lineId, when, action, toLineId for divert, speedPct for slow, bufferUnits for buffer-full). update_rule (ruleId plus fields, enabled true/false), remove_rule (ruleId).",
+        "Robot movement: update_robot_fleet with triggerKind schedule and everyMinutes (or triggerKind output), set_robot_route (fleetId, route waypoints).",
         "Do every part of the request that these operations can express. Skip only the parts they cannot (for example an unsupported protocol) and say which parts you skipped and why in `explanation`.",
         "Only set numbers the user states. Never include credentials.",
         "",

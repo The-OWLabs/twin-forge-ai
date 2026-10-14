@@ -3,9 +3,10 @@
  * Values the spec leaves open are filled with stated defaults, listed in the build audit entry.
  */
 import { appendAudit } from "../audit";
+import { consumptionPerHour } from "../kpis";
 import { round } from "../math";
 import { assetIdFor, buildFromPlan, type FactoryPlan, type PlanLine, type PlanOrder } from "../seed";
-import type { DataConnection, FactoryState, InventoryItem, LineCapability, MobileRobot, Product } from "../types";
+import type { DataConnection, FactoryState, InventoryItem, LineCapability, MobileRobot, PlantRule, Product } from "../types";
 import { PROVENANCE, type ProvenanceSource, type TwinSpec } from "./spec";
 import { validateSpec, type LineSummary } from "./validate";
 
@@ -261,7 +262,19 @@ export function compileSpec(spec: TwinSpec, anchorISO: string, seed: number, now
         while (used.has(`${ROBOT_PREFIX[f.robotType]}-${letter}${n}`)) n++;
         const id = `${ROBOT_PREFIX[f.robotType]}-${letter}${n}`;
         used.add(id);
-        robots.push({ id, name: f.count > 1 ? `${f.name} ${k + 1}` : f.name, fleetId: f.id, fleetName: f.name, robotType: f.robotType, mission: f.mission, lineId, unitsPerTrip: f.unitsPerTrip ?? TRIP_DEFAULT[f.mission], speedMps: f.speedMps ?? 1.0 });
+        robots.push({
+          id,
+          name: f.count > 1 ? `${f.name} ${k + 1}` : f.name,
+          fleetId: f.id,
+          fleetName: f.name,
+          robotType: f.robotType,
+          mission: f.mission,
+          lineId,
+          unitsPerTrip: f.unitsPerTrip ?? TRIP_DEFAULT[f.mission],
+          speedMps: f.speedMps ?? 1.0,
+          ...(f.trigger.kind === "schedule" && f.trigger.everyMinutes ? { trigger: { kind: "schedule" as const, everyMinutes: f.trigger.everyMinutes } } : {}),
+          ...(f.route.length ? { route: f.route.map((p) => ({ ...p })) } : {}),
+        });
       }
       if (f.unitsPerTrip == null) defaults.push(`${f.name}: ${TRIP_DEFAULT[f.mission]} units per trip`);
       if (f.speedMps == null) defaults.push(`${f.name}: 1.0 m/s travel speed`);
@@ -269,12 +282,39 @@ export function compileSpec(spec: TwinSpec, anchorISO: string, seed: number, now
     state.mobileRobots = robots;
   }
 
+  // Floor positions from the playground.
+  const placed = validated.lines.flatMap((l) => l.machines.filter((m) => m.pos && ids.machines[m.id]).map((m) => [ids.machines[m.id], { ...m.pos! }] as const));
+  if (placed.length) state.layout = Object.fromEntries(placed);
+
+  // Automation rules, in engine ids. Inventory rules default to the item's reorder point and a day of use.
+  const rules: PlantRule[] = [];
+  for (const r of validated.rules) {
+    if (r.kind === "inventory") {
+      const item = state.inventory.find((i) => i.id === ids.materials[r.materialId]);
+      if (!item) continue;
+      const below = r.below ?? item.reorderPoint;
+      const orderQty = r.orderQty ?? Math.max(item.reorderPoint * 2, Math.round(consumptionPerHour(state, item.id) * 24));
+      rules.push({ id: r.id, name: r.name, kind: "inventory", enabled: r.enabled, itemId: item.id, below, orderQty, leadTimeHours: item.leadTimeHours });
+      if (r.below == null || r.orderQty == null) defaults.push(`${r.name}: order ${orderQty} ${item.unit} when stock plus open orders fall below ${below}`);
+    } else if (r.kind === "maintenance") {
+      rules.push({ id: r.id, name: r.name, kind: "maintenance", enabled: r.enabled, assetId: r.machineId ? (ids.machines[r.machineId] ?? null) : null, metric: r.metric, threshold: r.threshold });
+    } else {
+      const lineId = ids.lines[r.lineId];
+      if (!lineId) continue;
+      rules.push({ id: r.id, name: r.name, kind: "connector", enabled: r.enabled, lineId, when: r.when, action: r.action, toLineId: r.toLineId ? (ids.lines[r.toLineId] ?? null) : null, speedPct: r.speedPct, bufferUnits: r.bufferUnits });
+    }
+  }
+  if (rules.length) {
+    state.rules = rules;
+    state.ruleRuntime = { seq: 0, rules: {} };
+  }
+
   const counts = provenanceCounts(validated);
   appendAudit(state, nowISO, {
     category: "system",
     actor: by,
     title: "Twin built from a reviewed spec (Twin Builder)",
-    detail: `${validated.lines.length} lines, ${state.assets.length} machines, ${validated.products.length} products${state.mobileRobots?.length ? `, ${state.mobileRobots.length} mobile robot(s)` : ""}. Sources: ${PROVENANCE.filter((p) => counts[p])
+    detail: `${validated.lines.length} lines, ${state.assets.length} machines, ${validated.products.length} products${state.mobileRobots?.length ? `, ${state.mobileRobots.length} mobile robot(s)` : ""}${state.rules?.length ? `, ${state.rules.length} automation rule(s)` : ""}. Sources: ${PROVENANCE.filter((p) => counts[p])
       .map((p) => `${counts[p]} from ${p}`)
       .join(", ")}; ${validated.references.length} cited reference(s). Defaults applied: ${defaults.join("; ")}.`,
     severity: "info",

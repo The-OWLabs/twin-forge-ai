@@ -149,7 +149,7 @@ export default function SustainabilityPage() {
         <Card>
           <CardHeader
             title="Scenario-based energy & waste outcomes"
-            description={run ? `From ${run.id} (${run.source === "agent" ? "agent analysis" : "operator run"}), ${run.results[0]?.definition.params.horizonHours} h horizon` : "Run an analysis or simulation to compare plans"}
+            description={run ? `From ${run.id} (${run.source === "agent" ? "agent analysis" : run.source === "rule" ? "automation rule" : "operator run"}), ${run.results[0]?.definition.params.horizonHours} h horizon` : "Run an analysis or simulation to compare plans"}
             icon={<FlaskConical className="h-4 w-4" />}
             actions={
               <Button size="xs" variant="secondary" asChild>

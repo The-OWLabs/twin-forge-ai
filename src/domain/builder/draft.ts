@@ -287,6 +287,8 @@ export function specFromDraft(
       count,
       unitsPerTrip: r.unitsPerTrip,
       speedMps: null,
+      trigger: { kind: "output", everyMinutes: null },
+      route: [],
       prov: prov(r.source, r.note),
     });
   }
@@ -307,6 +309,7 @@ export function specFromDraft(
     materials,
     integrations,
     mobileRobots,
+    rules: [],
     references: ctx.references.map((r) => ({ id: r.id, title: r.title, url: r.url, note: null })),
     assumptions,
     questions: draft.questions.map((text, i) => ({ id: `q${i + 1}`, text, answer: null })),

@@ -82,6 +82,8 @@ export function robotsFromRequirements(text: string, spec: TwinSpec): SpecRobotF
       count,
       unitsPerTrip: null,
       speedMps: null,
+      trigger: { kind: "output", everyMinutes: null },
+      route: [],
       prov: {
         source: "requirement",
         note: `Read from your requirements: “${clause.slice(0, 160)}”${stated ? "" : " (no count stated; assumed 1)"}${stated && stated > 12 ? ` (${stated} requested; 12 simulated)` : ""}.`,

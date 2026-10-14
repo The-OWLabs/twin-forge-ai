@@ -175,6 +175,12 @@ Agents and forecasts never read the hidden condition. They see measured telemetr
 ### 6.4 From approval to execution
 Approving a recommendation creates **directives** (maintenance window, allocation change, speed change). The plant engine executes them on the twin over simulated time. Each directive can be rolled back, and each step is written to the audit trail.
 
+### 6.5 Automation rules (Playground)
+Rules are part of the compiled twin (`state.rules`, engine ids) and act only through mechanisms the engine already has:
+- **Inventory and connector rules** run at the end of every `stepWorld`, so the live twin and What-If runs behave the same. An inventory rule adds a purchase order (whole lots, due after the lead time) when stock plus open orders falls below its level. A connector rule creates allocation or speed **directives** tagged with its id: *divert* re-allocates another process line (half its own mix, half the stopped line's products it can make), *slow* and *pause* set the line's machines' speed (a line at speed 0 reports *idle*); the directives end when the condition clears, with 80% hysteresis on buffer limits. Rule state (`state.ruleRuntime`) is cloned into simulations, so a What-If run never changes the live rules.
+- **Maintenance rules** (`src/domain/rules.ts`) watch measured health and vibration after each live step and, once per crossing, simulate the preset plans and create a **pending** preventive recommendation with source *rule*. Approval stays with a person.
+- Rule events are audited as *Automation rule (simulated)*; at most 12 finished rule directives are kept. A twin without rules has no `rules` field, so the demo seed is unchanged.
+
 ---
 
 ## 7. Agentic layers
@@ -198,7 +204,8 @@ Full design: [twin-builder.md](twin-builder.md).
 - **Workflow:** read the drawing (multimodal), research the industry (Google Search grounding, cited), draft a `TwinSpec`, then validate.
 - **Model draft, code decides.** Code resolves ids, blueprint boxes and citations. A claim the model can't back (a non-existent drawing element, an invalid citation) is downgraded to *assumption*.
 - **Mobile robots.** Fleets the requirements or drawing describe are drafted with a type, move, line and count; if the model leaves them out, a keyword reader adds them and says so. They are reviewed and edited like machines.
-- **Edits.** Chat and manual edits share 21 validated edit operations.
+- **Edits.** Chat, manual and Playground edits share 28 validated edit operations (including placing, connecting and splitting machines, robot routes, and adding, updating and removing rules).
+- **Playground.** A sandbox draft of the spec (`src/client/playground.ts`, undo/redo, kept in the browser) edited on an SVG floor plan that uses the same `layoutIso` as the twin views. The demo plant is read back into a spec (`specFromState`). Hand-placed machines carry `pos` (x, y, rotation) into `state.layout`; the layout then derives bays, straight or L-shaped conveyors, the merge into packing, stores and dock from the machines. **Apply** uses `/api/builder/build`.
 - **Build.** The compiler (`compileSpec`) builds the twin with the same engine as the demo.
 - **Measured:** about 78 s for a full draft with research on the live site.
 
@@ -366,8 +373,8 @@ Validation errors return 400 with field issues, missing admin 401, unknown ids 4
 
 | Suite | Count | Covers |
 |---|---|---|
-| Vitest (`tests/`) | 110 | Seed reproducibility; physics, KPIs and trend estimation; scenario outcomes, sensitivity and ranking; agent pipeline; approvals, rejection and rollback; LLM grounding and fallback; quality and cameras; Twin Builder templates, validation, compile and agent workflow with recorded responses; the tool layer (read-only guarantee, proposal semantics, argument validation); numeric grounding; admin sessions (signing, expiry, rate limit); settings overrides, validation and secret handling; camera sources and the footage library; stock-outs reported once |
-| Playwright (`e2e/`) | 15 | Every page renders with no console errors; guided crisis demo; reset; API validation; iso view and theme; landing story; cameras and Visual Quality; Twin Builder end to end; MCP protocol; ADK copilot with a grounded answer (runs when Gemini is configured); CCTV control room switching to reference footage and back; integration settings from the UI, including the AI provider picker; the 3D view with mobile robots; Twin Builder robots end to end; the phone notice |
+| Vitest (`tests/`) | 117 | Seed reproducibility; physics, KPIs and trend estimation; scenario outcomes, sensitivity and ranking; agent pipeline; approvals, rejection and rollback; LLM grounding and fallback; quality and cameras; Twin Builder templates, validation, compile and agent workflow with recorded responses; the tool layer (read-only guarantee, proposal semantics, argument validation); numeric grounding; admin sessions (signing, expiry, rate limit); settings overrides, validation and secret handling; camera sources and the footage library; stock-outs reported once; Playground edits and the four rule kinds in the plant model |
+| Playwright (`e2e/`) | 16 | The Playground from palette drag to applied twin; every page renders with no console errors; guided crisis demo; reset; API validation; iso view and theme; landing story; cameras and Visual Quality; Twin Builder end to end; MCP protocol; ADK copilot with a grounded answer (runs when Gemini is configured); CCTV control room switching to reference footage and back; integration settings from the UI, including the AI provider picker; the 3D view with mobile robots; Twin Builder robots end to end; the phone notice |
 | pytest (`services/vision`) | 16 | Golden comparison (missing part, rotated part, lighting), codes, quality, video stoppage, determinism, API limits |
 
 The e2e suite runs against local production builds and against the live URL (`E2E_BASE_URL`). With AI on, the Twin Builder and copilot tests exercise real Gemini.
@@ -416,12 +423,12 @@ The e2e suite runs against local production builds and against the live URL (`E2
 - single tenant; only configuration changes are behind an admin passcode (no per-user login)
 - per-instance factory state (integration settings are durable)
 - machines on a line run in series
-- no automatic re-ordering: purchased parts without an open purchase order run out around h+55–61 and the lines starve
+- no automatic re-ordering in the demo plant (purchased parts without an open purchase order run out around h+55–61 and the lines starve); Playground inventory rules add it to a rebuilt twin
 - camera footage is reference video from other facilities; live camera analytics need the edge worker
 - connectors other than Pub/Sub are planned, not built
 
 **Roadmap:**
-1. Replenishment policy (reorder point → purchase order with lead time) so long runs don't starve.
+1. Default replenishment for the demo plant, using the Playground's inventory rule, so long runs don't starve.
 2. Firestore state, Firebase Auth, and multiple factories.
 3. Twin Builder self-correction loop on ADK: draft, validate, repair, repeat.
 4. Edge gateway: OPC UA, Modbus and MQTT read-only, publishing to Pub/Sub; live camera analytics at the edge.

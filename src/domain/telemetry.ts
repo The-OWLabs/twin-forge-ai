@@ -127,7 +127,21 @@ export function writeWorldToState(state: FactoryState, world: SimWorld) {
   }
   for (const d of state.directives) {
     const w = world.directives.find((x) => x.id === d.id);
-    if (w) d.status = w.status;
+    if (w) {
+      d.status = w.status;
+      if (w.kind !== "maintenance" && d.kind !== "maintenance") d.endHour = w.endHour;
+    }
+  }
+  if (world.ruleRuntime) {
+    // Directives created by automation rules; keep the open ones and the 12 most recent finished ones.
+    const known = new Set(state.directives.map((d) => d.id));
+    for (const w of world.directives) if (w.ruleId && !known.has(w.id)) state.directives.push({ ...w });
+    const finished = state.directives.filter((d) => d.ruleId && (d.status === "completed" || d.status === "cancelled"));
+    if (finished.length > 12) {
+      const drop = new Set(finished.slice(0, finished.length - 12).map((d) => d.id));
+      state.directives = state.directives.filter((d) => !drop.has(d.id));
+    }
+    state.ruleRuntime = structuredClone(world.ruleRuntime);
   }
   state.clock.hour = round(world.hour, 6);
 }
@@ -244,6 +258,15 @@ function handleEvents(state: FactoryState, world: SimWorld, events: WorldEvent[]
         detail: e.label,
         severity: "info",
         refs: { directiveId: e.directiveId, recommendationId: d?.recommendationId },
+      });
+    } else if (e.kind === "rule") {
+      appendAudit(state, nowISO, {
+        category: "action",
+        actor: "Automation rule (simulated)",
+        title: e.label,
+        detail: "A playground rule acted on the simulated plant. No command was sent to real equipment.",
+        severity: e.severity,
+        refs: { directiveId: e.directiveId, assetIds: e.assetId ? [e.assetId] : undefined },
       });
     } else if (e.kind === "order-complete" || e.kind === "order-late" || e.kind === "stockout" || e.kind === "inbound") {
       appendAudit(state, nowISO, {

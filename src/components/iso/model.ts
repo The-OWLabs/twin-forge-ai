@@ -15,6 +15,8 @@ export interface IsoMachine {
   health: number;
   throughput: number;
   sensors: number;
+  /** Floor position set in the playground (layout units, rotation in degrees). Absent: automatic layout. */
+  pos?: { x: number; y: number; rot: number };
 }
 
 export interface IsoLine {
@@ -75,7 +77,7 @@ export function isoModelFromState(state: FactoryState, orderRisk: Record<string,
       machines: l.assetIds
         .map((id) => state.assets.find((a) => a.id === id))
         .filter((a): a is NonNullable<typeof a> => !!a)
-        .map((a) => ({ id: a.id, name: a.name, kind: a.kind, status: a.status, health: a.healthScore, throughput: a.signal.throughput, sensors: a.sensors.length })),
+        .map((a) => ({ id: a.id, name: a.name, kind: a.kind, status: a.status, health: a.healthScore, throughput: a.signal.throughput, sensors: a.sensors.length, ...(state.layout?.[a.id] ? { pos: state.layout[a.id] } : {}) })),
     })),
     inventory: state.inventory.map((i) => ({ id: i.id, name: i.name, fill: Math.max(0.08, Math.min(1, i.onHand / (i.reorderPoint * 3))), low: i.onHand < i.reorderPoint * 1.25 })),
     orders: state.orders.map((o) => ({ id: o.id, customer: o.customer, progress: o.fulfilled / o.quantity, atRisk: !!orderRisk[o.id], priority: o.priority })),
@@ -94,6 +96,8 @@ export interface PlacedMachine {
   y: number;
   dir: Dir; // material flow direction
   index: number; // global order (used for staggered build)
+  /** Rotation in degrees when placed by hand (0 = flow along +x). */
+  rot?: number;
 }
 
 export interface Belt {
@@ -108,6 +112,7 @@ export interface Belt {
 export interface Bay {
   id: string;
   name: string;
+  kind?: "assembly" | "packaging";
   color: string;
   x0: number;
   y0: number;
@@ -179,7 +184,7 @@ export function layoutIso(model: IsoModel): Layout {
       maxX = Math.max(maxX, x);
     });
     const endX = 1.2 + (line.machines.length - 1) * PITCH;
-    bays.push({ id: line.id, name: line.name, color: line.color, x0: 0, y0: y - 1.15, x1: endX + 1.1, y1: y + 1.15 });
+    bays.push({ id: line.id, name: line.name, kind: "assembly", color: line.color, x0: 0, y0: y - 1.15, x1: endX + 1.1, y1: y + 1.15 });
   });
 
   const asmWidth = assembly.length ? maxX : 0;
@@ -198,7 +203,7 @@ export function layoutIso(model: IsoModel): Layout {
       }
     });
     const endY = startY + Math.max(0, line.machines.length - 1) * PITCH;
-    bays.push({ id: line.id, name: line.name, color: line.color, x0: pkgX - 1.15, y0: startY - 1.15, x1: pkgX + 1.15, y1: endY + 1.15 });
+    bays.push({ id: line.id, name: line.name, kind: "packaging", color: line.color, x0: pkgX - 1.15, y0: startY - 1.15, x1: pkgX + 1.15, y1: endY + 1.15 });
     // Transfer belts from each assembly line end into the packaging infeed
     assembly.forEach((al, li) => {
       const y = li * LINE_GAP;
@@ -209,11 +214,62 @@ export function layoutIso(model: IsoModel): Layout {
     dockY = endY + 2.4;
   });
 
+  // Hand-placed machines (playground): belts, bays, stores and dock follow the machines.
+  const free = machines.some((pm) => pm.m.pos);
+  let rackX = -1.9;
+  let rackY = -0.6;
+  let truckX = pkgX - 1.4;
+  if (free) {
+    for (const pm of machines) {
+      if (!pm.m.pos) continue;
+      pm.x = pm.m.pos.x;
+      pm.y = pm.m.pos.y;
+      pm.rot = pm.m.pos.rot;
+      pm.dir = pm.m.pos.rot % 180 === 0 ? "x" : "y";
+    }
+    belts.length = 0;
+    bays.length = 0;
+    for (const line of model.lines) {
+      const ms = machines.filter((pm) => pm.lineId === line.id);
+      if (!ms.length) continue;
+      for (let j = 1; j < ms.length; j++) belts.push(...conveyorPath(`${line.id}-${j}`, line.id, line.color, ms[j - 1], ms[j], running(line.state)));
+      bays.push({
+        id: line.id,
+        name: line.name,
+        kind: line.kind,
+        color: line.color,
+        x0: Math.min(...ms.map((m) => m.x)) - 1.15,
+        y0: Math.min(...ms.map((m) => m.y)) - 1.15,
+        x1: Math.max(...ms.map((m) => m.x)) + 1.15,
+        y1: Math.max(...ms.map((m) => m.y)) + 1.15,
+      });
+    }
+    // Each process line merges into the side of the packing line, level with its end where it can.
+    const pkm = packaging[0] ? machines.filter((pm) => pm.lineId === packaging[0].id) : [];
+    if (pkm.length)
+      for (const al of assembly) {
+        const ms = machines.filter((pm) => pm.lineId === al.id);
+        if (!ms.length) continue;
+        const end = ms[ms.length - 1];
+        const alongY = (pkm[0].rot ?? (pkm[0].dir === "x" ? 0 : 90)) % 180 !== 0;
+        const clampTo = (v: number, vs: number[]) => Math.min(Math.max(v, Math.min(...vs)), Math.max(...vs));
+        const target = alongY
+          ? { x: pkm[0].x - Math.sign(pkm[0].x - end.x || 1) * 0.75, y: clampTo(end.y, pkm.map((m) => m.y)) }
+          : { x: clampTo(end.x, pkm.map((m) => m.x)), y: pkm[0].y - Math.sign(pkm[0].y - end.y || 1) * 0.75 };
+        belts.push(...conveyorPath(`xfer-${al.id}`, al.id, al.color, end, target, running(al.state), 0));
+      }
+    rackX = Math.min(...bays.map((b) => b.x0)) - 1.9;
+    rackY = Math.min(...bays.map((b) => b.y0)) + 0.55;
+    dockY = Math.max(...bays.map((b) => b.y1)) + 1.8;
+    const pk = packaging[0] ? bays.find((b) => b.id === packaging[0].id) : undefined;
+    truckX = pk ? (pk.x0 + pk.x1) / 2 - 1.4 : Math.max(...bays.map((b) => b.x1)) - 1.4;
+  }
+
   // Warehouse racks (inventory) on the infeed side
-  const racks = model.inventory.map((it, k) => ({ id: it.id, name: it.name, x: -1.9 - (k % 2) * 1.25, y: -0.6 + Math.floor(k / 2) * 1.35, fill: it.fill, low: it.low }));
+  const racks = model.inventory.map((it, k) => ({ id: it.id, name: it.name, x: rackX - (k % 2) * 1.25, y: rackY + Math.floor(k / 2) * 1.35, fill: it.fill, low: it.low }));
 
   // Shipping dock trucks (orders) at the end of packaging
-  const trucks = model.orders.map((o, k) => ({ id: o.id, customer: o.customer, x: pkgX - 1.4 - k * 2.25, y: dockY, progress: o.progress, atRisk: o.atRisk, priority: o.priority }));
+  const trucks = model.orders.map((o, k) => ({ id: o.id, customer: o.customer, x: truckX - k * 2.25, y: dockY, progress: o.progress, atRisk: o.atRisk, priority: o.priority }));
 
   // Cameras: pole-mounted at bay corners looking across their area; inspection cameras sit on their station.
   const cameras: PlacedCamera[] = [];
@@ -241,8 +297,8 @@ export function layoutIso(model: IsoModel): Layout {
     }
   }
 
-  const xs = [...machines.map((m) => m.x), ...racks.map((r) => r.x), ...trucks.map((t) => t.x), pkgX + 1.5];
-  const ys = [...machines.map((m) => m.y), ...racks.map((r) => r.y), ...trucks.map((t) => t.y), -1.5];
+  const xs = [...machines.map((m) => m.x), ...racks.map((r) => r.x), ...trucks.map((t) => t.x), ...(free ? [] : [pkgX + 1.5])];
+  const ys = [...machines.map((m) => m.y), ...racks.map((r) => r.y), ...trucks.map((t) => t.y), ...(free ? [] : [-1.5])];
   return {
     cameras,
     machines,
@@ -254,8 +310,25 @@ export function layoutIso(model: IsoModel): Layout {
   };
 }
 
+/**
+ * Conveyor between two placed machines: straight when they line up, else an L along x then y.
+ * Each end stops short of the machine body.
+ */
+function conveyorPath(id: string, lineId: string, color: string, a: { x: number; y: number }, b: { x: number; y: number }, isRunning: boolean, endGap = 0.6): Belt[] {
+  const gap = 0.6;
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  const sx = Math.sign(dx);
+  const sy = Math.sign(dy);
+  if (Math.hypot(dx, dy) < gap + endGap + 0.1) return [];
+  const belt = (suffix: string, from: [number, number], to: [number, number]): Belt => ({ id: `${id}${suffix}`, lineId, color, from, to, running: isRunning });
+  if (Math.abs(dx) <= gap + 0.05) return [belt("", [a.x, a.y + sy * gap], [a.x, b.y - sy * endGap])];
+  if (Math.abs(dy) <= gap + 0.05) return [belt("", [a.x + sx * gap, a.y], [b.x - sx * endGap, a.y])];
+  return [belt("a", [a.x + sx * gap, a.y], [b.x, a.y]), belt("b", [b.x, a.y], [b.x, b.y - sy * endGap])];
+}
+
 /** Preview model for a TwinSpec under review (before it is built): every machine shown healthy. */
-export function isoModelFromSpec(spec: import("@/domain/builder/spec").TwinSpec, rates: Record<string, number> = {}): IsoModel {
+export function isoModelFromSpec(spec: import("@/domain/builder/spec").TwinSpec, rates: Record<string, number> = {}, opts: { dock?: boolean } = {}): IsoModel {
   const ordered = [...spec.lines.filter((l) => l.role === "process"), ...spec.lines.filter((l) => l.role === "packing")];
   return {
     lines: ordered.map((l, i) => ({
@@ -265,9 +338,10 @@ export function isoModelFromSpec(spec: import("@/domain/builder/spec").TwinSpec,
       color: SERIES[i % SERIES.length],
       state: "running",
       product: l.productIds.map((p) => spec.products.find((x) => x.id === p)?.name ?? p).join(" · "),
-      machines: l.machines.map((m) => ({ id: m.id, name: m.name, kind: m.archetype, status: "healthy", health: 100, throughput: rates[m.id] ?? m.ratePerHour ?? 0, sensors: 0 })),
+      machines: l.machines.map((m) => ({ id: m.id, name: m.name, kind: m.archetype, status: "healthy", health: 100, throughput: rates[m.id] ?? m.ratePerHour ?? 0, sensors: 0, ...(m.pos ? { pos: { ...m.pos } } : {}) })),
     })),
     inventory: spec.materials.slice(0, 8).map((m) => ({ id: m.id, name: m.name, fill: 0.65, low: false })),
-    orders: [],
+    // A dock bay, so finished-goods routes have somewhere to go before any order exists.
+    orders: opts.dock ? [{ id: "dock", customer: "Shipping dock", progress: 0, atRisk: false, priority: "standard" }] : [],
   };
 }

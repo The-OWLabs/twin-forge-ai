@@ -25,7 +25,10 @@ export function amrPaths(layout: Layout, fleet: Amr[], lineOrder: string[]): Amr
   const racks = layout.racks;
   const rackEdge = racks.length ? Math.max(...racks.map((r) => r.x)) + 0.45 : -1.4;
   const pickY = racks.length ? racks.reduce((s, r) => s + r.y, 0) / racks.length : 0;
-  const packingMachines = layout.machines.filter((m) => m.dir === "y");
+  const packingBays = new Set(layout.bays.filter((b) => b.kind === "packaging").map((b) => b.id));
+  const packingMachines = layout.machines.filter((m) => (packingBays.size ? packingBays.has(m.lineId) : m.dir === "y"));
+  // Hand-placed layouts (playground) have no fixed lanes: routes go round the corner instead.
+  const free = layout.machines.some((m) => m.rot != null);
   const routes = new Map<string, [number, number][] | null>();
   const fleetSize = new Map<string, number>();
   const slotOf = new Map<string, number>();
@@ -53,6 +56,11 @@ export function amrPaths(layout: Layout, fleet: Amr[], lineOrder: string[]): Amr
     const last = ms[ms.length - 1];
     if (amr.mission === "line-transfer") {
       const pk = packingMachines[0];
+      if (pk && free) {
+        const start: [number, number] = [last.x, last.y + 0.9];
+        const end: [number, number] = [pk.x - 0.9, pk.y];
+        return [start, [end[0], start[1]], end];
+      }
       if (!pk || last.dir !== "x") return null;
       // Along the line's own lane (beside its transfer belt) to the side of the packing line.
       const laneY = last.y - 0.88;
@@ -67,8 +75,11 @@ export function amrPaths(layout: Layout, fleet: Amr[], lineOrder: string[]): Amr
     const apronY = truck.y - 0.85;
     return [outfeed, [outfeed[0], apronY], [truck.x, apronY]];
   };
+  // Waypoints drawn in the playground replace the middle of the standard route; pick-up and drop-off stay put.
+  const withWaypoints = (amr: Amr, pts: [number, number][] | null): [number, number][] | null =>
+    pts && amr.route.length ? [pts[0], ...amr.route.map((p): [number, number] => [p.x, p.y]), pts[pts.length - 1]] : pts;
   for (const amr of fleet) {
-    if (!routes.has(amr.fleetId)) routes.set(amr.fleetId, routeFor(amr));
+    if (!routes.has(amr.fleetId)) routes.set(amr.fleetId, withWaypoints(amr, routeFor(amr)));
     const points = routes.get(amr.fleetId);
     if (!points) continue;
     const color = layout.machines.find((m) => m.lineId === amr.lineId)?.color ?? "#4c8dff";

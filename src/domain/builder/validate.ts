@@ -98,6 +98,7 @@ export function validateSpec(input: unknown): ValidationResult {
   dedupe(spec.materials, "materials");
   dedupe(spec.integrations, "integrations");
   dedupe(spec.mobileRobots, "mobileRobots");
+  dedupe(spec.rules, "rules");
 
   // Line structure: process lines feed at most one packing line, which runs last.
   const packing = spec.lines.filter((l) => l.role === "packing");
@@ -202,9 +203,61 @@ export function validateSpec(input: unknown): ValidationResult {
     }
     return true;
   });
+  for (const f of spec.mobileRobots) {
+    if (f.trigger.kind === "schedule" && !f.trigger.everyMinutes) f.trigger.everyMinutes = 20;
+    if (f.trigger.kind === "output") f.trigger.everyMinutes = null;
+  }
   const robots = spec.mobileRobots.reduce((n, f) => n + f.count, 0);
   if (robots > 24) issues.push({ level: "error", path: "mobileRobots", message: `${robots} mobile robots requested; up to 24 are simulated. Reduce the fleet sizes.` });
   else if (robots) issues.push({ level: "info", path: "mobileRobots", message: `${robots} mobile robot(s) will be simulated from line output; no fleet manager is connected yet.` });
+
+  // Rules: every reference must exist, and the action must make sense for the line.
+  const lineById = new Map(spec.lines.map((l) => [l.id, l]));
+  const machineIds = new Set(spec.lines.flatMap((l) => l.machines.map((m) => m.id)));
+  spec.rules = spec.rules.filter((r) => {
+    const path = `rules.${r.id}`;
+    const drop = (why: string) => {
+      issues.push({ level: "warning", path, message: `Rule "${r.name}" removed: ${why}` });
+      return false;
+    };
+    if (r.kind === "inventory") {
+      if (!materialIds.has(r.materialId)) return drop(`material "${r.materialId}" doesn't exist.`);
+      return true;
+    }
+    if (r.kind === "maintenance") {
+      if (r.machineId && !machineIds.has(r.machineId)) return drop(`machine "${r.machineId}" doesn't exist.`);
+      if (r.metric === "vibration" && r.threshold > 30) issues.push({ level: "warning", path, message: `${r.name}: vibration above ${r.threshold} mm/s never happens in the simulation, so the rule won't fire.` });
+      return true;
+    }
+    const line = lineById.get(r.lineId);
+    if (!line) return drop(`line "${r.lineId}" doesn't exist.`);
+    if (r.action === "divert") {
+      const to = r.toLineId ? lineById.get(r.toLineId) : undefined;
+      if (!to || to.id === line.id) return drop("divert needs another line to take over.");
+      if (line.role !== "process" || to.role !== "process") return drop("only process lines can take over each other's work.");
+      if (!spec.options.linesInterchangeable && !to.productIds.some((p) => line.productIds.includes(p)))
+        issues.push({ level: "warning", path, message: `${r.name}: ${to.name} doesn't make ${line.name}'s products, so it takes over the work at its own product mix.` });
+      if (r.when !== "upstream-stops") {
+        r.when = "upstream-stops";
+        issues.push({ level: "info", path, message: `${r.name}: divert fires when ${line.name} stops.` });
+      }
+    }
+    if (r.action === "slow" && !r.speedPct) r.speedPct = 60;
+    if (r.when === "buffer-full" && !r.bufferUnits) r.bufferUnits = 200;
+    if (r.when === "downstream-stops" && !spec.lines.some((l) => l.role === "packing") && processLines.length < 2)
+      issues.push({ level: "info", path, message: `${r.name}: the line has nothing downstream except finished goods, so "downstream stops" means a packing stop.` });
+    return true;
+  });
+  if (spec.rules.length) issues.push({ level: "info", path: "rules", message: `${spec.rules.filter((r) => r.enabled).length} automation rule(s) run in the simulation; they never send commands to real equipment.` });
+
+  // Floor positions: two machines can't sit in the same spot.
+  const placed = spec.lines.flatMap((l) => l.machines.filter((m) => m.pos).map((m) => ({ m, line: l })));
+  for (let i = 0; i < placed.length; i++)
+    for (let j = i + 1; j < placed.length; j++) {
+      const a = placed[i].m.pos!;
+      const b = placed[j].m.pos!;
+      if (Math.abs(a.x - b.x) < 1.6 && Math.abs(a.y - b.y) < 1.6) issues.push({ level: "warning", path: `machines.${placed[j].m.id}`, message: `${placed[i].m.name} and ${placed[j].m.name} overlap on the floor.` });
+    }
 
   // Rates: typical ranges and bottlenecks.
   const lines = deriveRates(spec);

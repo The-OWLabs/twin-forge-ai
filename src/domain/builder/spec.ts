@@ -25,6 +25,9 @@ const id = z.string().trim().min(1).max(40);
 const name = z.string().trim().min(1).max(80);
 const num = (max: number) => z.number().finite().positive().max(max).nullable();
 const BoxSchema = z.object({ x: z.number().min(0).max(1), y: z.number().min(0).max(1), w: z.number().min(0).max(1), h: z.number().min(0).max(1) });
+/** Position on the floor plan (layout units, about 2 m each) and rotation in degrees (multiples of 90). */
+export const PosSchema = z.object({ x: z.number().finite().min(-200).max(200), y: z.number().finite().min(-200).max(200), rot: z.number().finite().default(0) });
+export type Pos = z.infer<typeof PosSchema>;
 
 export const SpecMachineSchema = z.object({
   id,
@@ -35,6 +38,8 @@ export const SpecMachineSchema = z.object({
   notes: z.string().max(300).nullish(),
   /** Where the element sits on the uploaded blueprint (normalised 0–1). */
   box: BoxSchema.nullish(),
+  /** Where it stands on the floor (Playground). Without it, the standard layout places it. */
+  pos: PosSchema.nullish(),
   prov: ProvSchema,
 });
 
@@ -108,8 +113,62 @@ export const SpecRobotFleetSchema = z.object({
   unitsPerTrip: num(100000),
   /** Travel speed in m/s (null: 1.0 m/s, typical for indoor robots in mixed traffic). */
   speedMps: z.number().finite().min(0.2).max(3).nullable(),
+  /** When a trip starts: per output (every `unitsPerTrip` units) or on a schedule (every `everyMinutes`). */
+  trigger: z.object({ kind: z.enum(["output", "schedule"]), everyMinutes: z.number().finite().min(1).max(24 * 60).nullable().default(null) }).default({ kind: "output", everyMinutes: null }),
+  /** Waypoints the route passes through between its start and end (floor-plan units). */
+  route: z.array(z.object({ x: z.number().finite(), y: z.number().finite() })).max(12).default([]),
   prov: ProvSchema,
 });
+
+/**
+ * Rules the twin runs every simulated step. Each one acts through the plant model (purchase
+ * orders, re-allocation, speed changes) or creates a proposal a person must approve; none of them
+ * touches real equipment.
+ */
+export const RULE_KINDS = ["inventory", "maintenance", "connector"] as const;
+export const SpecRuleSchema = z.discriminatedUnion("kind", [
+  z.object({
+    id,
+    name,
+    kind: z.literal("inventory"),
+    enabled: z.boolean().default(true),
+    materialId: id,
+    /** Reorder when stock plus open orders falls below this (null: the material's reorder point). */
+    below: z.number().finite().min(0).nullable().default(null),
+    /** Quantity per purchase order (null: enough for twice the lead time at current use). */
+    orderQty: z.number().finite().positive().nullable().default(null),
+    prov: ProvSchema,
+  }),
+  z.object({
+    id,
+    name,
+    kind: z.literal("maintenance"),
+    enabled: z.boolean().default(true),
+    /** A machine id, or null for every machine. */
+    machineId: id.nullable(),
+    metric: z.enum(["health", "vibration"]),
+    /** Health below (0–100) or vibration above (mm/s). */
+    threshold: z.number().finite().min(0).max(100),
+    prov: ProvSchema,
+  }),
+  z.object({
+    id,
+    name,
+    kind: z.literal("connector"),
+    enabled: z.boolean().default(true),
+    /** The process line whose output flow the rule watches (line → packing). */
+    lineId: id,
+    when: z.enum(["upstream-stops", "downstream-stops", "buffer-full"]),
+    action: z.enum(["divert", "slow", "pause"]),
+    /** divert: the line that takes over the product. */
+    toLineId: id.nullable().default(null),
+    /** slow: speed of the upstream line, % of nominal. */
+    speedPct: z.number().finite().min(5).max(100).nullable().default(null),
+    /** buffer-full: units waiting before packing that count as full. */
+    bufferUnits: z.number().finite().positive().nullable().default(null),
+    prov: ProvSchema,
+  }),
+]);
 
 export const ReferenceSchema = z.object({ id: z.string().max(12), title: z.string().max(200), url: z.string().url().max(2000), note: z.string().max(400).nullish() });
 
@@ -127,6 +186,7 @@ export const TwinSpecSchema = z.object({
   materials: z.array(SpecMaterialSchema).max(12),
   integrations: z.array(SpecIntegrationSchema).max(40),
   mobileRobots: z.array(SpecRobotFleetSchema).max(10).default([]),
+  rules: z.array(SpecRuleSchema).max(30).default([]),
   references: z.array(ReferenceSchema).max(20),
   assumptions: z.array(z.string().max(400)).max(30),
   questions: z.array(z.object({ id, text: z.string().max(400), answer: z.string().max(400).nullable() })).max(12),
@@ -143,6 +203,7 @@ export type SpecProduct = z.infer<typeof SpecProductSchema>;
 export type SpecMaterial = z.infer<typeof SpecMaterialSchema>;
 export type SpecIntegration = z.infer<typeof SpecIntegrationSchema>;
 export type SpecRobotFleet = z.infer<typeof SpecRobotFleetSchema>;
+export type SpecRule = z.infer<typeof SpecRuleSchema>;
 
 /** Lower-case slug for ids ("Filling Line 1" → "filling-line-1"). */
 export const slug = (s: string, max = 32) =>

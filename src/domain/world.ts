@@ -21,6 +21,8 @@ import type {
   LineState,
   MachineMode,
   OrderPriority,
+  PlantRule,
+  RuleRuntime,
   Thresholds,
   TimelineEvent,
 } from "./types";
@@ -105,6 +107,7 @@ export interface WorldEvent extends TimelineEvent {
   directiveId?: string;
   orderId?: string;
   itemId?: string;
+  ruleId?: string;
 }
 
 export interface SimWorld {
@@ -123,6 +126,9 @@ export interface SimWorld {
   scrapByProduct: Record<string, number>;
   changeovers: number;
   events: WorldEvent[];
+  /** Playground automation rules that act inside the plant model (inventory and connector rules). */
+  rules?: PlantRule[];
+  ruleRuntime?: RuleRuntime;
 }
 
 const EPS = 1e-9;
@@ -238,6 +244,7 @@ export function worldFromState(state: FactoryState): SimWorld {
     scrapByProduct: {},
     changeovers: 0,
     events: [],
+    ...(state.rules?.length ? { rules: state.rules, ruleRuntime: structuredClone(state.ruleRuntime ?? { seq: 0, rules: {} }) } : {}),
   };
 }
 
@@ -530,6 +537,14 @@ function produceAssembly(world: SimWorld, line: LineSim, dt: number) {
   }
 
   const speedFactor = Math.min(...ms.map((m) => m.speedPct)) / 100;
+  if (speedFactor <= EPS) {
+    // Held at zero speed (a rule paused it): no output, counted as an external stop.
+    line.state = "idle";
+    line.throughput = 0;
+    acc.starvedHours += dt;
+    meterMachines(world, line, dt, 0, 0, "idle");
+    return;
+  }
   const machineCap = Math.min(...ms.map((m) => m.nominalRate * (m.speedPct / 100)));
   const contributions: [string, number][] = ms.map((m) => [m.id, scrapContribution(machineVibration(m), m.thresholds)]);
   const scrapRate = Math.min(0.6, line.baseScrapRate + contributions.reduce((x, [, v]) => x + v, 0));
@@ -684,9 +699,114 @@ export function stepWorld(world: SimWorld, dt: number) {
   world.hour += dt;
   checkFailures(world);
   allocateOrders(world);
+  if (world.rules) evaluateRules(world);
   if (world.hour > 0) {
     for (const line of Object.values(world.lines)) {
       if (line.changeoverUntil !== null && line.changeoverUntil <= world.hour + EPS) line.changeoverUntil = null;
+    }
+  }
+}
+
+/* ──────────────────────── Automation rules ──────────────────────── */
+
+const STOPPED: LineState[] = ["down", "maintenance"];
+const r2 = (x: number) => Math.round(x * 100) / 100;
+
+function connectorTriggered(world: SimWorld, r: Extract<PlantRule, { kind: "connector" }>, line: LineSim, active: boolean) {
+  if (r.when === "upstream-stops") return STOPPED.includes(lineStateFor(world, line));
+  const dl = line.downstreamLineId ? world.lines[line.downstreamLineId] : undefined;
+  if (!dl) return false;
+  if (r.when === "downstream-stops") return STOPPED.includes(lineStateFor(world, dl));
+  const limit = r.bufferUnits ?? 200;
+  const wip = Object.values(dl.buffer).reduce((a, b) => a + b, 0);
+  // Hysteresis: hold until the buffer drains to 80% of the limit.
+  return active ? wip > limit * 0.8 : wip >= limit;
+}
+
+/** Start a connector action: returns the directives it created (empty when there is nothing to do). */
+function startConnector(world: SimWorld, rt: RuleRuntime, r: Extract<PlantRule, { kind: "connector" }>, line: LineSim): Directive[] {
+  if (r.action === "divert") {
+    const to = r.toLineId ? world.lines[r.toLineId] : undefined;
+    if (!to) return [];
+    // The receiving line keeps half its own mix and takes on the stopped line's products it can make.
+    const takeOver = Object.entries(line.allocation).filter(([pid, share]) => share > 0 && to.capabilities[pid]);
+    if (!takeOver.length) return [];
+    const mix: Record<string, number> = {};
+    for (const [pid, share] of Object.entries(to.allocation)) if (share > 0) mix[pid] = share * 0.5;
+    const total = takeOver.reduce((a, [, x]) => a + x, 0);
+    for (const [pid, share] of takeOver) mix[pid] = (mix[pid] ?? 0) + (share / total) * 0.5;
+    const sum = Object.values(mix).reduce((a, b) => a + b, 0);
+    const allocation = Object.fromEntries(Object.entries(mix).map(([k, v]) => [k, Math.round((v / sum) * 10000) / 10000]));
+    return [{ id: `RD-${++rt.seq}`, kind: "allocation", lineId: to.id, allocation, startHour: world.hour, endHour: null, revertAllocation: { ...to.allocation }, status: "scheduled", ruleId: r.id }];
+  }
+  const speedPct = r.action === "pause" ? 0 : Math.max(5, Math.min(100, r.speedPct ?? 60));
+  return line.machineIds
+    .map((id) => world.machines[id])
+    .filter((m) => m.speedPct !== speedPct)
+    .map((m) => ({ id: `RD-${++rt.seq}`, kind: "speed" as const, assetId: m.id, speedPct, startHour: world.hour, endHour: null, revertSpeedPct: m.speedPct, status: "scheduled" as const, ruleId: r.id }));
+}
+
+/**
+ * Inventory and connector rules, evaluated at the end of each step so their effect starts on the
+ * next one. The same function runs in the live plant and in What-If simulations.
+ */
+function evaluateRules(world: SimWorld) {
+  const rt = (world.ruleRuntime ??= { seq: 0, rules: {} });
+  for (const r of world.rules ?? []) {
+    if (!r.enabled || r.kind === "maintenance") continue;
+    const st = (rt.rules[r.id] ??= { active: false, directiveIds: [], fired: 0, lastFiredHour: null });
+    if (r.kind === "inventory") {
+      const item = world.inventory[r.itemId];
+      if (!item) continue;
+      const position = item.onHand + item.inbound.reduce((a, x) => a + x.qty, 0);
+      if (position >= r.below - EPS || r.orderQty <= 0) continue;
+      // Order whole lots until stock plus open orders is back above the trigger level.
+      const qty = r.orderQty * Math.ceil((r.below - position) / r.orderQty);
+      const poId = `PO-R${++rt.seq}`;
+      item.inbound.push({ poId, qty, etaHour: r2(world.hour + r.leadTimeHours) });
+      st.fired += 1;
+      st.lastFiredHour = r2(world.hour);
+      emit(world, {
+        hour: world.hour,
+        kind: "rule",
+        label: `${r.name}: ordered ${Math.round(qty).toLocaleString("en-US")} × ${item.name} (${poId}, due in ${r.leadTimeHours} h)`,
+        severity: "info",
+        itemId: r.itemId,
+        ruleId: r.id,
+      });
+      continue;
+    }
+    const line = world.lines[r.lineId];
+    if (!line) continue;
+    const on = connectorTriggered(world, r, line, st.active);
+    if (on && !st.active) {
+      const ds = startConnector(world, rt, r, line);
+      world.directives.push(...ds);
+      st.active = true;
+      st.directiveIds = ds.map((d) => d.id);
+      st.fired += 1;
+      st.lastFiredHour = r2(world.hour);
+      const cause = r.when === "upstream-stops" ? `${line.name} stopped` : r.when === "downstream-stops" ? `${world.lines[line.downstreamLineId ?? ""]?.name ?? "the next line"} stopped` : `the buffer after ${line.name} reached ${r.bufferUnits ?? 200} units`;
+      const effect = !ds.length
+        ? r.action === "divert"
+          ? `nothing to divert: ${world.lines[r.toLineId ?? ""]?.name ?? "the other line"} can't make ${line.name}'s products`
+          : `${line.name} was already at that speed`
+        : r.action === "divert"
+          ? `${world.lines[r.toLineId!]?.name} takes over ${line.name}'s work`
+          : r.action === "pause"
+            ? `${line.name} paused`
+            : `${line.name} slowed to ${r.speedPct ?? 60}%`;
+      emit(world, { hour: world.hour, kind: "rule", label: `${r.name}: ${cause}; ${effect}`, lineId: line.id, severity: ds.length ? "warning" : "info", ruleId: r.id });
+    } else if (!on && st.active) {
+      for (const id of st.directiveIds) {
+        const d = world.directives.find((x) => x.id === id);
+        if (!d || d.kind === "maintenance") continue;
+        if (d.status === "scheduled") d.status = "cancelled";
+        else if (d.status === "active") d.endHour = world.hour;
+      }
+      st.active = false;
+      st.directiveIds = [];
+      emit(world, { hour: world.hour, kind: "rule", label: `${r.name}: condition cleared; ${r.action === "divert" ? "lines return to their own work" : `${line.name} back to normal speed`}`, lineId: line.id, severity: "info", ruleId: r.id });
     }
   }
 }

@@ -407,7 +407,7 @@ export function Machine3D({
   };
   return (
     <group position={P(pm.x, pm.y)} {...pick(onSelect)}>
-      <group rotation={[0, pm.dir === "x" ? 0 : -Math.PI / 2, 0]}>
+      <group rotation={[0, -(((pm.rot ?? (pm.dir === "x" ? 0 : 90)) * Math.PI) / 180), 0]}>
         {/* status pad: only when something needs attention */}
         {status !== "healthy" && (
           <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.01, 0]}>
