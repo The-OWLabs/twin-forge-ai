@@ -94,7 +94,7 @@ flowchart TB
 | Vision service | Python 3.13, FastAPI, OpenCV, uv-locked | Cloud Run `twinforge-vision`, `asia-southeast1`, private (`--no-allow-unauthenticated`), 0–2 instances | None |
 | Python ADK agent | `google-adk[mcp]` 2.12 | Local CLI or `adk web`; Agent Engine possible | ADK sessions |
 
-**Why one instance?** The demo keeps state in memory so every visitor sees the same factory. Two instances would diverge. Section 12 describes the move to a shared store.
+**Why one instance?** The demo keeps state in memory so every visitor sees the same factory. Two instances would diverge. Section 14 describes the move to a shared store.
 
 ---
 
@@ -239,7 +239,14 @@ flowchart TB
 
 ---
 
-## 8. Visual quality and cameras
+## 8. Twin views, 3D and mobile robots
+
+- **Four views of one state:** Topology (React Flow), Isometric (SVG), Floor plan and **3D** (three.js through React Three Fiber, loaded only when the tab opens). The isometric and 3D views share one layout (`layoutIso`) and one machine-part library (`machineParts`), so they always agree; the 3D view adds orbit, pan, zoom, top view, focus and a turntable, with animated robot arms, belts and robots. Labels are DOM elements positioned by a per-frame projector (one React tree). Without WebGL the tab says so and points to the other views.
+- **Mobile robots (`src/domain/intralogistics.ts`).** A simulated intralogistics layer derived from the twin, not stored: a kitting AMR per process line (stores → line infeed) and a pallet AMR per packing line (outfeed → the truck being loaded). Trips per hour = line output ÷ units per trip (60 per kit, 120 per pallet); a robot parks with the reason when its line is down, in maintenance or starved. Routes keep to the aisles (`amr-paths.ts`). The animation runs at real speed while the plant clock runs 30× faster, which the view states. A fleet manager (VDA 5050 or a vendor API) would replace this with real positions.
+
+---
+
+## 9. Visual quality and cameras
 
 - **Inspection model.** Scrap attribution in the plant model is mapped to defect classes. Electronics plants use IPC-A-610J Class 2, and other industries use their machines' own defect classes. From these, the model computes FPY, DPMO, rolled throughput yield, a Pareto and vibration ↔ reject correlations (r = 0.89 in the crisis).
 - **Cameras in the twin.** Area CCTV, AOI and final inspection, radiometric thermal, dock and stores, shown in all three views. Each camera has one of three sources:
@@ -255,26 +262,26 @@ flowchart TB
 
 ---
 
-## 9. Key flows
+## 10. Key flows
 
-### 9.1 Live telemetry loop
+### 10.1 Live telemetry loop
 Every 4 s, the browser calls `POST /api/telemetry/tick`. The server advances the plant 2 simulated minutes (throttled server-side, so many tabs don't speed it up) and returns the new state. The store applies it, and every page re-renders from the same state.
 
-### 9.2 Crisis → decision
+### 10.2 Crisis → decision
 1. **Demo controls → crisis:** the scripted bearing damage on A-ROB-03 starts.
 2. **AI Operations:** the pipeline streams its stages and commits an analysis, a scenario run and a pending recommendation.
 3. **What-If:** the user explores plans; the same engine runs in the browser, so results are instant.
 4. **Approvals:** a person approves, the twin executes the directives, and the result is audited.
 
-### 9.3 Twin Builder
+### 10.3 Twin Builder
 Upload, then `POST /api/builder/draft` (NDJSON: read, research, draft, validate), then review and edit (client-side operations and validation, chat through `/api/builder/refine`), then `POST /api/builder/build`. The compiled twin replaces the factory.
 
-### 9.4 Copilot
+### 10.4 Copilot
 `POST /api/copilot {sessionId, message}` streams NDJSON events: `tool_call`, `tool_result`, `confirm`, `answer` with grounding, then `done`. A confirmation is sent as `POST /api/copilot {sessionId, confirm: {callId, confirmed}}`.
 
 ---
 
-## 10. API surface (46 route handlers)
+## 11. API surface (46 route handlers)
 
 | Area | Endpoints |
 |---|---|
@@ -290,7 +297,7 @@ Validation errors return 400 with field issues, missing admin 401, unknown ids 4
 
 ---
 
-## 11. AI configuration and behaviour
+## 12. AI configuration and behaviour
 
 | Setting | Value | Why |
 |---|---|---|
@@ -308,7 +315,7 @@ Validation errors return 400 with field issues, missing admin 401, unknown ids 4
 
 ---
 
-## 12. Security, safety and privacy
+## 13. Security, safety and privacy
 
 - **No control path.** There are no endpoints or tools that write to equipment. Connectors are read-only by construction, and approved plans execute only in the twin.
 - **Human approval.** Recommendations from the pipeline, the operator or the copilot are always *pending* until a person approves them. Approve, reject and rollback exist only as UI routes; no agent tool can call them.
@@ -322,7 +329,7 @@ Validation errors return 400 with field issues, missing admin 401, unknown ids 4
 
 ---
 
-## 13. Persistence and scaling
+## 14. Persistence and scaling
 
 **Today:**
 - integration settings saved from the UI are durable (private Cloud Storage object), loaded at server start
@@ -341,19 +348,19 @@ Validation errors return 400 with field issues, missing admin 401, unknown ids 4
 
 ---
 
-## 14. Testing
+## 15. Testing
 
 | Suite | Count | Covers |
 |---|---|---|
-| Vitest (`tests/`) | 91 | Seed reproducibility; physics, KPIs and trend estimation; scenario outcomes, sensitivity and ranking; agent pipeline; approvals, rejection and rollback; LLM grounding and fallback; quality and cameras; Twin Builder templates, validation, compile and agent workflow with recorded responses; the tool layer (read-only guarantee, proposal semantics, argument validation); numeric grounding; admin sessions (signing, expiry, rate limit); settings overrides, validation and secret handling; camera sources and the footage library; stock-outs reported once |
-| Playwright (`e2e/`) | 13 | Every page renders with no console errors; guided crisis demo; reset; API validation; iso view and theme; landing story; cameras and Visual Quality; Twin Builder end to end; MCP protocol; ADK copilot with a grounded answer (runs when Gemini is configured); CCTV control room switching to reference footage and back; integration settings from the UI |
+| Vitest (`tests/`) | 94 | Seed reproducibility; physics, KPIs and trend estimation; scenario outcomes, sensitivity and ranking; agent pipeline; approvals, rejection and rollback; LLM grounding and fallback; quality and cameras; Twin Builder templates, validation, compile and agent workflow with recorded responses; the tool layer (read-only guarantee, proposal semantics, argument validation); numeric grounding; admin sessions (signing, expiry, rate limit); settings overrides, validation and secret handling; camera sources and the footage library; stock-outs reported once |
+| Playwright (`e2e/`) | 14 | Every page renders with no console errors; guided crisis demo; reset; API validation; iso view and theme; landing story; cameras and Visual Quality; Twin Builder end to end; MCP protocol; ADK copilot with a grounded answer (runs when Gemini is configured); CCTV control room switching to reference footage and back; integration settings from the UI; the 3D view with mobile robots |
 | pytest (`services/vision`) | 16 | Golden comparison (missing part, rotated part, lighting), codes, quality, video stoppage, determinism, API limits |
 
 The e2e suite runs against local production builds and against the live URL (`E2E_BASE_URL`). With AI on, the Twin Builder and copilot tests exercise real Gemini.
 
 ---
 
-## 15. Deployment and operations
+## 16. Deployment and operations
 
 | Task | How |
 |---|---|
@@ -368,7 +375,7 @@ The e2e suite runs against local production builds and against the live URL (`E2
 
 ---
 
-## 16. Key design decisions
+## 17. Key design decisions
 
 | Decision | Alternatives considered | Reason |
 |---|---|---|
@@ -382,11 +389,13 @@ The e2e suite runs against local production builds and against the live URL (`E2
 | Python only where its libraries win (OpenCV, edge protocols) | Python everywhere | Keeps one language on the critical path |
 | Integration settings in the UI, overriding the environment | Environment variables only; Firestore | Admins enable and test integrations without a redeploy; the deployment still works with no saved settings; one small JSON object in a private bucket needs no new database |
 | One admin passcode in Secret Manager | Firebase Auth with roles; no protection | Protects configuration changes on a public demo URL in hours, not days; Firebase Auth/IAP is the production path |
+| 3D view built on the isometric layout (three.js / React Three Fiber, loaded on demand) | Separate 3D scene or glTF models | One layout and part library for both views, so they never disagree; no model assets to license; three.js costs nothing until the tab opens |
+| Mobile robots derived from material flow | AMRs as stored assets | Keeps the seeded demo unchanged and the robots consistent with line output; a fleet-manager adapter can replace it |
 | Reference footage, labelled, for camera demos | Simulated video only; unlabelled stock video | Real video makes visual QA demonstrable; labelling it as another facility's footage keeps the demo honest |
 
 ---
 
-## 17. Limitations and roadmap
+## 18. Limitations and roadmap
 
 **Limitations:**
 - simulated plant data only

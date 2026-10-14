@@ -1,8 +1,9 @@
 "use client";
 
 import { Suspense, useEffect, useMemo, useState } from "react";
+import dynamic from "next/dynamic";
 import { useSearchParams } from "next/navigation";
-import { Box, Boxes, Cable, Cctv, ChevronDown, Eye, LayoutGrid, Map as MapIcon, Network, Plus, Radio, RotateCcw, ShieldAlert, Truck, X, FlaskConical } from "lucide-react";
+import { Bot, Box, Boxes, Cable, Cctv, ChevronDown, Eye, LayoutGrid, Map as MapIcon, Network, Plus, Radio, RotateCcw, ShieldAlert, Truck, X, FlaskConical, Rotate3d } from "lucide-react";
 import Link from "next/link";
 import { useForecast } from "@/client/hooks";
 import { useFactory, useUi } from "@/client/store";
@@ -14,10 +15,19 @@ import { TwinCanvas } from "@/components/twin/twin-canvas";
 import { CameraPanel } from "@/components/vision/camera-panel";
 import { Badge, Button, Dialog, Input, Label, Select, Tip } from "@/components/ui/primitives";
 import { STATUS_META } from "@/components/ui/status";
+import { amrPaths } from "@/components/three/amr-paths";
+import { isoModelFromState, layoutIso } from "@/components/iso/model";
+import { amrFleet, amrUtilisation, METRES_PER_UNIT } from "@/domain/intralogistics";
 import { ASSET_KIND_LABEL } from "@/domain/seed";
 import type { AssetKind, FactoryState } from "@/domain/types";
 import { cn } from "@/lib/cn";
 import { fmtInt, fmtRelHours } from "@/lib/format";
+
+// three.js is loaded only when the 3D view is opened.
+const Twin3D = dynamic(() => import("@/components/three/twin-3d").then((m) => m.Twin3D), {
+  ssr: false,
+  loading: () => <div className="flex h-full items-center justify-center text-[12.5px] text-muted">Loading the 3D view…</div>,
+});
 
 export default function TwinPage() {
   return (
@@ -60,7 +70,7 @@ function TwinStudio() {
 
   const selectedAsset = state.assets.find((a) => a.id === selectedId) ?? null;
   const selectedCamera = selectedId?.startsWith("cam:") ? (state.cameras.find((c) => `cam:${c.id}` === selectedId) ?? null) : null;
-  const selectedOther = selectedId && !selectedAsset && !selectedCamera && (selectedId.startsWith("inv:") || selectedId.startsWith("ord:")) ? selectedId : null;
+  const selectedOther = selectedId && !selectedAsset && !selectedCamera && (selectedId.startsWith("inv:") || selectedId.startsWith("ord:") || selectedId.startsWith("amr:")) ? selectedId : null;
   const counts = state.assets.reduce<Record<string, number>>((m, a) => ((m[a.status] = (m[a.status] ?? 0) + 1), m), {});
 
   return (
@@ -92,6 +102,9 @@ function TwinStudio() {
           </button>
           <button onClick={() => setView("floor")} className={cn("flex h-7 items-center gap-1.5 rounded-md px-2.5 text-[12.5px]", view === "floor" ? "bg-surface-3 text-ink" : "text-muted hover:text-ink")}>
             <MapIcon className="h-3.5 w-3.5" /> Floor plan
+          </button>
+          <button onClick={() => setView("3d")} className={cn("flex h-7 items-center gap-1.5 rounded-md px-2.5 text-[12.5px]", view === "3d" ? "bg-surface-3 text-ink" : "text-muted hover:text-ink")}>
+            <Rotate3d className="h-3.5 w-3.5" /> 3D
           </button>
         </div>
         {view === "topology" && (
@@ -151,6 +164,8 @@ function TwinStudio() {
           />
         ) : view === "iso" ? (
           <IsoViewport state={state} highlight={highlight} selectedId={selectedId} onSelect={(id) => selectAsset(id)} orderRisk={orderRisk} />
+        ) : view === "3d" ? (
+          <Twin3D state={state} highlight={highlight} selectedId={selectedId} onSelect={(id) => selectAsset(id)} orderRisk={orderRisk} />
         ) : (
           <FloorView state={state} highlight={highlight} selectedId={selectedId} onSelect={(id) => selectAsset(id)} />
         )}
@@ -226,6 +241,7 @@ function TwinSummary({ state, onSelect }: { state: FactoryState; onSelect: (id: 
 function OtherNodePanel({ state, id, onClose }: { state: FactoryState; id: string; onClose: () => void }) {
   const item = id.startsWith("inv:") ? state.inventory.find((i) => `inv:${i.id}` === id) : null;
   const order = id.startsWith("ord:") ? state.orders.find((o) => `ord:${o.id}` === id) : null;
+  if (id.startsWith("amr:")) return <AmrPanel state={state} id={id.slice(4)} onClose={onClose} />;
   return (
     <div className="p-4">
       <div className="mb-3 flex items-start justify-between">
@@ -263,6 +279,53 @@ function OtherNodePanel({ state, id, onClose }: { state: FactoryState; id: strin
           <KeyValue k="Late penalty" v={`$${order.penaltyPerLateUnit}/unit`} />
         </div>
       )}
+    </div>
+  );
+}
+
+/** A mobile robot from the simulated intralogistics layer (derived from the plant's material flow). */
+function AmrPanel({ state, id, onClose }: { state: FactoryState; id: string; onClose: () => void }) {
+  const fleet = useMemo(() => amrFleet(state), [state]);
+  const amr = fleet.find((a) => a.id === id);
+  const route = useMemo(() => amrPaths(layoutIso(isoModelFromState(state)), fleet, state.lines.map((l) => l.id)).find((p) => p.amr.id === id), [state, fleet, id]);
+  if (!amr) return null;
+  const util = route ? amrUtilisation(amr, 2 * route.length) : null;
+  return (
+    <div className="p-4" data-testid="amr-panel">
+      <div className="mb-3 flex items-start justify-between">
+        <div className="flex items-start gap-3">
+          <span className="rounded-lg border border-line bg-surface-2 p-2 text-ink-2">
+            <Bot className="h-5 w-5" />
+          </span>
+          <div>
+            <p className="font-mono text-[11.5px] text-muted">{amr.id}</p>
+            <p className="text-[15px] font-semibold text-ink">{amr.name}</p>
+            <p className="text-[11.5px] text-muted">Autonomous mobile robot · {amr.lineName}</p>
+          </div>
+        </div>
+        <button onClick={onClose} className="rounded-md p-1 text-muted hover:bg-surface-2 hover:text-ink" aria-label="Close panel">
+          <X className="h-4 w-4" />
+        </button>
+      </div>
+      <div className="mb-3 flex flex-wrap gap-1.5">
+        <Badge tone={amr.status === "active" ? "healthy" : "warning"}>{amr.status === "active" ? "On mission" : "Parked"}</Badge>
+        <Badge tone="warning">Simulated</Badge>
+      </div>
+      {amr.reason && <p className="mb-3 rounded-lg border border-warning/40 bg-warning/5 p-2 text-[12px] text-ink-2">{amr.reason}</p>}
+      <div className="space-y-1">
+        <KeyValue k="Mission" v={amr.mission === "kitting" ? "Line-side kitting" : "Finished goods to dock"} />
+        <KeyValue k="From" v={amr.from} />
+        <KeyValue k="To" v={amr.to} />
+        <KeyValue k="Payload" v={amr.payload} />
+        <KeyValue k="Per trip" v={`${amr.unitsPerTrip} units`} />
+        <KeyValue k="Line output" v={`${fmtInt(amr.lineRate)} units/h`} />
+        <KeyValue k="Trips" v={`${amr.tripsPerHour} per hour`} />
+        {route && <KeyValue k="Route" v={`${Math.round(route.length * METRES_PER_UNIT)} m each way`} />}
+        {util !== null && <KeyValue k="Busy (est.)" v={`${Math.round(util * 100)}% of the hour`} />}
+      </div>
+      <p className="mt-3 text-[11px] leading-relaxed text-muted">
+        Simulated intralogistics: trips are sized from the line&apos;s measured output, and the robot parks when its line stops or a part runs out. No robots are connected. A fleet manager (VDA 5050 or a vendor API) would replace this with real positions and missions.
+      </p>
     </div>
   );
 }

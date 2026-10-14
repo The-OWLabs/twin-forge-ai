@@ -530,7 +530,7 @@ interface UiStore {
   selectedAssetId: string | null;
   highlight: Highlight | null;
   layers: { sensors: boolean; inventory: boolean; orders: boolean; cameras: boolean };
-  twinView: "topology" | "iso" | "floor";
+  twinView: "topology" | "iso" | "floor" | "3d";
   nodePositions: Record<string, { x: number; y: number }>;
   guide: { active: boolean; step: number };
   operator: string;
