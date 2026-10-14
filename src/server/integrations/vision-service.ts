@@ -1,4 +1,5 @@
 import "server-only";
+import { setting } from "@/server/settings";
 
 /**
  * Client for the Python vision service (services/vision, FastAPI + OpenCV).
@@ -9,8 +10,8 @@ import "server-only";
  */
 
 export const visionService = {
-  url: () => (process.env.VISION_SERVICE_URL ?? "").replace(/\/+$/, ""),
-  configured: () => !!process.env.VISION_SERVICE_URL,
+  url: () => (setting("VISION_SERVICE_URL") ?? "").replace(/\/+$/, ""),
+  configured: () => !!setting("VISION_SERVICE_URL"),
 };
 
 const isLocal = (u: string) => {
@@ -23,7 +24,7 @@ const isLocal = (u: string) => {
 };
 
 async function authHeaders(base: string): Promise<Record<string, string>> {
-  if (isLocal(base) || process.env.VISION_SERVICE_AUTH === "none") return {};
+  if (isLocal(base) || setting("VISION_SERVICE_AUTH") === "none") return {};
   const { GoogleAuth } = await import("google-auth-library");
   const client = await new GoogleAuth().getIdTokenClient(base);
   const h = (await client.getRequestHeaders()) as unknown;

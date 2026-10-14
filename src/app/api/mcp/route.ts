@@ -1,6 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import { callTwinTool, TWIN_TOOLS } from "@/domain/tools/twin-tools";
+import { setting } from "@/server/settings";
 import { serverToolStore } from "@/server/tools/store";
 
 export const dynamic = "force-dynamic";
@@ -11,7 +12,8 @@ export const maxDuration = 60;
  * Any MCP client (an ADK agent, Gemini CLI, Claude, an IDE) can use the same deterministic
  * tools as the built-in copilot. Read tools are marked read-only; `propose_plan` only creates a
  * pending recommendation that a person must approve in the app.
- * Optional auth: set TWINFORGE_MCP_TOKEN and send `Authorization: Bearer <token>`.
+ * Optional auth: set an access token (Integrations → MCP server, or TWINFORGE_MCP_TOKEN) and send
+ * `Authorization: Bearer <token>`. The endpoint can also be turned off there.
  */
 function buildServer() {
   const server = new McpServer({ name: "twinforge", version: "1.0.0" }, { instructions: "Tools for the TwinForge industrial digital twin. All figures come from a deterministic plant model with simulated demo data. Plans can be proposed for human approval; nothing executes on equipment." });
@@ -38,7 +40,10 @@ function buildServer() {
 }
 
 async function handle(req: Request) {
-  const token = process.env.TWINFORGE_MCP_TOKEN;
+  if (setting("TWINFORGE_MCP_ENABLED") === "false") {
+    return new Response(JSON.stringify({ jsonrpc: "2.0", error: { code: -32000, message: "The MCP endpoint is turned off in Integrations." }, id: null }), { status: 503, headers: { "content-type": "application/json" } });
+  }
+  const token = setting("TWINFORGE_MCP_TOKEN");
   if (token && req.headers.get("authorization") !== `Bearer ${token}`) {
     return new Response(JSON.stringify({ jsonrpc: "2.0", error: { code: -32001, message: "Unauthorized" }, id: null }), { status: 401, headers: { "content-type": "application/json" } });
   }

@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
-import { AlertTriangle } from "lucide-react";
+import { AlertTriangle, Repeat } from "lucide-react";
+import { getClip, type FootageClip } from "@/domain/footage";
 import { cameraView, type InspectionFrame } from "@/domain/quality";
 import type { Camera, FactoryState } from "@/domain/types";
 import { hashString } from "@/domain/math";
@@ -288,7 +289,7 @@ function AreaFeed({ state, camera }: { state: FactoryState; camera: Camera }) {
 
 /* ───────────────────────────── real stream ───────────────────────────── */
 
-export function RealStream({ kind, url }: { kind: "hls" | "mp4" | "mjpeg"; url: string }) {
+export function RealStream({ kind, url }: { kind: GatewayKind; url: string }) {
   const ref = useRef<HTMLVideoElement>(null);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
@@ -345,7 +346,26 @@ export function RealStream({ kind, url }: { kind: "hls" | "mp4" | "mjpeg"; url: 
 
 /* ───────────────────────────── chrome ───────────────────────────── */
 
-function FeedChrome({ camera, state, children, footer, overlay, caption }: { camera: Camera; state: FactoryState; children: ReactNode; footer?: ReactNode; overlay?: ReactNode; caption?: string }) {
+function FeedChrome({
+  camera,
+  state,
+  children,
+  footer,
+  overlay,
+  caption,
+  source = "twin",
+  stamp,
+}: {
+  camera: Camera;
+  state: FactoryState;
+  children: ReactNode;
+  footer?: ReactNode;
+  overlay?: ReactNode;
+  caption?: string;
+  source?: "twin" | "footage";
+  /** Replaces the plant-time stamp (reference footage is not from this plant's clock). */
+  stamp?: ReactNode;
+}) {
   // Container queries: the same feed is a small tile on the camera wall and a large live view.
   return (
     <div className="@container relative h-full w-full overflow-hidden bg-black font-mono text-[11px] whitespace-nowrap text-white @max-lg:text-[9.5px]">
@@ -358,20 +378,34 @@ function FeedChrome({ camera, state, children, footer, overlay, caption }: { cam
           <span className="@max-lg:hidden"> · {camera.resolution}</span>
         </span>
         <span className="flex shrink-0 items-center gap-1.5">
-          {camera.stream.kind === "simulated" && (
+          {source === "twin" && (
             <span className="rounded bg-amber-500/90 px-1.5 py-0.5 font-semibold text-black">
               <span className="@max-lg:hidden">SIMULATED FEED</span>
               <span className="@lg:hidden">SIM</span>
             </span>
           )}
+          {source === "footage" && (
+            <span className="rounded bg-sky-400/95 px-1.5 py-0.5 font-semibold text-black">
+              <span className="@max-lg:hidden">REFERENCE FOOTAGE</span>
+              <span className="@lg:hidden">REF</span>
+            </span>
+          )}
           <span className="flex items-center gap-1 rounded bg-black/60 px-1.5 py-0.5">
-            <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-red-500" /> REC
+            {source === "footage" ? (
+              <>
+                <Repeat className="h-2.5 w-2.5" /> LOOP
+              </>
+            ) : (
+              <>
+                <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-red-500" /> REC
+              </>
+            )}
           </span>
         </span>
       </div>
       {overlay}
       <div className="absolute inset-x-2 bottom-2 flex items-end justify-between gap-2 @max-lg:inset-x-1.5 @max-lg:bottom-1.5">
-        <span className="shrink-0 rounded bg-black/60 px-1.5 py-0.5">{fmtSimTime(state, state.clock.hour)}</span>
+        {stamp ?? <span className="shrink-0 rounded bg-black/60 px-1.5 py-0.5">{fmtSimTime(state, state.clock.hour)}</span>}
         {footer}
       </div>
       {caption && <div className="absolute inset-x-0 top-9 text-center text-[10px] text-white/70 @max-lg:hidden">{caption}</div>}
@@ -379,10 +413,60 @@ function FeedChrome({ camera, state, children, footer, overlay, caption }: { cam
   );
 }
 
-/** Renders a camera: real gateway stream when configured (and live), otherwise the twin-generated feed. */
+/* ───────────────────────────── reference footage ───────────────────────────── */
+
+function FootageFeed({ state, camera, clip, live }: { state: FactoryState; camera: Camera; clip: FootageClip; live: boolean }) {
+  const [failed, setFailed] = useState(false);
+  return (
+    <FeedChrome
+      camera={camera}
+      state={state}
+      source="footage"
+      stamp={
+        <span className="truncate rounded bg-black/60 px-1.5 py-0.5 @max-lg:hidden">
+          Not this plant · {clip.source.author} / {clip.source.site} · {clip.source.license}
+        </span>
+      }
+      caption={live ? `Reference footage, looped: ${clip.title}` : undefined}
+    >
+      <video
+        key={clip.src}
+        src={clip.src}
+        poster={clip.poster}
+        className="h-full w-full object-cover"
+        autoPlay
+        muted
+        loop
+        playsInline
+        preload={live ? "auto" : "metadata"}
+        onError={() => setFailed(true)}
+        aria-label={`Reference footage: ${clip.title}`}
+      />
+      {failed && (
+        <div className="absolute inset-0 flex items-center justify-center bg-black/70 p-4 text-center text-[12px] whitespace-normal text-white">
+          <span className="flex items-center gap-2">
+            <AlertTriangle className="h-4 w-4 shrink-0 text-amber-400" /> Could not play {clip.src}
+          </span>
+        </div>
+      )}
+    </FeedChrome>
+  );
+}
+
+type GatewayKind = "hls" | "mp4" | "mjpeg";
+
+/**
+ * Renders a camera. Reference footage plays wherever the camera appears (it is a small local clip);
+ * a gateway stream plays in live views only; otherwise the feed is rendered from the twin.
+ */
 export function CameraFeed({ state, camera, live = false }: { state: FactoryState; camera: Camera; live?: boolean }) {
-  if (live && camera.stream.kind !== "simulated" && camera.stream.url) return <RealStream kind={camera.stream.kind} url={camera.stream.url} />;
-  if (camera.kind === "inspection") return <InspectionFeed state={state} camera={camera} live={live} />;
-  if (camera.kind === "thermal") return <ThermalFeed state={state} camera={camera} />;
-  return <AreaFeed state={state} camera={camera} />;
+  if (camera.stream.kind === "footage") {
+    const clip = camera.stream.clipId ? getClip(camera.stream.clipId) : null;
+    if (clip) return <FootageFeed state={state} camera={camera} clip={clip} live={live} />;
+  }
+  if (live && camera.stream.kind !== "simulated" && camera.stream.kind !== "footage" && camera.stream.url) return <RealStream kind={camera.stream.kind} url={camera.stream.url} />;
+  const twin = camera.stream.kind === "simulated" ? camera : { ...camera, stream: { kind: "simulated" as const, url: null } };
+  if (camera.kind === "inspection") return <InspectionFeed state={state} camera={twin} live={live} />;
+  if (camera.kind === "thermal") return <ThermalFeed state={state} camera={twin} />;
+  return <AreaFeed state={state} camera={twin} />;
 }

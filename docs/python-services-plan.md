@@ -1,6 +1,6 @@
 # Python services plan (FastAPI)
 
-**Status (14 Oct 2026):** Phase 1 (the vision service) is built and tested locally. Phase 2 (deploy) is the next step. Phases 3–5 come after the hackathon. A second Python component, `services/agents` (a Python ADK agent that uses TwinForge over MCP), is also built; see [architecture § 7.4](architecture.md#74-mcp-server-and-the-python-adk-agent).
+**Status (14 Oct 2026):** Phase 1 (the vision service) is built and tested. Phase 2 is done: it runs privately on Cloud Run as `twinforge-vision` and is connected from the Integrations page. Phases 3–5 come after the hackathon. A second Python component, `services/agents` (a Python ADK agent that uses TwinForge over MCP), is also built; see [architecture § 7.4](architecture.md#74-mcp-server-and-the-python-adk-agent).
 
 ## Decision
 
@@ -65,7 +65,7 @@ Limits: 15 MB per image, 30 MB per video, 300 s of video analysed.
 - OpenCV's 1D reader misses some codes, especially very tall or perfectly sharp synthetic ones.
 - "Still" means no pixels changed. On a camera that also sees people, motion doesn't imply the line is running.
 
-## Phase 2: Deploy to Cloud Run (next, ≈1 hour)
+## Phase 2: Deploy to Cloud Run ✅ done
 
 ```bash
 gcloud services enable run.googleapis.com cloudbuild.googleapis.com artifactregistry.googleapis.com --project twin-forge
@@ -81,7 +81,9 @@ gcloud run services add-iam-policy-binding twinforge-vision \
   --role roles/run.invoker
 ```
 
-Then set `VISION_SERVICE_URL` in `apphosting.yaml` (the commented entry is already there), roll out the web app, and use **Integrations → Test connection**.
+Deployed 14 Oct 2026: `https://twinforge-vision-566093229758.asia-southeast1.run.app` (revision 1, `asia-southeast1`). A call without a token gets 403. Set the URL on **Integrations → Vision service → Configure** (admin; saved durably), or as `VISION_SERVICE_URL` in `apphosting.yaml`, then use **Test connection**.
+
+The **CCTV control room** can run the video check on a camera's reference footage, so the OpenCV path is demonstrable on real video without uploads.
 
 **Done when:**
 - Integrations shows *Connected (verified)* on the live site.

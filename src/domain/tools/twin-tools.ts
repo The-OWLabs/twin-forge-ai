@@ -15,6 +15,7 @@ import { nextId } from "../ids";
 import { computeKpis, consumptionPerHour } from "../kpis";
 import { round } from "../math";
 import { cameraView, computeQuality, recentDefectTypes } from "../quality";
+import { describeStream } from "../vision";
 import { buildRecommendation } from "../recommendations";
 import { pickFocusAsset, presetScenarios } from "../scenarios";
 import { rankScenarios, simulateScenarios } from "../simulation";
@@ -346,7 +347,8 @@ export const TWIN_TOOLS = [
         name: cam.name,
         purpose: cam.purpose,
         standard: cam.standard,
-        feed: cam.stream.kind === "simulated" ? "simulated from the twin" : `${cam.stream.kind} gateway`,
+        feed: describeStream(cam),
+        note: cam.stream.kind === "footage" ? "The video is reference footage from another facility. The headline and detections below come from the twin, not from the video." : undefined,
         headline: v.headline,
         detections: v.detections.map((d) => `${d.label}${d.detail ? ` (${d.detail})` : ""}`),
         thermal: v.thermal,

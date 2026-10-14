@@ -4,9 +4,11 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { create } from "zustand";
 import { Cctv, Eye, Lock, Play, ScanEye, ScanSearch, Settings2, ShieldCheck, ThermometerSun, Truck, X } from "lucide-react";
+import { useAdmin } from "@/client/admin";
 import { useFactory, useUi } from "@/client/store";
+import { clipsFor, getClip } from "@/domain/footage";
 import { cameraView, type Detection } from "@/domain/quality";
-import type { Camera, CameraKind, FactoryState } from "@/domain/types";
+import type { Camera, CameraKind, CameraStreamKind, FactoryState } from "@/domain/types";
 import { cn } from "@/lib/cn";
 import { fmtSimTime } from "@/lib/format";
 import { KeyValue, SectionLabel } from "../page";
@@ -54,7 +56,7 @@ function LiveCameraDialog({ state, camera, onClose }: { state: FactoryState; cam
   const logView = useFactory((s) => s.logCameraView);
   const operator = useUi((s) => s.operator);
   const [openedAt] = useState(() => fmtSimTime(state, state.clock.hour));
-  const [source, setSource] = useState<"gateway" | "twin">(camera.stream.kind === "simulated" ? "twin" : "gateway");
+  const [source, setSource] = useState<"stream" | "twin">(camera.stream.kind === "simulated" ? "twin" : "stream");
   const [showSettings, setShowSettings] = useState(false);
   const view = useMemo(() => cameraView(state, camera), [state, camera]);
   const meta = CAMERA_KIND_META[camera.kind];
@@ -62,7 +64,7 @@ function LiveCameraDialog({ state, camera, onClose }: { state: FactoryState; cam
   useEffect(() => {
     void logView(camera.id);
   }, [camera.id, logView]);
-  useEffect(() => setSource(camera.stream.kind === "simulated" ? "twin" : "gateway"), [camera.stream.kind]);
+  useEffect(() => setSource(camera.stream.kind === "simulated" ? "twin" : "stream"), [camera.stream.kind]);
 
   return (
     <Dialog
@@ -85,8 +87,8 @@ function LiveCameraDialog({ state, camera, onClose }: { state: FactoryState; cam
           <div className="flex flex-wrap items-center gap-2 text-[11.5px] text-muted">
             {camera.stream.kind !== "simulated" ? (
               <div className="inline-flex rounded-lg border border-line bg-shell p-0.5">
-                <button onClick={() => setSource("gateway")} className={cn("h-6 rounded-md px-2", source === "gateway" ? "bg-surface-3 text-ink" : "hover:text-ink")}>
-                  {camera.stream.kind.toUpperCase()} stream
+                <button onClick={() => setSource("stream")} className={cn("h-6 rounded-md px-2", source === "stream" ? "bg-surface-3 text-ink" : "hover:text-ink")}>
+                  {camera.stream.kind === "footage" ? "Reference footage" : `${camera.stream.kind.toUpperCase()} stream`}
                 </button>
                 <button onClick={() => setSource("twin")} className={cn("h-6 rounded-md px-2", source === "twin" ? "bg-surface-3 text-ink" : "hover:text-ink")}>
                   Twin feed
@@ -94,13 +96,18 @@ function LiveCameraDialog({ state, camera, onClose }: { state: FactoryState; cam
               </div>
             ) : (
               <span>
-                Simulated feed rendered from the live twin state. Connect a real camera through a gateway to stream actual video.
+                Simulated feed rendered from the live twin state. An admin can switch it to reference footage or a real camera gateway in the{" "}
+                <Link href="/control-room" className="text-accent-ink hover:underline">
+                  CCTV control room
+                </Link>
+                .
               </span>
             )}
             <Button size="xs" variant="ghost" className="ml-auto" onClick={() => setShowSettings(!showSettings)} aria-expanded={showSettings}>
               <Settings2 className="h-3 w-3" /> Stream source
             </Button>
           </div>
+          {camera.stream.kind === "footage" && source === "stream" && <FootageCredit clipId={camera.stream.clipId ?? null} />}
           {showSettings && <StreamSettings camera={camera} />}
         </div>
         <div className="space-y-4">
@@ -129,28 +136,92 @@ function LiveCameraDialog({ state, camera, onClose }: { state: FactoryState; cam
   );
 }
 
+/** Credit line for reference footage: whose video it is, under which license, and that it is not this plant. */
+export function FootageCredit({ clipId, className }: { clipId: string | null; className?: string }) {
+  const clip = clipId ? getClip(clipId) : null;
+  if (!clip) return null;
+  return (
+    <p className={cn("rounded-lg border border-sky-500/30 bg-sky-500/5 px-2.5 py-1.5 text-[11.5px] leading-relaxed text-ink-2", className)}>
+      <span className="font-medium text-ink">Reference footage, not this plant.</span> {clip.title} — video by{" "}
+      <a href={clip.source.pageUrl} target="_blank" rel="noreferrer" className="text-accent-ink hover:underline">
+        {clip.source.author} ({clip.source.site})
+      </a>
+      ,{" "}
+      <a href={clip.source.licenseUrl} target="_blank" rel="noreferrer" className="text-accent-ink hover:underline">
+        {clip.source.license}
+      </a>
+      . {clip.edits} The overlays and analytics come from the twin, not from this video.
+    </p>
+  );
+}
+
 function StreamSettings({ camera }: { camera: Camera }) {
   const setStream = useFactory((s) => s.setCameraStream);
   const busy = useFactory((s) => s.busy.cameraStream);
-  const [kind, setKind] = useState<Camera["stream"]["kind"]>(camera.stream.kind);
-  const [url, setUrl] = useState(camera.stream.url ?? "");
+  const admin = useAdmin((s) => s.admin);
+  const loaded = useAdmin((s) => s.loaded);
+  const loadAdmin = useAdmin((s) => s.load);
+  const [kind, setKind] = useState<CameraStreamKind>(camera.stream.kind);
+  const [url, setUrl] = useState(camera.stream.kind === "footage" ? "" : (camera.stream.url ?? ""));
+  const clips = useMemo(() => clipsFor(camera), [camera]);
+  const [clipId, setClipId] = useState(camera.stream.clipId ?? clips[0]?.id ?? "");
+  useEffect(() => {
+    if (!loaded) void loadAdmin();
+  }, [loaded, loadAdmin]);
+  if (!admin)
+    return (
+      <div className="rounded-xl border border-line bg-shell p-3 text-[12px] text-ink-2">
+        <p className="flex items-center gap-1.5 font-medium text-ink">
+          <Lock className="h-3.5 w-3.5 text-accent" /> Camera sources are managed by an admin
+        </p>
+        <p className="mt-1">
+          Unlock admin in the{" "}
+          <Link href="/control-room" className="text-accent-ink hover:underline">
+            CCTV control room
+          </Link>{" "}
+          to switch this camera between the twin feed, reference footage and a plant gateway stream.
+        </p>
+      </div>
+    );
+  const gateway = kind === "hls" || kind === "mp4" || kind === "mjpeg";
   return (
     <div className="rounded-xl border border-line bg-shell p-3">
-      <div className="grid gap-2 sm:grid-cols-[150px_1fr_auto] sm:items-end">
+      <div className="grid gap-2 sm:grid-cols-[170px_1fr_auto] sm:items-end">
         <div className="space-y-1">
           <Label htmlFor="stream-kind">Source</Label>
-          <Select id="stream-kind" className="w-full" value={kind} onChange={(e) => setKind(e.target.value as Camera["stream"]["kind"])}>
+          <Select id="stream-kind" className="w-full" value={kind} onChange={(e) => setKind(e.target.value as CameraStreamKind)}>
             <option value="simulated">Twin feed (simulated)</option>
+            <option value="footage" disabled={!clips.length}>
+              Reference footage
+            </option>
             <option value="hls">HLS (.m3u8)</option>
             <option value="mp4">MP4 / WebM</option>
             <option value="mjpeg">MJPEG</option>
           </Select>
         </div>
-        <div className="space-y-1">
-          <Label htmlFor="stream-url">Gateway URL</Label>
-          <Input id="stream-url" placeholder="https://gateway.plant.local/cam/stream.m3u8" value={kind === "simulated" ? "" : url} disabled={kind === "simulated"} onChange={(e) => setUrl(e.target.value)} />
-        </div>
-        <Button size="sm" variant="primary" loading={busy} onClick={() => void setStream(camera.id, kind, kind === "simulated" ? null : url.trim())}>
+        {kind === "footage" ? (
+          <div className="space-y-1">
+            <Label htmlFor="stream-clip">Clip</Label>
+            <Select id="stream-clip" className="w-full" value={clipId} onChange={(e) => setClipId(e.target.value)}>
+              {clips.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.title}
+                </option>
+              ))}
+            </Select>
+          </div>
+        ) : (
+          <div className="space-y-1">
+            <Label htmlFor="stream-url">Gateway URL</Label>
+            <Input id="stream-url" placeholder="https://gateway.plant.local/cam/stream.m3u8" value={gateway ? url : ""} disabled={!gateway} onChange={(e) => setUrl(e.target.value)} />
+          </div>
+        )}
+        <Button
+          size="sm"
+          variant="primary"
+          loading={busy}
+          onClick={() => void setStream(camera.id, kind, gateway ? url.trim() : null, kind === "footage" ? clipId : null)}
+        >
           Save
         </Button>
       </div>
@@ -227,7 +298,13 @@ export function CameraPanel({ state, camera, onClose }: { state: FactoryState; c
           )}
         </div>
         <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
-          {camera.stream.kind === "simulated" ? <Badge tone="warning">Simulated feed</Badge> : <Badge tone="healthy">{camera.stream.kind.toUpperCase()} gateway</Badge>}
+          {camera.stream.kind === "simulated" ? (
+            <Badge tone="warning">Simulated feed</Badge>
+          ) : camera.stream.kind === "footage" ? (
+            <Badge tone="accent">Reference footage</Badge>
+          ) : (
+            <Badge tone="healthy">{camera.stream.kind.toUpperCase()} gateway</Badge>
+          )}
           <Badge tone="neutral">ONVIF {camera.onvifProfile}</Badge>
           {camera.privacy.faceBlur && <Badge tone="neutral">Face blur</Badge>}
         </div>
@@ -238,7 +315,7 @@ export function CameraPanel({ state, camera, onClose }: { state: FactoryState; c
           className="group relative block aspect-video w-full overflow-hidden rounded-xl border border-line-strong bg-black text-left"
           aria-label={`Open live view of ${camera.id}`}
         >
-          <CameraFeed state={state} camera={{ ...camera, stream: { kind: "simulated", url: null } }} />
+          <CameraFeed state={state} camera={camera} />
           <span className="absolute inset-0 flex items-center justify-center bg-black/0 transition-colors group-hover:bg-black/35">
             <span className="flex items-center gap-1.5 rounded-full bg-black/60 px-3 py-1.5 text-[12px] font-medium text-white opacity-0 transition-opacity group-hover:opacity-100">
               <Play className="h-3.5 w-3.5" /> Watch live
@@ -355,7 +432,7 @@ export function CamerasWatching({ state, assetId }: { state: FactoryState; asset
               aria-label={`Open live view of ${c.id}`}
             >
               <div className="pointer-events-none aspect-video bg-black">
-                <CameraFeed state={state} camera={{ ...c, stream: { kind: "simulated", url: null } }} />
+                <CameraFeed state={state} camera={c} />
               </div>
               <div className="flex items-center gap-1.5 px-2 py-1.5 text-[11.5px]">
                 <M.Icon className="h-3.5 w-3.5 text-muted" />

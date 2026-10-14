@@ -1,4 +1,5 @@
 import "server-only";
+import { setting } from "@/server/settings";
 
 /** Thin authenticated REST client for Google Cloud APIs using Application Default Credentials. */
 let authPromise: Promise<import("google-auth-library").GoogleAuth> | null = null;
@@ -30,4 +31,4 @@ export async function gcpFetch(url: string, init: RequestInit & { timeoutMs?: nu
   }
 }
 
-export const gcpProject = () => process.env.GOOGLE_CLOUD_PROJECT || "";
+export const gcpProject = () => setting("GOOGLE_CLOUD_PROJECT") || "";

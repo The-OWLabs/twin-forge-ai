@@ -16,7 +16,7 @@ test.beforeEach(async ({ request }) => {
 
 test("every page renders without console errors", async ({ page }) => {
   const errors = collectErrors(page);
-  for (const path of ["/", "/onboarding", "/dashboard", "/twin", "/assets", "/quality", "/agents", "/simulator", "/approvals", "/sustainability", "/audit", "/integrations"]) {
+  for (const path of ["/", "/onboarding", "/dashboard", "/twin", "/assets", "/quality", "/agents", "/simulator", "/approvals", "/sustainability", "/audit", "/control-room", "/integrations"]) {
     // Wait for rendered content rather than "networkidle": the app polls live telemetry every 4 s.
     await page.goto(path, { waitUntil: "domcontentloaded" });
     await expect(page.locator("h1, h2").first()).toBeVisible();
@@ -267,4 +267,60 @@ test("Copilot (ADK): grounded answer with a visible tool trace", async ({ page, 
   await expect(answer.getByText(/A-ROB-03/).first()).toBeVisible();
   await expect(answer.getByText(/tool calls? by/)).toBeVisible();
   expect(errors).toEqual([]);
+});
+
+test("CCTV control room: switch every camera to reference footage and back (admin, audited)", async ({ page, request }) => {
+  const errors = collectErrors(page);
+  const session = (await (await request.get("/api/admin/session")).json()) as { admin: boolean; mode: string };
+  test.skip(!session.admin, "Admin is not open on this server (a passcode is set); covered by the unit tests.");
+  await page.goto("/control-room");
+  await expect(page.getByRole("heading", { name: "CCTV Control Room" })).toBeVisible();
+  const tiles = page.getByTestId("control-tile");
+  await expect(tiles).toHaveCount(9);
+  await expect(page.getByTestId("footage-clip").first()).toBeVisible();
+
+  await page.getByTestId("all-footage").click();
+  await expect(page.locator('[data-testid="control-tile"][data-source="footage"]')).toHaveCount(9);
+  await expect(page.locator('[data-testid="control-tile"] video[src^="/footage/"]').first()).toBeVisible();
+  await expect(page.getByText("REFERENCE FOOTAGE").first()).toBeVisible();
+  await expect(page.getByTestId("camera-inspector").getByText("Reference footage, not this plant.")).toBeVisible();
+  // The copilot tools describe the source honestly
+  const cams = (await (await request.get("/api/cameras")).json()) as { cameras: { id: string; stream: { kind: string; url: string } }[] };
+  expect(cams.cameras.every((c) => c.stream.kind === "footage")).toBe(true);
+  const clip = await request.get(cams.cameras[0].stream.url);
+  expect(clip.ok()).toBeTruthy();
+  expect(clip.headers()["content-type"]).toContain("video/mp4");
+
+  await page.getByTestId("all-twin").click();
+  await expect(page.locator('[data-testid="control-tile"][data-source="simulated"]')).toHaveCount(9);
+  const audit = (await (await request.get("/api/audit")).json()) as { entries?: { title: string }[] } | { title: string }[];
+  const titles = (Array.isArray(audit) ? audit : (audit.entries ?? [])).map((e) => e.title);
+  expect(titles.some((t) => /switched to reference footage/.test(t))).toBe(true);
+
+  // Visual QA needs reference footage on the camera; on the twin feed it explains why not
+  const qa = await request.post("/api/cameras/CCTV-A1/analyze", { data: { engine: "opencv" } });
+  expect(qa.status()).toBe(409);
+  expect(errors).toEqual([]);
+});
+
+test("integrations can be configured from the UI and returned to the deployment value", async ({ page, request }) => {
+  const session = (await (await request.get("/api/admin/session")).json()) as { admin: boolean };
+  test.skip(!session.admin, "Admin is not open on this server (a passcode is set).");
+  const bad = await request.put("/api/integrations/settings", { data: { values: { VISION_SERVICE_URL: "http://10.1.2.3:8000" } } });
+  expect(bad.status()).toBe(400);
+  expect(((await bad.json()) as { issues: string[] }).issues.join(" ")).toMatch(/https/);
+
+  await page.goto("/integrations");
+  const card = page.getByTestId("integration-mqtt");
+  await expect(card.getByText("Not configured", { exact: true })).toBeVisible();
+  await page.getByTestId("configure-mqtt").click();
+  await card.getByLabel("Broker URL").fill("mqtts://broker.example.com:8883");
+  await page.getByTestId("save-mqtt").click();
+  await expect(card.getByText("Configured · not yet verified")).toBeVisible();
+  await expect(card.getByText("set here").first()).toBeVisible();
+
+  const reset = await request.put("/api/integrations/settings", { data: { values: { MQTT_BROKER_URL: null } } });
+  expect(reset.ok()).toBeTruthy();
+  const after = (await reset.json()) as { integrations: { id: string; state: string }[] };
+  expect(after.integrations.find((i) => i.id === "mqtt")!.state).toBe("not-configured");
 });

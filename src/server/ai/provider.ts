@@ -1,4 +1,5 @@
 import "server-only";
+import { setting } from "@/server/settings";
 import { z } from "zod";
 import { deterministicNarrative, type NarrativeInput } from "@/domain/narrative";
 import type { Narrative } from "@/domain/types";
@@ -18,16 +19,19 @@ export interface AiConfig {
   location?: string;
   timeoutMs: number;
   missing: string[];
+  /** Turned off in Integrations (AI_ENABLED=false). */
+  disabled?: boolean;
 }
 
 export function aiConfig(): AiConfig {
-  const model = process.env.GEMINI_MODEL || "gemini-3.5-flash";
+  const model = setting("GEMINI_MODEL") || "gemini-3.5-flash";
   const timeoutMs = Number(process.env.AI_TIMEOUT_MS || 30000);
-  const useVertex = (process.env.GOOGLE_GENAI_USE_VERTEXAI ?? "true").toLowerCase() !== "false";
-  const project = process.env.GOOGLE_CLOUD_PROJECT;
-  const location = process.env.GOOGLE_CLOUD_LOCATION || "global";
+  if ((setting("AI_ENABLED") ?? "true").toLowerCase() === "false") return { provider: "none", model, timeoutMs, missing: [], disabled: true };
+  const useVertex = (setting("GOOGLE_GENAI_USE_VERTEXAI") || "true").toLowerCase() !== "false";
+  const project = setting("GOOGLE_CLOUD_PROJECT");
+  const location = setting("GOOGLE_CLOUD_LOCATION") || "global";
   if (useVertex && project) return { provider: "vertex", model, project, location, timeoutMs, missing: [] };
-  if (process.env.GEMINI_API_KEY) return { provider: "gemini-api", model, timeoutMs, missing: [] };
+  if (setting("GEMINI_API_KEY")) return { provider: "gemini-api", model, timeoutMs, missing: [] };
   return {
     provider: "none",
     model,
@@ -42,6 +46,13 @@ const runtime: AiRuntime = (g.__twinforgeAi ??= { lastSuccessAt: null, lastError
 
 export function aiRuntime() {
   return { ...runtime };
+}
+
+/** Forget the last call's outcome (after the AI settings change, so the status reflects the new configuration). */
+export function resetAiRuntime() {
+  runtime.lastSuccessAt = null;
+  runtime.lastError = null;
+  runtime.lastLatencyMs = null;
 }
 
 const NarrativeSchema = z.object({
@@ -109,7 +120,7 @@ async function callGemini(cfg: AiConfig, input: NarrativeInput): Promise<Narrati
   const ai =
     cfg.provider === "vertex"
       ? new GoogleGenAI({ vertexai: true, project: cfg.project, location: cfg.location, httpOptions: { timeout: cfg.timeoutMs } })
-      : new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY, httpOptions: { timeout: cfg.timeoutMs } });
+      : new GoogleGenAI({ apiKey: setting("GEMINI_API_KEY"), httpOptions: { timeout: cfg.timeoutMs } });
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), cfg.timeoutMs);
   const started = Date.now();
@@ -262,7 +273,7 @@ export async function analyzeMedia(
     const ai =
       cfg.provider === "vertex"
         ? new GoogleGenAI({ vertexai: true, project: cfg.project, location: cfg.location, httpOptions: { timeout: timeoutMs } })
-        : new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY, httpOptions: { timeout: timeoutMs } });
+        : new GoogleGenAI({ apiKey: setting("GEMINI_API_KEY"), httpOptions: { timeout: timeoutMs } });
     const res = await ai.models.generateContent({
       model: cfg.model,
       contents: [{ role: "user", parts: [{ inlineData: { mimeType, data: bytes.toString("base64") } }, { text: prompt }] }],
@@ -321,7 +332,7 @@ async function geminiGenerateOnce(call: GeminiCall) {
   const ai =
     cfg.provider === "vertex"
       ? new GoogleGenAI({ vertexai: true, project: cfg.project, location: cfg.location, httpOptions: { timeout: call.timeoutMs } })
-      : new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY, httpOptions: { timeout: call.timeoutMs } });
+      : new GoogleGenAI({ apiKey: setting("GEMINI_API_KEY"), httpOptions: { timeout: call.timeoutMs } });
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), call.timeoutMs);
   const started = Date.now();

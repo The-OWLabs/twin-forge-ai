@@ -1,11 +1,13 @@
 import "server-only";
-import { aiConfig, aiRuntime, testAi } from "@/server/ai/provider";
-import { persistenceInfo } from "@/server/store";
+import { appendAudit } from "@/domain/audit";
+import { aiConfig, aiRuntime, resetAiRuntime, testAi } from "@/server/ai/provider";
+import { describeSettings, setting, settingsStorage, SETTINGS, updateSettings, type SettingKey, type SettingView } from "@/server/settings";
+import { mutate, persistenceInfo } from "@/server/store";
 import type { Recommendation, ScenarioRun } from "@/domain/types";
 import { bigQuery, cloudStorage, mqtt, pubSub } from "./adapters";
 import { testVisionService, visionService } from "./vision-service";
 
-export type IntegrationState = "active-simulated" | "not-configured" | "configured-untested" | "connected" | "error";
+export type IntegrationState = "active" | "active-simulated" | "not-configured" | "configured-untested" | "connected" | "error";
 
 export interface IntegrationStatus {
   id: string;
@@ -14,7 +16,8 @@ export interface IntegrationStatus {
   purpose: string;
   state: IntegrationState;
   detail: string;
-  env: { name: string; set: boolean }[];
+  /** Settings an admin can change in the UI (each overrides the environment variable of the same name). */
+  settings: SettingView[];
   fallback: string;
   lastCheckedAt: string | null;
   testable: boolean;
@@ -24,7 +27,18 @@ type Check = { ok: boolean; detail: string; at: string };
 const g = globalThis as unknown as { __twinforgeChecks?: Record<string, Check> };
 const checks: Record<string, Check> = (g.__twinforgeChecks ??= {});
 
-const envList = (...names: string[]) => names.map((name) => ({ name, set: !!process.env[name] }));
+/** Which settings belong to which integration card (the shared project id is edited once, at the top of the page). */
+export const INTEGRATION_SETTINGS: Record<string, SettingKey[]> = {
+  telemetry: ["TELEMETRY_SOURCE"],
+  "vertex-ai": ["AI_ENABLED", "GOOGLE_GENAI_USE_VERTEXAI", "GOOGLE_CLOUD_LOCATION", "GEMINI_MODEL", "GEMINI_API_KEY"],
+  "vision-service": ["VISION_SERVICE_URL", "VISION_SERVICE_AUTH"],
+  mcp: ["TWINFORGE_MCP_ENABLED", "TWINFORGE_MCP_TOKEN"],
+  bigquery: ["BIGQUERY_DATASET"],
+  pubsub: ["PUBSUB_TELEMETRY_SUBSCRIPTION"],
+  gcs: ["GCS_BUCKET"],
+  mqtt: ["MQTT_BROKER_URL", "MQTT_TOPIC"],
+};
+const settingsFor = (id: string) => describeSettings(INTEGRATION_SETTINGS[id] ?? []);
 
 function stateFor(id: string, configured: boolean): { state: IntegrationState; detail?: string; at: string | null } {
   if (!configured) return { state: "not-configured", at: null };
@@ -39,7 +53,9 @@ export function integrationStatuses(): IntegrationStatus[] {
   let aiState: IntegrationState = ai.provider === "none" ? "not-configured" : "configured-untested";
   let aiDetail =
     ai.provider === "none"
-      ? "Agents use deterministic narratives generated from simulation outputs."
+      ? ai.disabled
+        ? "Turned off in Integrations. Agents use deterministic narratives generated from simulation outputs; the copilot is unavailable."
+        : "Agents use deterministic narratives generated from simulation outputs."
       : `${ai.model} via ${ai.provider === "vertex" ? `Vertex AI · project ${ai.project} · ${ai.location}` : "Gemini API key"}.`;
   if (ai.provider !== "none") {
     const c = checks["vertex-ai"];
@@ -63,6 +79,7 @@ export function integrationStatuses(): IntegrationStatus[] {
   const mq = stateFor("mqtt", mqtt.configured());
   const vs = stateFor("vision-service", visionService.configured());
   const persistence = persistenceInfo();
+  const store = settingsStorage();
   const onCloudRun = !!process.env.K_SERVICE;
 
   return [
@@ -75,7 +92,7 @@ export function integrationStatuses(): IntegrationStatus[] {
       detail: pubSub.ingestionEnabled()
         ? "Pub/Sub messages override simulated measurements for matching assets; the plant model still drives production."
         : "Deterministic plant model with seeded noise (2 min of plant time per 4 s tick). This is simulated data, not a live plant.",
-      env: envList("TELEMETRY_SOURCE"),
+      settings: settingsFor("telemetry"),
       fallback: "Always available.",
       lastCheckedAt: null,
       testable: false,
@@ -87,7 +104,7 @@ export function integrationStatuses(): IntegrationStatus[] {
       purpose: "Agent narratives, trade-off explanations and operator briefings (never the numbers).",
       state: aiState,
       detail: aiDetail,
-      env: envList("GOOGLE_CLOUD_PROJECT", "GOOGLE_CLOUD_LOCATION", "GEMINI_MODEL", "GEMINI_API_KEY"),
+      settings: settingsFor("vertex-ai"),
       fallback: "Deterministic template narrative from simulation outputs.",
       lastCheckedAt: checks["vertex-ai"]?.at ?? rt.lastSuccessAt,
       testable: ai.provider !== "none",
@@ -99,11 +116,12 @@ export function integrationStatuses(): IntegrationStatus[] {
       purpose: "Deterministic machine-vision checks: golden-board comparison, barcode/QR reading, image quality and video stoppages.",
       state: vs.state,
       detail: vs.detail ?? (visionService.configured() ? `${visionService.url()} — run a connectivity test or an inspection to verify.` : "Machine-vision checks are off. Station-log reviews (and Gemini, if configured) still work."),
-      env: envList("VISION_SERVICE_URL"),
+      settings: settingsFor("vision-service"),
       fallback: "Station-log review from the plant model.",
       lastCheckedAt: vs.at,
       testable: visionService.configured(),
     },
+    mcpStatus(),
     {
       id: "bigquery",
       name: "BigQuery",
@@ -111,7 +129,7 @@ export function integrationStatuses(): IntegrationStatus[] {
       purpose: "Telemetry history, production events, health history, scenario outcomes and decisions.",
       state: bq.state,
       detail: bq.detail ?? (bigQuery.configured() ? `Dataset ${bigQuery.dataset()} — mirrors scenario runs and decisions when connected.` : "Local in-memory history is used."),
-      env: envList("GOOGLE_CLOUD_PROJECT", "BIGQUERY_DATASET"),
+      settings: settingsFor("bigquery"),
       fallback: "Seeded local history inside the factory state.",
       lastCheckedAt: bq.at,
       testable: bigQuery.configured(),
@@ -123,7 +141,7 @@ export function integrationStatuses(): IntegrationStatus[] {
       purpose: "Streaming ingestion of sensor messages.",
       state: ps.state,
       detail: ps.detail ?? (pubSub.configured() ? `Subscription ${pubSub.subscription()} (ingestion ${pubSub.ingestionEnabled() ? "enabled" : "disabled — set TELEMETRY_SOURCE=pubsub"}).` : "Simulated telemetry is used."),
-      env: envList("GOOGLE_CLOUD_PROJECT", "PUBSUB_TELEMETRY_SUBSCRIPTION", "TELEMETRY_SOURCE"),
+      settings: settingsFor("pubsub"),
       fallback: "Simulated telemetry.",
       lastCheckedAt: ps.at,
       testable: pubSub.configured(),
@@ -135,7 +153,7 @@ export function integrationStatuses(): IntegrationStatus[] {
       purpose: "Maintenance manuals, inspection reports and images per asset.",
       state: gcs.state,
       detail: gcs.detail ?? (cloudStorage.configured() ? `Bucket gs://${cloudStorage.bucket()} (objects under assets/<assetId>/).` : "Bundled local demo documents are served."),
-      env: envList("GOOGLE_CLOUD_PROJECT", "GCS_BUCKET"),
+      settings: settingsFor("gcs"),
       fallback: "Local demo document store (content/docs).",
       lastCheckedAt: gcs.at,
       testable: cloudStorage.configured(),
@@ -147,7 +165,7 @@ export function integrationStatuses(): IntegrationStatus[] {
       purpose: "Shop-floor telemetry via an MQTT broker.",
       state: mq.state,
       detail: mq.detail ?? (mqtt.configured() ? `${mqtt.url()} — reachability probe only; subscription not implemented in this MVP.` : "Not configured."),
-      env: envList("MQTT_BROKER_URL", "MQTT_TOPIC"),
+      settings: settingsFor("mqtt"),
       fallback: "Simulated telemetry.",
       lastCheckedAt: mq.at,
       testable: mqtt.configured(),
@@ -157,9 +175,9 @@ export function integrationStatuses(): IntegrationStatus[] {
       name: "State persistence",
       service: "Local JSON file",
       purpose: "Keeps factory state across refreshes and restarts.",
-      state: persistence.lastWriteError ? "error" : "active-simulated",
-      detail: `${persistence.note} ${persistence.path}${persistence.lastWriteError ? ` — write error: ${persistence.lastWriteError}` : ""}`,
-      env: envList("TWINFORGE_DATA_DIR"),
+      state: persistence.lastWriteError || !store.ok ? "error" : "active-simulated",
+      detail: `${persistence.note} ${persistence.path}${persistence.lastWriteError ? ` — write error: ${persistence.lastWriteError}` : ""} Integration settings: ${store.where}${store.detail ? ` — ${store.detail}` : ""}.`,
+      settings: [],
       fallback: "In-memory only if the file cannot be written.",
       lastCheckedAt: null,
       testable: false,
@@ -173,12 +191,68 @@ export function integrationStatuses(): IntegrationStatus[] {
       detail: onCloudRun
         ? `Running as service ${process.env.K_SERVICE} (revision ${process.env.K_REVISION ?? "?"}).`
         : "Running locally. See README → Deploy to Cloud Run.",
-      env: envList("K_SERVICE"),
+      settings: [],
       fallback: "Local Node.js server.",
       lastCheckedAt: null,
       testable: false,
     },
   ];
+}
+
+function mcpStatus(): IntegrationStatus {
+  const on = setting("TWINFORGE_MCP_ENABLED") !== "false";
+  const token = !!setting("TWINFORGE_MCP_TOKEN");
+  return {
+    id: "mcp",
+    name: "MCP server (agent tools)",
+    service: "Model Context Protocol · /api/mcp",
+    purpose: "Lets external agents (ADK, Gemini CLI, IDEs) use the twin's deterministic tools; plans they propose still need a person's approval.",
+    state: on ? "active" : "not-configured",
+    detail: on
+      ? `Streamable HTTP endpoint at /api/mcp with ${token ? "a bearer token required" : "no token — anyone with the URL can read the twin and propose plans for approval"}.`
+      : "Turned off. External agents get 503 from /api/mcp.",
+    settings: settingsFor("mcp"),
+    fallback: "The in-app copilot uses the same tools directly.",
+    lastCheckedAt: null,
+    testable: false,
+  };
+}
+
+/** The shared Google Cloud project id, edited once for every Google Cloud integration. */
+export const projectSetting = () => describeSettings(["GOOGLE_CLOUD_PROJECT"])[0];
+
+/**
+ * Apply settings changed in the UI: validate, save, forget connection checks that no longer
+ * describe the current configuration, and write the change to the audit trail (never the values
+ * of secrets).
+ */
+export async function applySettings(changes: Record<string, string | null>, actor: string) {
+  const changed = await updateSettings(changes, actor);
+  if (!changed.length) return changed;
+  const affected = new Set<string>();
+  for (const key of changed) {
+    for (const [id, keys] of Object.entries(INTEGRATION_SETTINGS)) if (keys.includes(key)) affected.add(id);
+    if (key === "GOOGLE_CLOUD_PROJECT") ["vertex-ai", "bigquery", "pubsub", "gcs"].forEach((id) => affected.add(id));
+  }
+  for (const id of affected) delete checks[id];
+  if (affected.has("vertex-ai")) resetAiRuntime();
+  const describe = (k: SettingKey) => {
+    const def: { label: string; secret?: boolean } = SETTINGS[k];
+    if (def.secret) return `${def.label} ${setting(k) ? "updated" : "cleared"}`;
+    const v = setting(k);
+    return `${def.label} = ${v ? v : "(off)"}`;
+  };
+  mutate((s) =>
+    appendAudit(s, new Date().toISOString(), {
+      category: "system",
+      actor,
+      title: `Integration settings changed: ${[...affected].join(", ") || "platform"}`,
+      detail: changed.map(describe).join(" · ").slice(0, 600),
+      severity: "info",
+      refs: {},
+    }),
+  );
+  return changed;
 }
 
 export async function testIntegration(id: string): Promise<Check> {

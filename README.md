@@ -81,7 +81,8 @@ The fastest path is **Demo controls → Run Factory Crisis Demo** (top-right). I
 6. **Approvals**: review actions, evidence, benefits, risks, the impact table and rollback information. Approve it, then **Fast-forward 8 h**: Line B changes over, A-ROB-03 goes into maintenance, returns healthy, and the incident resolves itself.
 7. **Audit Trail**: every alert, agent finding, scenario run, decision, simulated action and resulting state change is listed with links.
 8. **Ask Copilot** (top bar): ask "Why is Line A rejecting more boards?" The coordinator delegates to the maintenance, quality and planning agents, and every tool call is shown. The answer is checked figure by figure against the tool results. Then say "propose the reroute plan for approval": the copilot pauses for your confirmation and creates a pending recommendation in Approvals.
-9. **Twin Builder** (sidebar): describe another plant, for example "two PET bottling lines, case packer and palletizer, OPC UA on the fillers", or upload its drawing. Review the draft with provenance badges on every element, plan a data connection, and build. The new twin runs with the same agents, simulator and cameras. **Reset Demo** brings back the crisis factory.
+9. **CCTV Control Room** (Admin): unlock admin, press **All to reference footage** to put real factory video on every camera (each clip credited and labelled *not this plant*), then run **Gemini review** or the **OpenCV motion check** on a feed. The findings land in Visual Quality for a person to confirm.
+10. **Twin Builder** (sidebar): describe another plant, for example "two PET bottling lines, case packer and palletizer, OPC UA on the fillers", or upload its drawing. Review the draft with provenance badges on every element, plan a data connection, and build. The new twin runs with the same agents, simulator and cameras. **Reset Demo** brings back the crisis factory.
 
 **Reset Demo** (Demo controls) restores the exact initial state at any time.
 
@@ -198,7 +199,14 @@ The workflow (`src/domain/agents/pipeline.ts`) runs on a frozen snapshot, so liv
 
 **Where the cameras are.** Every generated factory gets an area CCTV per line, an inspection camera on each AOI / final-inspection station, a radiometric thermal camera on the first robot cell, and cameras on the shipping dock and component stores (9 in the demo). They appear in the Topology (camera chips), Isometric (pole-mounted cameras with field-of-view wedges) and Floor plan views, and in the asset panel of every machine they cover.
 
-**Card first, then live.** Clicking a camera opens a card with its current view and what its analytics report: units counted, lock-out zones, reject rate, hottest target, trailer loading or rack fill. **Watch live stream** opens the full view and logs who opened it. With no real camera connected, the feed is rendered from the live twin state and labelled *Simulated feed*. To show real video, set **Stream source** to an HLS, MP4 or MJPEG URL. Browsers can't play RTSP, so run a gateway on the plant network (for example MediaMTX) that pulls the camera's ONVIF / RTSP stream and republishes it as HLS over HTTPS.
+**Card first, then live.** Clicking a camera opens a card with its current view and what its analytics report: units counted, lock-out zones, reject rate, hottest target, trailer loading or rack fill. **Watch live stream** opens the full view and logs who opened it. With no real camera connected, the feed is rendered from the live twin state and labelled *Simulated feed*.
+
+**CCTV control room (admin).** **Admin → CCTV Control Room** shows every camera on one wall and switches each one between three sources:
+- **Twin feed**: rendered from the twin (the default).
+- **Reference footage**: a looped, openly licensed clip of a comparable real factory. It is badged *Reference footage*, credited with its author and license, and always described as *not this plant*, in the UI, the audit trail and the copilot's camera tool. Run **Gemini review** or the **OpenCV motion check** on it to demonstrate visual QA on real video; results wait for a person in Visual Quality.
+- **Plant gateway**: an HLS, MP4 or MJPEG URL over HTTPS. Browsers can't play RTSP, so run a gateway on the plant network (for example MediaMTX) that pulls the camera's ONVIF / RTSP stream and republishes it as HLS.
+
+Switching needs the admin passcode (see [Admin access](#admin-access)); every switch is audited.
 
 **How inspection results are produced.** The plant model attributes every scrapped unit to a cause: the baseline process or a specific degraded machine. Each cause maps to the defect classes an inspection station would report, for example a worn placement robot produces misalignment, missing parts and tombstoning. Station metrics (FPY, DPMO, RTY, Pareto) and the per-unit pass/fail frames come from that attribution, so camera evidence always agrees with the twin. They are demo values, not a trained vision model.
 
@@ -282,9 +290,12 @@ Design details: [docs/architecture.md § 7](docs/architecture.md#7-agentic-layer
 | `POST /api/agents/analyze` | Multi-agent investigation (NDJSON stream; `?fast=1` skips pacing) |
 | `POST /api/scenarios` · `POST /api/scenarios/compare` | Run and record · stateless comparison |
 | `GET/POST /api/recommendations` · `POST /api/recommendations/:id/{approve,reject,rollback}` | Recommendations and decisions |
-| `GET /api/audit` · `GET /api/kpis` · `GET /api/integrations` · `POST /api/integrations/test` | Audit, KPIs, integration status and tests |
+| `GET /api/audit` · `GET /api/kpis` · `GET /api/integrations` · `POST /api/integrations/test` | Audit, KPIs, integration status (with each setting's source) and tests |
+| `PUT /api/integrations/settings` | Change integration settings (admin): `{values: {KEY: "value" \| "" \| null}}`; `""` turns a setting off, `null` returns it to the deployment value |
+| `GET/POST/DELETE /api/admin/session` | Admin status · unlock with `{passcode}` (sets an httpOnly cookie) · lock |
 | `GET /api/documents?assetId=` · `GET /api/documents/:id` | Asset documents |
-| `GET /api/cameras` · `PATCH /api/cameras/:id` · `POST /api/cameras/:id/view` | Cameras with their current views · set stream source (https gateway URL) · log a live view |
+| `GET /api/cameras` · `PATCH /api/cameras/:id` · `POST /api/cameras/streams` · `POST /api/cameras/:id/view` | Cameras with their current views · set a camera's source (admin): `simulated`, `footage` + `clipId`, or an https gateway URL · switch several at once (admin) · log a live view |
+| `POST /api/cameras/:id/analyze` | Visual QA on the camera's reference footage: `{engine: "gemini" \| "opencv"}` |
 | `GET /api/quality` | FPY, DPMO, RTY, Pareto and correlations (24 h) |
 | `POST /api/vision/review-log` · `POST /api/vision/analyze` · `PATCH /api/vision/reviews/:id` | Station-log review · Gemini review of an uploaded file (multipart `file`, optional `cameraId`) · confirm or dismiss |
 | `GET /api/copilot` · `POST /api/copilot` | Copilot info · one ADK multi-agent turn (`{sessionId, message}` or `{sessionId, confirm}`), streamed as NDJSON |
@@ -292,7 +303,7 @@ Design details: [docs/architecture.md § 7](docs/architecture.md#7-agentic-layer
 | `GET /api/builder` · `POST /api/builder/draft` · `POST /api/builder/refine` · `POST /api/builder/validate` · `POST /api/builder/build` | Twin Builder: capabilities and templates · agent draft (multipart, NDJSON stream) · chat edits · deterministic validation · build from a reviewed spec |
 | `POST /api/vision/inspect` | Machine-vision check on the Python service (multipart `file` image or video, optional `reference` golden image and `cameraId`) |
 
-Inputs are validated with zod. Errors return `{ error, issues? }` with 400, 404 or 409 status codes.
+Inputs are validated with zod. Errors return `{ error, issues? }` with 400, 401 (admin required), 404 or 409 status codes.
 
 ```bash
 curl -s -X POST localhost:3000/api/demo/crisis >/dev/null
@@ -304,7 +315,7 @@ curl -s localhost:3000/api/kpis | jq .kpis.oee
 
 ## Google Cloud integrations
 
-Everything works **without credentials**. Each integration activates when its environment variables are set (see `.env.example`). The **Integrations** page reports status honestly:
+Everything works **without credentials**. Turn integrations on from **Admin → Integrations → Configure** (admin): enter the service's URL, dataset, bucket or token and press **Test connection**, no redeploy needed. A value saved there overrides the environment variable of the same name (`.env.example`, `apphosting.yaml`), which remains the deployment default; secrets (Gemini API key, MCP token) are write-only. Saved settings live in a private Cloud Storage bucket (`TWINFORGE_CONFIG_BUCKET`), or in `.data/settings.json` locally. The **Integrations** page reports status honestly:
 
 - **Active · simulated/local**: a local implementation is in use.
 - **Not configured**: required environment variables are missing.
@@ -319,8 +330,20 @@ Everything works **without credentials**. Each integration activates when its en
 | **Pub/Sub** | Telemetry ingestion: `{assetId, vibration, temperature, powerKw}` messages override simulated measurements | `PUBSUB_TELEMETRY_SUBSCRIPTION`, `TELEMETRY_SOURCE=pubsub` |
 | **Cloud Storage** | Per-asset documents under `assets/<assetId>/` | `GCS_BUCKET` |
 | **Cloud Run** | Hosting (detected via `K_SERVICE`) | See below |
-| **Vision service** (Cloud Run, Python) | OpenCV checks behind `POST /api/vision/inspect` | `VISION_SERVICE_URL`; on Cloud Run, grant the web app's service account `roles/run.invoker` ([plan, Phase 2](docs/python-services-plan.md#phase-2-deploy-to-cloud-run-next-1-hour)) |
-| MQTT | TCP reachability probe only | `MQTT_BROKER_URL` |
+| **Vision service** (Cloud Run, Python) | OpenCV checks behind `POST /api/vision/inspect` and the control room's motion check | Service URL (deployed privately as `twinforge-vision`); the web app's service account has `roles/run.invoker` ([plan, Phase 2](docs/python-services-plan.md#phase-2-deploy-to-cloud-run--done)) |
+| **MCP server** | External agents use the twin's tools at `/api/mcp` | Optional access token, or turn the endpoint off |
+| MQTT | TCP reachability probe only | Broker URL |
+
+### Admin access
+
+Camera sources and integration settings need an admin session. On App Hosting the passcode is the Secret Manager secret `twinforge-admin-key` (mapped to `TWINFORGE_ADMIN_KEY`):
+
+```bash
+gcloud secrets versions access latest --secret twinforge-admin-key --project twin-forge   # read it
+firebase apphosting:secrets:set twinforge-admin-key --project twin-forge                    # rotate it, then roll out
+```
+
+Unlock with **Unlock admin** on the control room or Integrations page; the session lasts 8 hours. Without a passcode, admin is open in local development and disabled on Cloud Run.
 
 > **Model note.** `gemini-2.5-flash` is scheduled for retirement in October 2026, so the default is `gemini-3.5-flash`. Confirm the model ID and region are enabled for your project in Vertex AI Model Garden, or set `GEMINI_MODEL`.
 
@@ -370,12 +393,12 @@ docker run -p 8080:8080 twinforge-ai     # http://localhost:8080
 ## Testing
 
 ```bash
-npm test               # 81 Vitest tests
-npm run build && npm run test:e2e   # 11 Playwright tests against the production server
+npm test               # 90 Vitest tests
+npm run build && npm run test:e2e   # 13 Playwright tests against the production server
 cd services/vision && uv run pytest # 16 pytest tests for the Python vision service
 ```
 
-- **Unit and integration tests** (`tests/`, 81 tests), including a check that the landing story's figures are engine-derived:
+- **Unit and integration tests** (`tests/`, 90 tests), including a check that the landing story's figures are engine-derived:
   - seed reproducibility and entity counts
   - health and status rules, OLS and trend estimation, change-point detection
   - KPIs
@@ -390,9 +413,10 @@ cd services/vision && uv run pytest # 16 pytest tests for the Python vision serv
   - cameras: https-only stream URLs, audited live views, station-log reviews and the human disposition guard
   - mapping of vision-service results to review findings
   - Twin Builder: every template validates cleanly, builds, simulates and runs the six-agent analysis; deterministic builds; industry-appropriate defect classes; validation repairs and errors; and the agent workflow with recorded model responses (blueprint links, citation filtering, unsupported machine types, fallbacks, and chat edits as validated operations). The demo factory is checked byte-identical after the generator refactor.
+- **Admin and settings** (`tests/admin.test.ts`): signed admin cookies (expiry, tampering, passcode rotation, rate limit); settings overriding the environment, turning off and returning to the deployment value; validation (https only, no metadata host); secrets never returned; settings driving the AI and vision adapters; camera source switching with audit; every footage clip shipped with its file, poster and license; stock-outs reported once.
 - **Agent tools** (`tests/tools.test.ts`): every read tool leaves the twin unchanged; what-if matches the engine; the proposal only creates a pending recommendation; invalid arguments are rejected; no tool can approve, execute or command equipment; numeric grounding of answers.
 - **Python vision service** (`services/vision/tests`, 16 tests, synthetic media): a missing IC found where it should be, a rotated and shifted part aligned, lighting changes ignored, QR and EAN-13 decoding with grades, deterministic output, a video stoppage found at the right time, and API limits.
-- **End-to-end tests** (`e2e/demo.spec.ts`, 11 tests): MCP protocol (initialize, tools/list with read-only hints, tools/call, errors); the ADK copilot giving a grounded answer with a tool trace (when Gemini is configured); Twin Builder from description to built twin with a planned connection; camera card → audited live view → Visual Quality review confirmed by a person; camera API validation and honest Gemini status; isometric selection and rotation, theme persistence, every landing-story chapter appearing on scroll; every page renders with no console errors; the full guided crisis demo (incident → agents → scenario sensitivity → twin highlight → approval → fast-forward → audit); reset reproducibility; API validation.
+- **End-to-end tests** (`e2e/demo.spec.ts`, 13 tests): the CCTV control room switching all cameras to reference footage and back (audited, served as video/mp4); integration settings saved from the UI and returned to the deployment value; MCP protocol (initialize, tools/list with read-only hints, tools/call, errors); the ADK copilot giving a grounded answer with a tool trace (when Gemini is configured); Twin Builder from description to built twin with a planned connection; camera card → audited live view → Visual Quality review confirmed by a person; camera API validation and honest Gemini status; isometric selection and rotation, theme persistence, every landing-story chapter appearing on scroll; every page renders with no console errors; the full guided crisis demo (incident → agents → scenario sensitivity → twin highlight → approval → fast-forward → audit); reset reproducibility; API validation.
 
 ---
 
@@ -421,10 +445,11 @@ tests/ e2e/            Vitest and Playwright suites
 ## Known limitations
 
 - **Simulated plant.** All telemetry, production and costs come from a deterministic model with fictional demo data. Results are estimates, not validated forecasts.
-- **No real cameras in the demo.** Camera feeds are rendered from the twin, and inspection results come from the plant model's scrap attribution, not a trained vision model. Real streams need a plant-side gateway (HLS / MP4 / MJPEG over HTTPS). Gemini footage review is advisory and unvalidated; run an attribute-agreement study before relying on it.
+- **No real cameras in the demo.** Camera feeds are rendered from the twin, or play reference footage of other factories, which is labelled as such. Inspection results come from the plant model's scrap attribution, not a trained vision model, and are not derived from the footage. Real streams need a plant-side gateway (HLS / MP4 / MJPEG over HTTPS). Gemini footage review is advisory and unvalidated; run an attribute-agreement study before relying on it.
 - **No real equipment control.** Approval changes only the digital twin. The platform never writes to PLCs or commands machines; that would need a separately authenticated, authorized and safety-validated integration.
 - **Single tenant, per-instance state.** One factory per server, stored in a local JSON file. Cloud Run instances do not share state (hence max-instances 1), and state resets when an instance is recycled. A production version would use Firestore, Cloud SQL or BigQuery.
-- **No authentication or authorization.**
+- **No per-user login.** Configuration changes (camera sources, integration settings) need the admin passcode; everything else is open to anyone with the URL.
+- **No automatic re-ordering.** Parts without an open purchase order run out after about 55–61 hours of plant time (about 2 hours of an open tab after a reset), and the lines starve. Use **Reset Demo**.
 - **Cloud adapters are not verified against live services in this build.** BigQuery, Pub/Sub, Cloud Storage and Vertex AI calls are implemented and are exercised only when configured. MQTT is a reachability probe; subscription is not implemented.
 - **Twin Builder limits.** Machines on a line run in series, with up to 4 process lines plus one packing area and 8 machines per line. Parallel or batch steps are approximated. Default rates, prices, stock and the sample orders are typical values until real systems are connected. The AI steps use Gemini 3.5 Flash on Vertex AI (asia-southeast1); without it, template mode is used.
 - **Time model.** Live telemetry advances 2 minutes of plant time every 4 seconds while the app is open in a visible tab. Fast-forward runs the same model in larger jumps.

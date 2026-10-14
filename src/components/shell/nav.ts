@@ -8,6 +8,7 @@ import {
   Network,
   PlugZap,
   Boxes,
+  Cctv,
   FlaskConical,
   ScanEye,
   Wand2,
@@ -37,6 +38,12 @@ export const NAV = [
     items: [
       { href: "/sustainability", label: "Sustainability", icon: Leaf },
       { href: "/audit", label: "Audit Trail", icon: History },
+    ],
+  },
+  {
+    section: "Admin",
+    items: [
+      { href: "/control-room", label: "CCTV Control Room", icon: Cctv },
       { href: "/integrations", label: "Integrations", icon: PlugZap },
     ],
   },

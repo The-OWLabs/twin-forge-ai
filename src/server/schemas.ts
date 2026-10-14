@@ -88,10 +88,26 @@ export const DecisionSchema = z.object({ by: z.string().trim().min(1).max(60).de
 export const IntegrationTestSchema = z.object({ id: z.string().min(1) });
 
 export const CameraStreamSchema = z.object({
-  kind: z.enum(["simulated", "hls", "mp4", "mjpeg"]),
+  kind: z.enum(["simulated", "footage", "hls", "mp4", "mjpeg"]),
   url: z.string().trim().max(500).nullable().default(null),
+  clipId: z.string().trim().max(60).nullable().default(null),
   by: z.string().trim().min(1).max(60).default("Operator"),
 });
+export const CameraStreamsSchema = z.object({
+  streams: z
+    .array(
+      z.object({
+        id: z.string().min(1).max(40),
+        kind: z.enum(["simulated", "footage", "hls", "mp4", "mjpeg"]),
+        url: z.string().trim().max(500).nullable().default(null),
+        clipId: z.string().trim().max(60).nullable().default(null),
+      }),
+    )
+    .min(1)
+    .max(60),
+  by: z.string().trim().min(1).max(60).default("Operator"),
+});
+export const CameraAnalyzeSchema = z.object({ engine: z.enum(["gemini", "opencv"]) });
 export const CameraViewSchema = z.object({ by: z.string().trim().min(1).max(60).default("Operator") });
 export const ReviewLogSchema = z.object({ cameraId: z.string().min(1) });
 export const DispositionSchema = z.object({

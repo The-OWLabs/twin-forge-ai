@@ -7,6 +7,7 @@ import type { FaultInput } from "@/domain/commands";
 import type {
   AgentId,
   AgentReport,
+  CameraStreamKind,
   FactoryState,
   Narrative,
   Recommendation,
@@ -76,7 +77,9 @@ interface FactoryStore {
   createFactory: (bp: Record<string, unknown>) => Promise<boolean>;
   analyze: () => Promise<boolean>;
   logCameraView: (id: string) => Promise<void>;
-  setCameraStream: (id: string, kind: "simulated" | "hls" | "mp4" | "mjpeg", url: string | null) => Promise<boolean>;
+  setCameraStream: (id: string, kind: CameraStreamKind, url: string | null, clipId?: string | null) => Promise<boolean>;
+  setCameraStreams: (streams: { id: string; kind: CameraStreamKind; url?: string | null; clipId?: string | null }[], success: string) => Promise<boolean>;
+  analyzeCameraFeed: (cameraId: string, engine: "gemini" | "opencv") => Promise<VisionReview | undefined>;
   reviewInspectionLog: (cameraId: string) => Promise<VisionReview | undefined>;
   analyzeMedia: (file: File, cameraId: string | null) => Promise<VisionReview | undefined>;
   inspectWithService: (file: File, reference: File | null, cameraId: string | null) => Promise<{ review: VisionReview; result: InspectionResult } | undefined>;
@@ -385,17 +388,42 @@ export const useFactory = create<FactoryStore>((set, get) => ({
     }
   },
 
-  setCameraStream: async (id, kind, url) => {
+  setCameraStream: async (id, kind, url, clipId = null) => {
     const r = await get().run(
       "cameraStream",
       async () => {
-        const res = await api<{ state: FactoryState }>(`/api/cameras/${id}`, { method: "PATCH", body: { kind, url, by: useUi.getState().operator } });
+        const res = await api<{ state: FactoryState }>(`/api/cameras/${id}`, { method: "PATCH", body: { kind, url, clipId, by: useUi.getState().operator } });
         get().apply(res.state);
         return true;
       },
-      kind === "simulated" ? `${id} switched to the twin-generated feed` : `${id} now plays the ${kind.toUpperCase()} gateway stream`,
+      kind === "simulated" ? `${id} switched to the twin feed` : kind === "footage" ? `${id} now loops reference footage` : `${id} now plays the ${kind.toUpperCase()} gateway stream`,
     );
     return !!r;
+  },
+
+  setCameraStreams: async (streams, success) => {
+    const r = await get().run(
+      "cameraStream",
+      async () => {
+        const res = await api<{ state: FactoryState }>("/api/cameras/streams", { body: { streams, by: useUi.getState().operator } });
+        get().apply(res.state);
+        return true;
+      },
+      success,
+    );
+    return !!r;
+  },
+
+  analyzeCameraFeed: async (cameraId, engine) => {
+    return get().run(
+      engine === "gemini" ? "feedGemini" : "feedOpencv",
+      async () => {
+        const res = await api<{ review: VisionReview; state: FactoryState }>(`/api/cameras/${cameraId}/analyze`, { body: { engine } });
+        get().apply(res.state);
+        return res.review;
+      },
+      (r) => `${r.id}: ${engine === "gemini" ? "Gemini" : "OpenCV"} returned ${r.findings.length} finding(s) — pending your review`,
+    );
   },
 
   reviewInspectionLog: async (cameraId) => {

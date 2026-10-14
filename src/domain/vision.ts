@@ -4,7 +4,8 @@ import { appendAudit } from "./audit";
 import { nextId } from "./ids";
 import { round } from "./math";
 import { inspectionFrames } from "./quality";
-import type { Camera, FactoryState, VisionFinding, VisionReview } from "./types";
+import { getClip } from "./footage";
+import type { Camera, CameraStreamKind, FactoryState, VisionFinding, VisionReview } from "./types";
 
 /** Categories offered to the vision model and used in reviews (keeps findings comparable). */
 export const VISION_CATEGORIES = [
@@ -44,10 +45,25 @@ export function getCamera(state: FactoryState, id: string): Camera {
   return cam;
 }
 
-/** Point a camera at a real stream served by a plant-side gateway (HLS / MP4 / MJPEG over HTTPS). */
-export function setCameraStream(state: FactoryState, id: string, stream: Camera["stream"], by: string, nowISO: string) {
+/**
+ * Choose what a camera shows: the twin-rendered feed, a looped clip from the reference footage
+ * library, or a real stream served by a plant-side gateway (HLS / MP4 / MJPEG over HTTPS).
+ */
+export function setCameraStream(state: FactoryState, id: string, stream: { kind: CameraStreamKind; url?: string | null; clipId?: string | null }, by: string, nowISO: string) {
   const cam = getCamera(state, id);
-  if (stream.kind !== "simulated") {
+  let title: string;
+  let detail: string;
+  if (stream.kind === "simulated") {
+    cam.stream = { kind: "simulated", url: null };
+    title = `Camera ${cam.id} switched to the twin feed`;
+    detail = "Using the feed rendered from the twin's state.";
+  } else if (stream.kind === "footage") {
+    const clip = stream.clipId ? getClip(stream.clipId) : null;
+    if (!clip) throw new DomainError(stream.clipId ? `Footage clip ${stream.clipId} not found` : "Choose a footage clip");
+    cam.stream = { kind: "footage", url: clip.src, clipId: clip.id };
+    title = `Camera ${cam.id} switched to reference footage`;
+    detail = `"${clip.title}" (${clip.source.site}, ${clip.source.license}) looped. Real video from another facility, not this plant; analytics still come from the twin.`;
+  } else {
     if (!stream.url) throw new DomainError("A stream URL is required");
     let u: URL;
     try {
@@ -57,17 +73,22 @@ export function setCameraStream(state: FactoryState, id: string, stream: Camera[
     }
     const local = u.hostname === "localhost" || u.hostname === "127.0.0.1";
     if (u.protocol !== "https:" && !(local && u.protocol === "http:")) throw new DomainError("Stream URL must use https:// (or http://localhost for testing) — browsers block insecure video on a secure page");
+    cam.stream = { kind: stream.kind, url: stream.url };
+    title = `Camera ${cam.id} switched to a ${stream.kind.toUpperCase()} gateway stream`;
+    detail = `Source host: ${u.host}`;
   }
-  cam.stream = stream.kind === "simulated" ? { kind: "simulated", url: null } : { kind: stream.kind, url: stream.url };
-  appendAudit(state, nowISO, {
-    category: "asset",
-    actor: by,
-    title: `Camera ${cam.id} stream ${stream.kind === "simulated" ? "set to simulated feed" : `set to ${stream.kind.toUpperCase()} gateway`}`,
-    detail: stream.kind === "simulated" ? "Using the twin-generated feed." : `Source host: ${new URL(stream.url!).host}`,
-    severity: "info",
-    refs: { assetIds: cam.assetId ? [cam.assetId] : [] },
-  });
+  appendAudit(state, nowISO, { category: "asset", actor: by, title, detail, severity: "info", refs: { assetIds: cam.assetId ? [cam.assetId] : [] } });
   return cam;
+}
+
+/** Plain-language description of a camera's current source (for logs, tools and labels). */
+export function describeStream(cam: Camera): string {
+  if (cam.stream.kind === "simulated") return "simulated feed rendered from the twin";
+  if (cam.stream.kind === "footage") {
+    const clip = cam.stream.clipId ? getClip(cam.stream.clipId) : null;
+    return `reference footage${clip ? ` "${clip.title}"` : ""} (real video from another facility, looped; not this plant)`;
+  }
+  return `${cam.stream.kind.toUpperCase()} gateway stream`;
 }
 
 /** Every live view is logged — accountability for workplace video (purpose limitation, access audit). */
@@ -77,7 +98,7 @@ export function logCameraView(state: FactoryState, id: string, by: string, nowIS
     category: "system",
     actor: by,
     title: `Live view opened: ${cam.id}`,
-    detail: `${cam.name} · ${cam.stream.kind === "simulated" ? "simulated feed" : `${cam.stream.kind.toUpperCase()} stream`} · purpose: ${cam.purpose}`,
+    detail: `${cam.name} · ${describeStream(cam)} · purpose: ${cam.purpose}`,
     severity: "info",
     refs: { assetIds: cam.assetId ? [cam.assetId] : [] },
   });

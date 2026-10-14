@@ -4,6 +4,7 @@ import { AgentTool, FunctionTool, Gemini, InMemorySessionService, LlmAgent, Runn
 import { checkGrounding } from "@/domain/tools/grounding";
 import { callTwinTool, TWIN_TOOLS, type TwinToolName } from "@/domain/tools/twin-tools";
 import { aiConfig } from "@/server/ai/provider";
+import { setting } from "@/server/settings";
 import { serverToolStore } from "@/server/tools/store";
 import { objectSchema } from "./schema";
 
@@ -84,7 +85,7 @@ function buildCopilot() {
   const model =
     cfg.provider === "vertex"
       ? new Gemini({ model: cfg.model, vertexai: true, project: cfg.project, location: cfg.location })
-      : new Gemini({ model: cfg.model, apiKey: process.env.GEMINI_API_KEY });
+      : new Gemini({ model: cfg.model, apiKey: setting("GEMINI_API_KEY") });
   const gen = { temperature: 0.2, maxOutputTokens: 4096, thinkingConfig: { thinkingLevel: "LOW" as never } };
   const specialist = (name: string, description: string, focus: string, tools: TwinToolName[]) =>
     new LlmAgent({
@@ -135,15 +136,17 @@ function buildCopilot() {
 }
 
 const g = globalThis as unknown as {
-  __twinforgeCopilot?: { runner: Runner; sessions: InMemorySessionService; model: string; busy: Set<string>; evidence: Map<string, unknown[]> };
+  __twinforgeCopilot?: { runner: Runner; sessions: InMemorySessionService; config: string; busy: Set<string>; evidence: Map<string, unknown[]> };
 };
 
 function copilot() {
   const cfg = aiConfig();
   if (cfg.provider === "none") return null;
-  if (!g.__twinforgeCopilot || g.__twinforgeCopilot.model !== cfg.model) {
+  // Rebuild the agents when the AI settings change in Integrations (sessions start over).
+  const config = [cfg.provider, cfg.model, cfg.project, cfg.location, cfg.provider === "gemini-api" ? (setting("GEMINI_API_KEY") ?? "").slice(-6) : ""].join("|");
+  if (!g.__twinforgeCopilot || g.__twinforgeCopilot.config !== config) {
     const sessions = new InMemorySessionService();
-    g.__twinforgeCopilot = { runner: new Runner({ appName: APP, agent: buildCopilot(), sessionService: sessions }), sessions, model: cfg.model, busy: new Set(), evidence: new Map() };
+    g.__twinforgeCopilot = { runner: new Runner({ appName: APP, agent: buildCopilot(), sessionService: sessions }), sessions, config, busy: new Set(), evidence: new Map() };
   }
   return g.__twinforgeCopilot;
 }

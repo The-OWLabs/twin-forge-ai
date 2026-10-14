@@ -1,4 +1,5 @@
 import "server-only";
+import { setting } from "@/server/settings";
 import net from "node:net";
 import type { Recommendation, ScenarioRun, TelemetryReading } from "@/domain/types";
 import { gcpFetch, gcpProject } from "./gcp";
@@ -8,8 +9,8 @@ import { gcpFetch, gcpProject } from "./gcp";
  * machine_health_history, scenario_outcomes, decisions.
  */
 export const bigQuery = {
-  configured: () => !!(gcpProject() && process.env.BIGQUERY_DATASET),
-  dataset: () => process.env.BIGQUERY_DATASET || "",
+  configured: () => !!(gcpProject() && setting("BIGQUERY_DATASET")),
+  dataset: () => setting("BIGQUERY_DATASET") || "",
   async test() {
     const ds = await gcpFetch(`https://bigquery.googleapis.com/bigquery/v2/projects/${gcpProject()}/datasets/${bigQuery.dataset()}`);
     const tables = await gcpFetch(`https://bigquery.googleapis.com/bigquery/v2/projects/${gcpProject()}/datasets/${bigQuery.dataset()}/tables?maxResults=50`);
@@ -62,9 +63,9 @@ export interface ExternalReading extends Partial<TelemetryReading> {
 }
 
 export const pubSub = {
-  configured: () => !!(gcpProject() && process.env.PUBSUB_TELEMETRY_SUBSCRIPTION),
-  ingestionEnabled: () => pubSub.configured() && (process.env.TELEMETRY_SOURCE || "simulated") === "pubsub",
-  subscription: () => process.env.PUBSUB_TELEMETRY_SUBSCRIPTION || "",
+  configured: () => !!(gcpProject() && setting("PUBSUB_TELEMETRY_SUBSCRIPTION")),
+  ingestionEnabled: () => pubSub.configured() && (setting("TELEMETRY_SOURCE") || "simulated") === "pubsub",
+  subscription: () => setting("PUBSUB_TELEMETRY_SUBSCRIPTION") || "",
   async test() {
     const sub = await gcpFetch(`https://pubsub.googleapis.com/v1/projects/${gcpProject()}/subscriptions/${pubSub.subscription()}`);
     return `Subscription ${sub.name} reachable (topic ${sub.topic}).`;
@@ -91,8 +92,8 @@ export const pubSub = {
 
 /* ─────────────────────────── Cloud Storage ─────────────────────────── */
 export const cloudStorage = {
-  configured: () => !!(gcpProject() && process.env.GCS_BUCKET),
-  bucket: () => process.env.GCS_BUCKET || "",
+  configured: () => !!(gcpProject() && setting("GCS_BUCKET")),
+  bucket: () => setting("GCS_BUCKET") || "",
   async test() {
     const b = await gcpFetch(`https://storage.googleapis.com/storage/v1/b/${cloudStorage.bucket()}`);
     return `Bucket gs://${b.name} reachable (${b.location}).`;
@@ -112,8 +113,8 @@ export const cloudStorage = {
 
 /* ─────────────────────────────── MQTT ─────────────────────────────── */
 export const mqtt = {
-  configured: () => !!process.env.MQTT_BROKER_URL,
-  url: () => process.env.MQTT_BROKER_URL || "",
+  configured: () => !!setting("MQTT_BROKER_URL"),
+  url: () => setting("MQTT_BROKER_URL") || "",
   /** TCP reachability probe only — this MVP does not subscribe to MQTT topics. */
   async test() {
     const u = new URL(mqtt.url());

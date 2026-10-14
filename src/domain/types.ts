@@ -576,7 +576,7 @@ export interface Recommendation {
   confidence: { level: "high" | "medium" | "low"; rationale: string };
   status: "pending" | "approved" | "rejected" | "rolled-back" | "superseded";
   decision: { by: string; at: string; hour: number; note: string } | null;
-  execution: { status: "not-started" | "applied" | "completed" | "rolled-back"; steps: ExecutionStep[] } | null;
+  execution: { status: "not-started" | "applied" | "partially-applied" | "completed" | "rolled-back"; steps: ExecutionStep[] } | null;
 }
 
 /* ─────────────────────────── Factory ─────────────────────────── */
@@ -638,8 +638,20 @@ export interface Camera {
   resolution: string;
   fps: number;
   onvifProfile: "S" | "T";
-  stream: { kind: "simulated" | "hls" | "mp4" | "mjpeg"; url: string | null };
+  stream: CameraStream;
   privacy: { faceBlur: boolean; retentionDays: number };
+}
+
+/**
+ * What a camera shows: the twin-rendered feed, a looped reference clip from the footage library
+ * (real video from another facility, labelled as such), or a plant gateway stream.
+ */
+export type CameraStreamKind = "simulated" | "footage" | "hls" | "mp4" | "mjpeg";
+export interface CameraStream {
+  kind: CameraStreamKind;
+  url: string | null;
+  /** Footage library clip id when kind is "footage". */
+  clipId?: string | null;
 }
 
 export interface VisionFinding {

@@ -65,22 +65,24 @@ flowchart TB
     domc[Domain engine, client copy<br/>instant what-if, validation, previews]
   end
   subgraph apphosting[Firebase App Hosting → Cloud Run · max 1 instance]
-    routes[Next.js 15 route handlers · 42 endpoints]
+    routes[Next.js 15 route handlers · 46 endpoints]
     doms[Domain engine, server copy]
     store[(Factory state<br/>in-memory + JSON file in /tmp)]
     adk[ADK copilot runtime<br/>@google/adk 2.2.1 · in-memory sessions]
     mcp[MCP server<br/>@modelcontextprotocol/sdk 1.32.1]
   end
   subgraph py[Python services]
-    vis[services/vision · FastAPI 0.143 · OpenCV 4.14]
+    vis[services/vision · FastAPI 0.143 · OpenCV 4.14<br/>Cloud Run, private]
     pyagent[services/agents · Python ADK 2.12 agent<br/>MCP client]
   end
   ui -->|fetch / NDJSON streams| routes
   routes --> doms --> store
   routes --> adk --> doms
   routes --> mcp --> doms
-  routes -->|multipart| vis
+  routes -->|multipart + Google ID token| vis
   pyagent -->|MCP| mcp
+  routes -->|settings JSON| gcs[(Cloud Storage<br/>private config bucket)]
+  routes -->|admin passcode| sm[(Secret Manager)]
 ```
 
 | Unit | Tech | Runs where | State |
@@ -89,7 +91,7 @@ flowchart TB
 | Domain engine | Pure TypeScript (`src/domain`, ≈ 8,900 lines) | Server, and in the browser for instant what-if and validation | None (functions over state) |
 | ADK copilot | `@google/adk` 2.2.1 + Gemini on Vertex | Inside the web app | In-memory ADK sessions |
 | MCP server | `@modelcontextprotocol/sdk` 1.32.1, Streamable HTTP, stateless | Inside the web app at `/api/mcp` | None |
-| Vision service | Python 3.13, FastAPI, OpenCV, uv-locked | Local / Docker today; Cloud Run planned | None |
+| Vision service | Python 3.13, FastAPI, OpenCV, uv-locked | Cloud Run `twinforge-vision`, `asia-southeast1`, private (`--no-allow-unauthenticated`), 0–2 instances | None |
 | Python ADK agent | `google-adk[mcp]` 2.12 | Local CLI or `adk web`; Agent Engine possible | ADK sessions |
 
 **Why one instance?** The demo keeps state in memory so every visitor sees the same factory. Two instances would diverge. Section 12 describes the move to a shared store.
@@ -240,10 +242,12 @@ flowchart TB
 ## 8. Visual quality and cameras
 
 - **Inspection model.** Scrap attribution in the plant model is mapped to defect classes. Electronics plants use IPC-A-610J Class 2, and other industries use their machines' own defect classes. From these, the model computes FPY, DPMO, rolled throughput yield, a Pareto and vibration ↔ reject correlations (r = 0.89 in the crisis).
-- **Cameras in the twin.** Area CCTV, AOI and final inspection, radiometric thermal, dock and stores, shown in all three views.
-  - Feeds are rendered from twin state and labelled simulated.
-  - Live view plays HLS, MP4 or MJPEG from an https gateway.
-  - Every live view is audited, and face blur and retention are recorded per camera, reflecting the DPDP Act.
+- **Cameras in the twin.** Area CCTV, AOI and final inspection, radiometric thermal, dock and stores, shown in all three views. Each camera has one of three sources:
+  - **Twin feed** (default): rendered from twin state and labelled *simulated*.
+  - **Reference footage**: a looped, openly licensed clip of a comparable real factory from the footage library (`src/domain/footage.ts`, files in `public/footage`). It is badged *reference footage*, credited with author, source and license, and described as "not this plant" everywhere, including the copilot's camera tool. Analytics shown next to it still come from the twin.
+  - **Plant gateway**: HLS, MP4 or MJPEG over https from a gateway such as MediaMTX on the plant network.
+  - Every live view and every source switch is audited, and face blur and retention are recorded per camera, reflecting the DPDP Act.
+- **CCTV control room** (`/control-room`, admin). A video wall of every camera (wall or focus layout), per-camera and bulk source switching, the footage library with credits, a log of switches and views, and visual QA on the selected feed: Gemini review or the OpenCV motion check on the reference clip (`POST /api/cameras/:id/analyze`). Results become reviews awaiting a person, like any other.
 - **Reviews.** Three sources, each waiting for a human to confirm or dismiss:
   - deterministic station-log reviews
   - Gemini footage review (advisory)
@@ -270,19 +274,19 @@ Upload, then `POST /api/builder/draft` (NDJSON: read, research, draft, validate)
 
 ---
 
-## 10. API surface (42 route handlers)
+## 10. API surface (46 route handlers)
 
 | Area | Endpoints |
 |---|---|
 | Factory and simulation | `GET/POST /api/factory`, `/api/factory/reset`, `/api/demo/crisis`, `/api/telemetry/{tick,live}`, `/api/sim/advance`, `/api/faults` |
 | Assets | `/api/assets`, `/api/assets/:id`, `/api/assets/:id/telemetry`, `/api/connections`, `/api/anomalies`, `/api/documents[/:id]` |
 | Intelligence | `/api/agents/analyze` (NDJSON), `/api/scenarios`, `/api/scenarios/compare`, `/api/recommendations[/:id/{approve,reject,rollback}]`, `/api/kpis`, `/api/audit` |
-| Quality and vision | `/api/quality`, `/api/cameras[/:id[/view]]`, `/api/vision/{analyze,inspect,review-log}`, `/api/vision/reviews/:id` |
+| Quality and vision | `/api/quality`, `/api/cameras[/:id[/view,/analyze]]`, `/api/cameras/streams` (admin, bulk switch), `/api/vision/{analyze,inspect,review-log}`, `/api/vision/reviews/:id` |
 | Twin Builder | `/api/builder`, `/api/builder/{draft,refine,validate,build}` |
 | Agents | `/api/copilot` (NDJSON), `/api/mcp` (MCP) |
-| Platform | `/api/health`, `/api/integrations`, `/api/integrations/test`, `/api` (index) |
+| Platform | `/api/health`, `/api/integrations`, `/api/integrations/test`, `/api/integrations/settings` (admin), `/api/admin/session`, `/api` (index) |
 
-Validation errors return 400 with field issues, unknown ids 404, conflicts 409, unsupported media 415 and oversize 413. Unconfigured AI returns 503 with a clear message.
+Validation errors return 400 with field issues, missing admin 401, unknown ids 404, conflicts 409, unsupported media 415 and oversize 413. Unconfigured AI returns 503 with a clear message.
 
 ---
 
@@ -309,16 +313,19 @@ Validation errors return 400 with field issues, unknown ids 404, conflicts 409, 
 - **No control path.** There are no endpoints or tools that write to equipment. Connectors are read-only by construction, and approved plans execute only in the twin.
 - **Human approval.** Recommendations from the pipeline, the operator or the copilot are always *pending* until a person approves them. Approve, reject and rollback exist only as UI routes; no agent tool can call them.
 - **Audit.** Alerts, agent findings, scenario runs, proposals (with who proposed them), decisions, executed actions, camera live views and visual reviews are all audited.
-- **Secrets.** Server-side only. `.env.local` is git-ignored, and the browser never sees credentials. Stream URLs must be https, except localhost for testing.
-- **Uploads.** Size and type limits: 15 MB for images and drawings, 30 MB for video. Files are processed in memory or a temp file and never stored. The vision service is designed to be private on Cloud Run, called with Google ID tokens.
+- **Admin.** Camera sources and integration settings change only with an admin session: a passcode from Secret Manager unlocks an HMAC-signed, httpOnly, SameSite=Strict cookie for 8 hours, with constant-time comparison and a rate limit on wrong attempts. Without a passcode, admin is open in local development and disabled on Cloud Run.
+- **Secrets.** Server-side only. `.env.local` is git-ignored, and the browser never sees credentials. Secret settings entered in the UI (Gemini API key, MCP token) are write-only: never returned by the API or written to the audit trail. They are saved in a private bucket with public access prevention; production would move them to Secret Manager.
+- **Outbound URLs.** Stream and service URLs must be https (localhost for testing), without credentials, and the metadata server is refused.
+- **Uploads.** Size and type limits: 15 MB for images and drawings, 30 MB for video. Files are processed in memory or a temp file and never stored. The vision service is private on Cloud Run (unauthenticated calls get 403) and is called with Google ID tokens; only the App Hosting service account has `roles/run.invoker`.
 - **Privacy.** Camera face blur, retention and purpose are recorded per camera, and live views are audited, following India's DPDP Act. Video analytics are advisory and never safety functions (IEC 61496 / ISO 13849).
-- **Known gaps (demo scope).** There is no user login or authorization, and the public MCP endpoint is open unless `TWINFORGE_MCP_TOKEN` is set. Production would add Firebase Auth, per-tenant authorization and a token on MCP.
+- **Known gaps (demo scope).** There is no per-user login: viewing, running scenarios and approving are open to anyone with the URL, and the MCP endpoint is open until a token is set on the Integrations page. Production would add Firebase Auth, per-tenant authorization and a token on MCP.
 
 ---
 
 ## 13. Persistence and scaling
 
 **Today:**
+- integration settings saved from the UI are durable (private Cloud Storage object), loaded at server start
 - one factory per deployment
 - state held in memory and in an atomic JSON file (on serverless, `/tmp`)
 - max 1 instance
@@ -338,8 +345,8 @@ Validation errors return 400 with field issues, unknown ids 404, conflicts 409, 
 
 | Suite | Count | Covers |
 |---|---|---|
-| Vitest (`tests/`) | 81 | Seed reproducibility; physics, KPIs and trend estimation; scenario outcomes, sensitivity and ranking; agent pipeline; approvals, rejection and rollback; LLM grounding and fallback; quality and cameras; Twin Builder templates, validation, compile and agent workflow with recorded responses; the tool layer (read-only guarantee, proposal semantics, argument validation); numeric grounding |
-| Playwright (`e2e/`) | 11 | Every page renders with no console errors; guided crisis demo; reset; API validation; iso view and theme; landing story; cameras and Visual Quality; Twin Builder end to end; MCP protocol; ADK copilot with a grounded answer (runs when Gemini is configured) |
+| Vitest (`tests/`) | 90 | Seed reproducibility; physics, KPIs and trend estimation; scenario outcomes, sensitivity and ranking; agent pipeline; approvals, rejection and rollback; LLM grounding and fallback; quality and cameras; Twin Builder templates, validation, compile and agent workflow with recorded responses; the tool layer (read-only guarantee, proposal semantics, argument validation); numeric grounding; admin sessions (signing, expiry, rate limit); settings overrides, validation and secret handling; camera sources and the footage library; stock-outs reported once |
+| Playwright (`e2e/`) | 13 | Every page renders with no console errors; guided crisis demo; reset; API validation; iso view and theme; landing story; cameras and Visual Quality; Twin Builder end to end; MCP protocol; ADK copilot with a grounded answer (runs when Gemini is configured); CCTV control room switching to reference footage and back; integration settings from the UI |
 | pytest (`services/vision`) | 16 | Golden comparison (missing part, rotated part, lighting), codes, quality, video stoppage, determinism, API limits |
 
 The e2e suite runs against local production builds and against the live URL (`E2E_BASE_URL`). With AI on, the Twin Builder and copilot tests exercise real Gemini.
@@ -351,10 +358,12 @@ The e2e suite runs against local production builds and against the live URL (`E2
 | Task | How |
 |---|---|
 | Deploy the web app | Push to `main`, then `firebase apphosting:rollouts:create twinforge --git-commit <sha> --force --project twin-forge` |
-| Configuration | `apphosting.yaml` (runtime env, instance limits); `.env.local` for local work (git-ignored) |
+| Configuration | Integrations page for integration settings (admin); `apphosting.yaml` for deployment defaults, instance limits and secrets; `.env.local` for local work (git-ignored) |
 | AI access | Vertex AI API enabled; ADC locally (`gcloud auth application-default login`); App Hosting service account has `roles/aiplatform.user` |
 | Health | `GET /api/health`; Integrations page with real connectivity tests |
-| Vision service | `docker build services/vision`; Cloud Run deploy in [python-services-plan.md](python-services-plan.md), Phase 2 |
+| Vision service | `gcloud run deploy twinforge-vision --source services/vision …` ([python-services-plan.md](python-services-plan.md), Phase 2). The App Hosting service account has `roles/run.invoker`; the URL is set on the Integrations page. |
+| Integration settings | Integrations page (admin). Saved to `gs://twin-forge-twinforge-config/twinforge/settings.json` (`TWINFORGE_CONFIG_BUCKET`), loaded at server start (`src/instrumentation.ts`). |
+| Admin passcode | Secret Manager `twinforge-admin-key`, mapped to `TWINFORGE_ADMIN_KEY` in `apphosting.yaml`. Read it with `gcloud secrets versions access latest --secret twinforge-admin-key --project twin-forge`; rotate with `firebase apphosting:secrets:set twinforge-admin-key`. |
 | Python ADK agent | `cd services/agents && uv run python ask.py "…"` or `uv run adk web` |
 
 ---
@@ -371,6 +380,9 @@ The e2e suite runs against local production builds and against the live URL (`E2
 | One tool layer shared by the copilot and MCP | Separate tool sets | A single place to enforce validation, read-only semantics and grounding |
 | `asia-southeast1` for Vertex | `global` | Measured stalls on `global`; co-located with hosting |
 | Python only where its libraries win (OpenCV, edge protocols) | Python everywhere | Keeps one language on the critical path |
+| Integration settings in the UI, overriding the environment | Environment variables only; Firestore | Admins enable and test integrations without a redeploy; the deployment still works with no saved settings; one small JSON object in a private bucket needs no new database |
+| One admin passcode in Secret Manager | Firebase Auth with roles; no protection | Protects configuration changes on a public demo URL in hours, not days; Firebase Auth/IAP is the production path |
+| Reference footage, labelled, for camera demos | Simulated video only; unlabelled stock video | Real video makes visual QA demonstrable; labelling it as another facility's footage keeps the demo honest |
 
 ---
 
@@ -378,14 +390,15 @@ The e2e suite runs against local production builds and against the live URL (`E2
 
 **Limitations:**
 - simulated plant data only
-- single tenant and no authentication
-- per-instance state
+- single tenant; only configuration changes are behind an admin passcode (no per-user login)
+- per-instance factory state (integration settings are durable)
 - machines on a line run in series
-- the vision service is not yet deployed
+- no automatic re-ordering: purchased parts without an open purchase order run out around h+55–61 and the lines starve
+- camera footage is reference video from other facilities; live camera analytics need the edge worker
 - connectors other than Pub/Sub are planned, not built
 
 **Roadmap:**
-1. Deploy the vision service to Cloud Run (private) and connect it on the live site.
+1. Replenishment policy (reorder point → purchase order with lead time) so long runs don't starve.
 2. Firestore state, Firebase Auth, and multiple factories.
 3. Twin Builder self-correction loop on ADK: draft, validate, repair, repeat.
 4. Edge gateway: OPC UA, Modbus and MQTT read-only, publishing to Pub/Sub; live camera analytics at the edge.

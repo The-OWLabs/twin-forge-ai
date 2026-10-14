@@ -334,7 +334,15 @@ function ExecutionPanel({ state, rec, directives, onAdvance, advancing }: { stat
     <Card className="border-healthy/30">
       <CardHeader
         title="Execution status (simulated)"
-        description={rec.execution?.status === "rolled-back" ? "Plan rolled back" : allDone ? "All actions completed in the twin" : "Directives are executed by the plant model as simulated time advances"}
+        description={
+          rec.execution?.status === "rolled-back"
+            ? "Plan rolled back"
+            : rec.execution?.status === "partially-applied"
+              ? "Some actions could not be applied — see the audit trail"
+              : allDone
+                ? "All actions completed in the twin"
+                : "Directives are executed by the plant model as simulated time advances"
+        }
         icon={<History className="h-4 w-4 text-healthy" />}
         actions={
           rec.status === "approved" && !allDone ? (

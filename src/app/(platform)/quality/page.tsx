@@ -270,7 +270,7 @@ function CameraWall({ state }: { state: FactoryState }) {
           <div key={c.id} className={cn("overflow-hidden rounded-xl border bg-shell", alert ? "border-critical/50" : "border-line")} data-testid="camera-tile">
             <button className="group relative block aspect-video w-full bg-black" onClick={() => openLive(c.id)} aria-label={`Open live view of ${c.id}`}>
               <div className="pointer-events-none h-full w-full">
-                <CameraFeed state={state} camera={{ ...c, stream: { kind: "simulated", url: null } }} />
+                <CameraFeed state={state} camera={c} />
               </div>
               <span className="absolute inset-0 flex items-center justify-center transition-colors group-hover:bg-black/35">
                 <span className="flex items-center gap-1.5 rounded-full bg-black/60 px-3 py-1.5 text-[12px] font-medium text-white opacity-0 transition-opacity group-hover:opacity-100">

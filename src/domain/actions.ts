@@ -149,7 +149,7 @@ export function approveRecommendation(state: FactoryState, id: string, by: strin
       refs: { recommendationId: rec.id, assetIds: action.assetIds, directiveId: step.directiveIds[0] },
     });
   }
-  rec.execution = { status: steps.every((s) => s.status === "applied") ? "applied" : "applied", steps };
+  rec.execution = { status: steps.every((s) => s.status === "applied") ? "applied" : "partially-applied", steps };
 
   // Supersede other pending recommendations for the same target and mark the incident as mitigating.
   const scenarioTarget = rec.affectedAssetIds[0];

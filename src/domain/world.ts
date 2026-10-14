@@ -222,7 +222,8 @@ export function worldFromState(state: FactoryState): SimWorld {
     ),
     lines,
     inventory: Object.fromEntries(
-      state.inventory.map((i) => [i.id, { name: i.name, onHand: i.onHand, inbound: i.inbound.map((s) => ({ ...s })), stockedOut: false }]),
+      // An item that is already empty was reported when it ran out; don't report it again on every tick.
+      state.inventory.map((i) => [i.id, { name: i.name, onHand: i.onHand, inbound: i.inbound.map((s) => ({ ...s })), stockedOut: i.onHand <= EPS }]),
     ),
     finishedGoods: { ...state.finishedGoods },
     orders: state.orders.map((o) => ({ ...o, fulfilledAtDue: o.completedHour !== null || o.dueHour > state.clock.hour ? null : o.fulfilled })),

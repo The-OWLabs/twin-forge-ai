@@ -26,8 +26,19 @@ env:
   - variable: GEMINI_MODEL
     value: gemini-3.5-flash
     availability: [RUNTIME]
-  # Python vision service (optional): Cloud Run URL of services/vision. Grant this backend's service
-  # account roles/run.invoker on that service — see docs/python-services-plan.md.
+  # Integration settings changed in the UI (Integrations page) are saved to this private bucket, so
+  # they survive instance restarts. This backend's service account has roles/storage.objectAdmin on it.
+  - variable: TWINFORGE_CONFIG_BUCKET
+    value: twin-forge-twinforge-config
+    availability: [RUNTIME]
+  # Admin passcode (Secret Manager) that unlocks camera sources and integration settings in the UI.
+  # Without it, admin changes are disabled on Cloud Run. Rotate with:
+  #   firebase apphosting:secrets:set twinforge-admin-key --project twin-forge
+  - variable: TWINFORGE_ADMIN_KEY
+    secret: twinforge-admin-key
+    availability: [RUNTIME]
+  # The Python vision service (services/vision, private Cloud Run service) is configured from the UI:
+  # Integrations → Vision service. Or set it here as the deployment default:
   # - variable: VISION_SERVICE_URL
-  #   value: https://twinforge-vision-<hash>.asia-southeast1.run.app
+  #   value: https://twinforge-vision-566093229758.asia-southeast1.run.app
   #   availability: [RUNTIME]
