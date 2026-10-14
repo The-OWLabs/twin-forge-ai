@@ -97,6 +97,7 @@ export function validateSpec(input: unknown): ValidationResult {
   dedupe(spec.products, "products");
   dedupe(spec.materials, "materials");
   dedupe(spec.integrations, "integrations");
+  dedupe(spec.mobileRobots, "mobileRobots");
 
   // Line structure: process lines feed at most one packing line, which runs last.
   const packing = spec.lines.filter((l) => l.role === "packing");
@@ -158,6 +159,7 @@ export function validateSpec(input: unknown): ValidationResult {
     for (const m of l.machines) checkRefs(m.prov, `machines.${m.id}`);
   }
   for (const p of spec.products) checkRefs(p.prov, `products.${p.id}`);
+  for (const f of spec.mobileRobots) checkRefs(f.prov, `mobileRobots.${f.id}`);
 
   // Integrations must point at something that exists.
   const targets = new Set(["site", ...spec.lines.map((l) => l.id), ...spec.lines.flatMap((l) => l.machines.map((m) => m.id))]);
@@ -169,6 +171,40 @@ export function validateSpec(input: unknown): ValidationResult {
   for (const i of spec.integrations) {
     if (i.kind !== "simulated" && !i.address) issues.push({ level: "info", path: `integrations.${i.id}`, message: `${i.kind.toUpperCase()} connection on ${i.target} has no address yet; it stays planned.` });
   }
+
+  // Mobile robots: each fleet serves a line that suits its move.
+  const packingLine = spec.lines.find((l) => l.role === "packing") ?? null;
+  const processLines = spec.lines.filter((l) => l.role === "process");
+  spec.mobileRobots = spec.mobileRobots.filter((f) => {
+    const line = spec.lines.find((l) => l.id === f.lineId) ?? null;
+    const path = `mobileRobots.${f.id}`;
+    if (f.mission === "finished-goods") {
+      const from = packingLine ?? processLines[processLines.length - 1] ?? null;
+      if (from && line?.id !== from.id) {
+        if (line) issues.push({ level: "info", path, message: `${f.name}: finished goods leave from ${from.name}, so the robots serve that line.` });
+        f.lineId = from.id;
+      }
+      return !!from;
+    }
+    if (f.mission === "line-transfer" && !packingLine) {
+      issues.push({ level: "warning", path, message: `${f.name}: moving product between lines needs a packing line; removed. Add a packing line or choose kitting.` });
+      return false;
+    }
+    if (!line || line.role !== "process") {
+      const first = processLines[0];
+      if (!first) return false;
+      f.lineId = first.id;
+      issues.push({
+        level: processLines.length > 1 ? "warning" : "info",
+        path,
+        message: processLines.length > 1 ? `${f.name}: no process line was named; assigned to ${first.name}. Change it if another line is served.` : `${f.name}: serves ${first.name}.`,
+      });
+    }
+    return true;
+  });
+  const robots = spec.mobileRobots.reduce((n, f) => n + f.count, 0);
+  if (robots > 24) issues.push({ level: "error", path: "mobileRobots", message: `${robots} mobile robots requested; up to 24 are simulated. Reduce the fleet sizes.` });
+  else if (robots) issues.push({ level: "info", path: "mobileRobots", message: `${robots} mobile robot(s) will be simulated from line output; no fleet manager is connected yet.` });
 
   // Rates: typical ranges and bottlenecks.
   const lines = deriveRates(spec);

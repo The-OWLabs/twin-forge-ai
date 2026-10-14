@@ -5,6 +5,7 @@ import { AlertTriangle, RefreshCw } from "lucide-react";
 import { useEnsureLoaded, useLiveClock } from "@/client/hooks";
 import { useFactory } from "@/client/store";
 import { DemoGuide } from "@/components/shell/demo-guide";
+import { MobileNotice } from "@/components/shell/mobile-notice";
 import { Sidebar } from "@/components/shell/sidebar";
 import { Toaster } from "@/components/shell/toaster";
 import { Topbar } from "@/components/shell/topbar";
@@ -56,6 +57,7 @@ export default function PlatformLayout({ children }: { children: React.ReactNode
         <CameraDialogHost />
         <CopilotPanel />
         <Toaster />
+        <MobileNotice />
       </div>
     </TooltipProvider>
   );

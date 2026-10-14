@@ -197,7 +197,8 @@ TwinForge has three kinds of agent, each with a clear trust boundary.
 Full design: [twin-builder.md](twin-builder.md).
 - **Workflow:** read the drawing (multimodal), research the industry (Google Search grounding, cited), draft a `TwinSpec`, then validate.
 - **Model draft, code decides.** Code resolves ids, blueprint boxes and citations. A claim the model can't back (a non-existent drawing element, an invalid citation) is downgraded to *assumption*.
-- **Edits.** Chat and manual edits share 18 validated edit operations.
+- **Mobile robots.** Fleets the requirements or drawing describe are drafted with a type, move, line and count; if the model leaves them out, a keyword reader adds them and says so. They are reviewed and edited like machines.
+- **Edits.** Chat and manual edits share 21 validated edit operations.
 - **Build.** The compiler (`compileSpec`) builds the twin with the same engine as the demo.
 - **Measured:** about 78 s for a full draft with research on the live site.
 
@@ -242,7 +243,7 @@ flowchart TB
 ## 8. Twin views, 3D and mobile robots
 
 - **Four views of one state:** Topology (React Flow), Isometric (SVG), Floor plan and **3D** (three.js through React Three Fiber, loaded only when the tab opens). The isometric and 3D views share one layout (`layoutIso`) and one machine-part library (`machineParts`), so they always agree; the 3D view adds orbit, pan, zoom, top view, focus and a turntable, with animated robot arms, belts and robots. Labels are DOM elements positioned by a per-frame projector (one React tree). Without WebGL the tab says so and points to the other views.
-- **Mobile robots (`src/domain/intralogistics.ts`).** A simulated intralogistics layer derived from the twin, not stored: a kitting AMR per process line (stores → line infeed) and a pallet AMR per packing line (outfeed → the truck being loaded). Trips per hour = line output ÷ units per trip (60 per kit, 120 per pallet); a robot parks with the reason when its line is down, in maintenance or starved. Routes keep to the aisles (`amr-paths.ts`). The animation runs at real speed while the plant clock runs 30× faster, which the view states. A fleet manager (VDA 5050 or a vendor API) would replace this with real positions.
+- **Mobile robots (`src/domain/intralogistics.ts`).** A twin built with the Twin Builder has exactly the fleets its reviewed spec asks for (`state.mobileRobots`: AMRs, AGVs, automated forklifts or tuggers for kitting, transfer to packing or finished goods to the dock); a twin without them has none. The demo plant, which predates the builder, gets a derived fleet (a kitting AMR per process line, a pallet AMR per packing line) so its seed stays byte-identical. Trips per hour = line output ÷ units per trip (60 per kit or tote, 120 per pallet), shared across a fleet; a robot parks with the reason when its line is down, in maintenance or starved. Routes keep to the aisles (`amr-paths.ts`). The animation runs at real speed while the plant clock runs 30× faster, which the view states. A fleet manager (VDA 5050 or a vendor API) would replace this with real positions.
 
 ---
 
@@ -352,8 +353,8 @@ Validation errors return 400 with field issues, missing admin 401, unknown ids 4
 
 | Suite | Count | Covers |
 |---|---|---|
-| Vitest (`tests/`) | 94 | Seed reproducibility; physics, KPIs and trend estimation; scenario outcomes, sensitivity and ranking; agent pipeline; approvals, rejection and rollback; LLM grounding and fallback; quality and cameras; Twin Builder templates, validation, compile and agent workflow with recorded responses; the tool layer (read-only guarantee, proposal semantics, argument validation); numeric grounding; admin sessions (signing, expiry, rate limit); settings overrides, validation and secret handling; camera sources and the footage library; stock-outs reported once |
-| Playwright (`e2e/`) | 14 | Every page renders with no console errors; guided crisis demo; reset; API validation; iso view and theme; landing story; cameras and Visual Quality; Twin Builder end to end; MCP protocol; ADK copilot with a grounded answer (runs when Gemini is configured); CCTV control room switching to reference footage and back; integration settings from the UI; the 3D view with mobile robots |
+| Vitest (`tests/`) | 103 | Seed reproducibility; physics, KPIs and trend estimation; scenario outcomes, sensitivity and ranking; agent pipeline; approvals, rejection and rollback; LLM grounding and fallback; quality and cameras; Twin Builder templates, validation, compile and agent workflow with recorded responses; the tool layer (read-only guarantee, proposal semantics, argument validation); numeric grounding; admin sessions (signing, expiry, rate limit); settings overrides, validation and secret handling; camera sources and the footage library; stock-outs reported once |
+| Playwright (`e2e/`) | 15 | Every page renders with no console errors; guided crisis demo; reset; API validation; iso view and theme; landing story; cameras and Visual Quality; Twin Builder end to end; MCP protocol; ADK copilot with a grounded answer (runs when Gemini is configured); CCTV control room switching to reference footage and back; integration settings from the UI; the 3D view with mobile robots; Twin Builder robots end to end; the phone notice |
 | pytest (`services/vision`) | 16 | Golden comparison (missing part, rotated part, lighting), codes, quality, video stoppage, determinism, API limits |
 
 The e2e suite runs against local production builds and against the live URL (`E2E_BASE_URL`). With AI on, the Twin Builder and copilot tests exercise real Gemini.

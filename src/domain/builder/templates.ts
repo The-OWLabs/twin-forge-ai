@@ -54,6 +54,7 @@ function spec(name: string, industry: string, productionType: string, lines: Spe
     assumptions: ["Started from a TwinForge reference template; all rates, prices and stock levels are typical values to replace with your own.", ...assumptions],
     questions: [],
     blueprint: null,
+    mobileRobots: [],
     options: { rehearsalIncident: false, linesInterchangeable: true },
   };
 }

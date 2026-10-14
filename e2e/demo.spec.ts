@@ -19,7 +19,7 @@ test("every page renders without console errors", async ({ page }) => {
   for (const path of ["/", "/onboarding", "/dashboard", "/twin", "/assets", "/quality", "/agents", "/simulator", "/approvals", "/sustainability", "/audit", "/control-room", "/integrations"]) {
     // Wait for rendered content rather than "networkidle": the app polls live telemetry every 4 s.
     await page.goto(path, { waitUntil: "domcontentloaded" });
-    await expect(page.locator("h1, h2").first()).toBeVisible();
+    await expect(page.locator("h1:visible, h2:visible").first()).toBeVisible();
     await page.waitForTimeout(500);
   }
   expect(errors).toEqual([]);
@@ -205,7 +205,7 @@ test("Twin Builder: describe → draft → review with provenance → plan a con
   await expect(page.getByRole("heading", { name: "Twin Builder" })).toBeVisible();
   const meta = (await (await request.get("/api/builder")).json()) as { ai: { available: boolean } };
 
-  await page.getByLabel("Requirements").fill("We bottle spring water in PET on one line, then case packing and palletizing.");
+  await page.getByLabel("Requirements").fill("We bottle spring water in PET on one line, then case packing and palletizing. Two AMRs bring preforms and caps from the warehouse to the bottling line.");
   await page.getByLabel("Factory name").fill("Riverside Bottling");
   if (meta.ai.available) await page.getByRole("switch", { name: "Research on the web" }).click(); // keep the e2e run offline-fast
   await page.getByTestId("builder-start").click();
@@ -213,6 +213,12 @@ test("Twin Builder: describe → draft → review with provenance → plan a con
   await expect(review).toBeVisible({ timeout: 120_000 });
   await expect(page.getByTestId("line-editor").first()).toBeVisible();
   if (!meta.ai.available) await expect(review.getByText("Drafted from a template")).toBeVisible();
+  // The robots asked for in the requirements are in the draft, reviewable and editable
+  const robots = page.getByTestId("robots-editor");
+  await expect(robots.getByTestId("robot-fleet").first()).toBeVisible();
+  const fleetCount = await robots.getByTestId("robot-fleet").count();
+  await page.getByTestId("add-robot-fleet").click();
+  await expect(robots.getByTestId("robot-fleet")).toHaveCount(fleetCount + 1);
 
   // Manual edit goes through validated operations and is attributed to the user
   const rate = page.getByTestId("line-editor").first().getByLabel("Rate per hour").first();
@@ -229,7 +235,9 @@ test("Twin Builder: describe → draft → review with provenance → plan a con
   await page.getByTestId("builder-build").click();
   await page.waitForURL("**/twin");
   await expect(page.getByText("Riverside Bottling").first()).toBeVisible();
-  const state = (await (await request.get("/api/factory")).json()) as { profile: { name: string }; twinSpec: unknown; dataPlan: { kind: string; status: string }[]; audit: { title: string }[] };
+  const state = (await (await request.get("/api/factory")).json()) as { profile: { name: string }; twinSpec: unknown; dataPlan: { kind: string; status: string }[]; audit: { title: string }[]; mobileRobots?: { mission: string }[] };
+  // Two requested kitting AMRs (at least) plus the fleet added by hand
+  expect(state.mobileRobots?.length ?? 0).toBeGreaterThanOrEqual(3);
   expect(state.profile.name).toBe("Riverside Bottling");
   expect(state.twinSpec).toBeTruthy();
   expect(state.dataPlan).toContainEqual(expect.objectContaining({ kind: "opcua", address: "ns=3;s=Line.Speed", status: "planned" }));

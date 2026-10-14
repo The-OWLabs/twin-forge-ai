@@ -678,6 +678,20 @@ export interface VisionReview {
   note: string;
 }
 
+/** A mobile robot built into the twin from the Twin Builder spec (simulated; no fleet manager connected). */
+export interface MobileRobot {
+  id: string;
+  name: string;
+  fleetId: string;
+  fleetName: string;
+  robotType: "amr" | "agv" | "forklift-agv" | "tugger";
+  mission: "kitting" | "line-transfer" | "finished-goods";
+  /** Engine id of the line it serves. */
+  lineId: string;
+  unitsPerTrip: number;
+  speedMps: number;
+}
+
 /** A planned data connection from the Twin Builder. Planned only until a connector is configured and verified. */
 export interface DataConnection {
   id: string;
@@ -718,6 +732,8 @@ export interface FactoryState {
   /** The reviewed spec this twin was built from (Twin Builder), with provenance. */
   twinSpec?: import("./builder/spec").TwinSpec | null;
   dataPlan?: DataConnection[];
+  /** Mobile robots from the Twin Builder spec. Absent: none, except the demo plant's derived fleet. */
+  mobileRobots?: MobileRobot[];
   audit: AuditEntry[];
   costModel: CostModel;
   counters: Record<string, number>;

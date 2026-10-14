@@ -50,9 +50,10 @@ The workflow is `runBuilder` in `src/domain/builder/pipeline.ts`. The model sits
 - **lines:** 1–4 process lines and an optional packing / end-of-line area that receives their output. Each has up to 8 machines in flow order, each with an archetype, an optional rate and an optional box on the drawing.
 - **products:** unit, rate, price, material cost and bill of materials. **materials:** unit, cost, lead time and stock.
 - **integrations:** planned data connections per line, machine or site (simulated, Pub/Sub, camera RTSP, MQTT, OPC UA, Modbus, historian, ERP). Never credentials.
+- **mobileRobots:** fleets of AMRs, AGVs, automated forklifts or tuggers, each with a count (up to 12 per fleet, 24 in all), a move (kitting: stores → a process line; line-transfer: a process line → the packing line; finished-goods: the packing line → the dock), the line it serves, and optional units per trip and speed. Only added when your requirements or the drawing mention robots. Validation points each fleet at a line that suits its move.
 - **references, assumptions, questions, options:** the options are the rehearsal incident and whether lines can run each other's products.
 
-Edits from the review screen and from the agent's chat use the same 18 edit operations (`src/domain/builder/ops.ts`). Each one is validated, and invalid ones are rejected with a reason.
+Edits from the review screen and from the agent's chat use the same 21 edit operations (`src/domain/builder/ops.ts`). Each one is validated, and invalid ones are rejected with a reason.
 
 ## Machine archetypes
 
@@ -91,6 +92,12 @@ Seven reviewable starting layouts:
 
 They are labelled as typical configurations, not real plants. All seven pass validation with no warnings and run the full six-agent analysis in tests.
 
+## Mobile robots
+
+Describe them the way you would to a colleague: "3 AMRs bring components from the warehouse to Line 1, two AGVs take pallets to the dock". With Gemini, the draft maps each fleet to a type, a move, a line and the stated count, tagged *your requirement* (or *blueprint* when the drawing shows AGV paths or charging stations). Without Gemini, or if the model leaves them out, the same request is read by keyword matching (`src/domain/builder/robots.ts`), and the spec says so; robots you asked for are never dropped silently. A plant whose requirements don't mention robots gets none.
+
+On the review screen the **Mobile robots** card lists each fleet with its source, and lets you change the type, move, line and count, add or remove fleets; or ask the agent ("make it 4 AMRs", "add a tugger for kitting on Line 2"). In the built twin, each robot appears in the 3D view on an aisle route, its trips per hour follow its line's output and are shared across the fleet, and it parks with the reason when its line stops or a part runs out. Robots are simulated: no fleet manager is connected yet (a VDA 5050 or vendor-API adapter would supply real positions).
+
 ## Data connections ("integrate whatever you want")
 
 Connections are planned per line, machine or site and saved with the twin. The **Integrations** page lists them as *planned · not connected* until a connector is configured and verified.
@@ -126,7 +133,7 @@ Google Search grounding is billed per grounded request. When grounded results ar
 ## Limitations
 
 - **Lines run in series.** Parallel stations are modelled by their combined rate. Branching flows, buffers between stations and batch steps are approximated. A full process-graph engine was considered and deferred.
-- **Up to 4 process lines** and one packing area per twin, with up to 8 machines per line.
+- **Up to 4 process lines** and one packing area per twin, with up to 8 machines per line, and up to 24 mobile robots for three kinds of move (kitting, transfer to packing, finished goods to the dock).
 - **Typical values.** Default rates, prices, stock and the sample order book are typical values until real systems are connected. They are listed in the build's audit entry and in the review's assumptions.
 - **Drawings are interpreted, not measured.** Element positions on the drawing are shown for checking. They do not set the twin's geometry, which uses the standard isometric layout.
 - **Model behaviour varies between runs.** Unit tests use recorded responses. Against Gemini 3.5 Flash, a two-line bottling drawing was read correctly: 11 machines with accurate boxes and utilities excluded. A full draft with research takes about 70 s, and chat edits 5–15 s. Each chat edit shows exactly which operations were applied or rejected, whatever the model says.

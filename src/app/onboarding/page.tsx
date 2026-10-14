@@ -10,6 +10,7 @@ import { BrandMark, BrandName } from "@/components/brand";
 import { AgentStages } from "@/components/builder/progress";
 import { ReviewWorkspace } from "@/components/builder/review";
 import { StartPanel } from "@/components/builder/start-panel";
+import { MobileNotice } from "@/components/shell/mobile-notice";
 import { Toaster } from "@/components/shell/toaster";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { Badge, Button, TooltipProvider } from "@/components/ui/primitives";
@@ -40,6 +41,7 @@ export default function TwinBuilderPage() {
   return (
     <TooltipProvider>
       <div className="min-h-screen bg-canvas">
+        <MobileNotice />
         <div className="pointer-events-none fixed inset-0 grid-bg [mask-image:radial-gradient(ellipse_at_top,black_30%,transparent_70%)]" aria-hidden />
         <header className="relative mx-auto flex h-16 max-w-[1500px] items-center justify-between gap-2 px-4">
           <Link href="/" className="flex items-center gap-2.5">

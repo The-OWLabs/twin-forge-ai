@@ -82,7 +82,7 @@ The fastest path is **Demo controls → Run Factory Crisis Demo** (top-right). I
 7. **Audit Trail**: every alert, agent finding, scenario run, decision, simulated action and resulting state change is listed with links.
 8. **Ask Copilot** (top bar): ask "Why is Line A rejecting more boards?" The coordinator delegates to the maintenance, quality and planning agents, and every tool call is shown. The answer is checked figure by figure against the tool results. Then say "propose the reroute plan for approval": the copilot pauses for your confirmation and creates a pending recommendation in Approvals.
 9. **CCTV Control Room** (Admin): unlock admin, press **All to reference footage** to put real factory video on every camera (each clip credited and labelled *not this plant*), then run **Gemini review** or the **OpenCV motion check** on a feed. The findings land in Visual Quality for a person to confirm.
-10. **Twin Builder** (sidebar): describe another plant, for example "two PET bottling lines, case packer and palletizer, OPC UA on the fillers", or upload its drawing. Review the draft with provenance badges on every element, plan a data connection, and build. The new twin runs with the same agents, simulator and cameras. **Reset Demo** brings back the crisis factory.
+10. **Twin Builder** (sidebar): describe another plant, for example "two PET bottling lines, case packer and palletizer, OPC UA on the fillers, 3 AMRs bringing preforms from the warehouse", or upload its drawing. Review the draft with provenance badges on every element, plan a data connection, and build. The new twin runs with the same agents, simulator and cameras. **Reset Demo** brings back the crisis factory.
 
 **Reset Demo** (Demo controls) restores the exact initial state at any time.
 
@@ -100,7 +100,7 @@ The fastest path is **Demo controls → Run Factory Crisis Demo** (top-right). I
 | 16 machine archetypes across industries (CNC, mixer, oven, filler, molding, welding, palletizer, pump, manual station, extruder + the original 6), each with physics, sensors, failure mode, defect classes and a 3D shape; 7 industry templates | ✅ |
 | Factory Command Center: OEE, target vs. actual, health distribution, energy, scrap, incidents, shortages, delivery risk, line status, events | ✅ |
 | Digital Twin Studio: React Flow topology (lines, machines, sensors, inventory and order nodes; add, edit and connect assets; drag; zoom, pan and fit), an **isometric view** (extruded machines with status stack-lights, animated belts, warehouse racks and order trucks; rotate, zoom, pan, select), a 2D floor plan, and a **3D view** (three.js: orbit, pan, zoom, top view, focus, turntable; animated robot arms, belts and mobile robots), all with scenario highlighting | ✅ |
-| Mobile robots (AMRs): a simulated intralogistics layer derived from material flow. A kitting robot per process line and a pallet robot per packing line; trip rates follow line output, and robots park with the reason when a line stops or a part runs out | ✅ |
+| Mobile robots (AMRs, AGVs, automated forklifts, tuggers): created by the Twin Builder from your requirements or drawing (count, move, line), reviewable and editable; the demo plant has a derived kitting and pallet fleet. Trip rates follow line output and are shared across a fleet, and robots park with the reason when a line stops or a part runs out | ✅ |
 | Asset management: search, filters, sort, detail sheet linked to the twin | ✅ |
 | Live simulated telemetry (deterministic noise) with pause/resume and fast-forward | ✅ |
 | Anomaly detection: OLS trend, change-point test, z-score, threshold proximity, excess-power check | ✅ |
@@ -239,12 +239,12 @@ Open **Twin Builder** (sidebar, or **Create your twin** on the landing page). Gi
 The agent then works in four stages, each streamed live:
 1. **Read** recognises machines, lines and flow on the drawing.
 2. **Research** finds how plants like yours are set up, with citations.
-3. **Draft** proposes lines, machines, products, materials and data connections.
+3. **Draft** proposes lines, machines, products, materials, data connections and any mobile robots (AMRs, AGVs, automated forklifts, tuggers) you describe.
 4. **Validate** runs deterministic checks.
 
 **Review before build.** Every element shows where it came from: *blueprint*, *your requirement*, *cited source*, *template*, *assumption* or *your edit*. The model can only use the 16 known machine archetypes and may only state numbers that you, the drawing or a cited source provide. A claim it can't back is downgraded to *assumption*.
 
-You can edit lines, machines, rates, products and connections directly, or ask the agent ("add a second filler at 6,000 bottles/h"). Its changes are applied as validated operations. **Build my digital twin** compiles the reviewed spec deterministically, with the same engine as the demo. The defaults it applies are recorded in the audit trail.
+You can edit lines, machines, rates, products, robots and connections directly, or ask the agent ("add a second filler at 6,000 bottles/h", "make it 4 AMRs"). Its changes are applied as validated operations. **Build my digital twin** compiles the reviewed spec deterministically, with the same engine as the demo. The defaults it applies are recorded in the audit trail.
 
 **Without AI** (no Gemini configured) the builder says so, matches your description to one of 7 industry templates by keywords, and the review and build work the same way.
 
@@ -394,12 +394,12 @@ docker run -p 8080:8080 twinforge-ai     # http://localhost:8080
 ## Testing
 
 ```bash
-npm test               # 94 Vitest tests
-npm run build && npm run test:e2e   # 14 Playwright tests against the production server
+npm test               # 103 Vitest tests
+npm run build && npm run test:e2e   # 15 Playwright tests against the production server
 cd services/vision && uv run pytest # 16 pytest tests for the Python vision service
 ```
 
-- **Unit and integration tests** (`tests/`, 94 tests), including a check that the landing story's figures are engine-derived:
+- **Unit and integration tests** (`tests/`, 103 tests), including a check that the landing story's figures are engine-derived:
   - seed reproducibility and entity counts
   - health and status rules, OLS and trend estimation, change-point detection
   - KPIs
@@ -417,7 +417,7 @@ cd services/vision && uv run pytest # 16 pytest tests for the Python vision serv
 - **Admin and settings** (`tests/admin.test.ts`): signed admin cookies (expiry, tampering, passcode rotation, rate limit); settings overriding the environment, turning off and returning to the deployment value; never overwriting saved settings that could not be read from Cloud Storage; validation (https only, no metadata host); secrets never returned; settings driving the AI and vision adapters; camera source switching with audit; every footage clip shipped with its file, poster and license; stock-outs reported once.
 - **Agent tools** (`tests/tools.test.ts`): every read tool leaves the twin unchanged; what-if matches the engine; the proposal only creates a pending recommendation; invalid arguments are rejected; no tool can approve, execute or command equipment; numeric grounding of answers.
 - **Python vision service** (`services/vision/tests`, 16 tests, synthetic media): a missing IC found where it should be, a rotated and shifted part aligned, lighting changes ignored, QR and EAN-13 decoding with grades, deterministic output, a video stoppage found at the right time, and API limits.
-- **End-to-end tests** (`e2e/demo.spec.ts`, 14 tests): the 3D view rendering with mobile robots and layer toggles; the CCTV control room switching all cameras to reference footage and back (audited, served as video/mp4); integration settings saved from the UI and returned to the deployment value; MCP protocol (initialize, tools/list with read-only hints, tools/call, errors); the ADK copilot giving a grounded answer with a tool trace (when Gemini is configured); Twin Builder from description to built twin with a planned connection; camera card → audited live view → Visual Quality review confirmed by a person; camera API validation and honest Gemini status; isometric selection and rotation, theme persistence, every landing-story chapter appearing on scroll; every page renders with no console errors; the full guided crisis demo (incident → agents → scenario sensitivity → twin highlight → approval → fast-forward → audit); reset reproducibility; API validation.
+- **End-to-end tests** (`e2e/`, 15 tests): the phone notice and continuing past it; the 3D view rendering with mobile robots and layer toggles; Twin Builder robots from the requirements through review to the built twin; the CCTV control room switching all cameras to reference footage and back (audited, served as video/mp4); integration settings saved from the UI and returned to the deployment value; MCP protocol (initialize, tools/list with read-only hints, tools/call, errors); the ADK copilot giving a grounded answer with a tool trace (when Gemini is configured); Twin Builder from description to built twin with a planned connection; camera card → audited live view → Visual Quality review confirmed by a person; camera API validation and honest Gemini status; isometric selection and rotation, theme persistence, every landing-story chapter appearing on scroll; every page renders with no console errors; the full guided crisis demo (incident → agents → scenario sensitivity → twin highlight → approval → fast-forward → audit); reset reproducibility; API validation.
 
 ---
 
@@ -450,9 +450,9 @@ tests/ e2e/            Vitest and Playwright suites
 - **No real equipment control.** Approval changes only the digital twin. The platform never writes to PLCs or commands machines; that would need a separately authenticated, authorized and safety-validated integration.
 - **Single tenant, per-instance state.** One factory per server, stored in a local JSON file. Cloud Run instances do not share state (hence max-instances 1), and state resets when an instance is recycled. A production version would use Firestore, Cloud SQL or BigQuery.
 - **No per-user login.** Configuration changes (camera sources, integration settings) need the admin passcode; everything else is open to anyone with the URL.
-- **Mobile robots are simulated.** Their missions and trip rates are derived from the plant model; no fleet manager is connected (a VDA 5050 or vendor-API adapter would supply real positions). The 3D animation runs at real speed while the plant clock runs 30× faster.
+- **Mobile robots are simulated.** Fleets come from the Twin Builder spec (the demo plant has a derived kitting and pallet fleet); missions and trip rates follow the plant model; no fleet manager is connected (a VDA 5050 or vendor-API adapter would supply real positions). The 3D animation runs at real speed while the plant clock runs 30× faster.
 - **No automatic re-ordering.** Parts without an open purchase order run out after about 55–61 hours of plant time (about 2 hours of an open tab after a reset), and the lines starve. Use **Reset Demo**.
 - **Cloud adapters are not verified against live services in this build.** BigQuery, Pub/Sub, Cloud Storage and Vertex AI calls are implemented and are exercised only when configured. MQTT is a reachability probe; subscription is not implemented.
 - **Twin Builder limits.** Machines on a line run in series, with up to 4 process lines plus one packing area and 8 machines per line. Parallel or batch steps are approximated. Default rates, prices, stock and the sample orders are typical values until real systems are connected. The AI steps use Gemini 3.5 Flash on Vertex AI (asia-southeast1); without it, template mode is used.
 - **Time model.** Live telemetry advances 2 minutes of plant time every 4 seconds while the app is open in a visible tab. Fast-forward runs the same model in larger jumps.
-- **Desktop-first.** Pages work on phones (no horizontal page scrolling), but the twin canvas and wide tables are best on a laptop or larger screen.
+- **Desktop-first.** On phones, the demo and the Twin Builder open with a full-page notice that TwinForge is best viewed on a computer, with **Continue on this device** (remembered for the session) and a link to send to a computer. Pages still work on phones (no horizontal page scrolling), but the twin canvas and wide tables are best on a laptop or larger screen.

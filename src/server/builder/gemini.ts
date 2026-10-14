@@ -3,7 +3,7 @@ import { ASSET_KINDS } from "@/domain/archetypes";
 import { ARCHETYPE_CATALOG, BlueprintReadingSchema, DraftSchema, type ResearchResult } from "@/domain/builder/draft";
 import { SpecOpSchema } from "@/domain/builder/ops";
 import type { BuilderAi } from "@/domain/builder/pipeline";
-import { INTEGRATION_KINDS, type TwinSpec } from "@/domain/builder/spec";
+import { INTEGRATION_KINDS, ROBOT_MISSIONS, ROBOT_TYPES, type TwinSpec } from "@/domain/builder/spec";
 import { aiConfig, geminiGenerate } from "@/server/ai/provider";
 
 /**
@@ -30,7 +30,7 @@ const READ_SCHEMA = {
         properties: {
           id: { type: "string", description: "e1, e2, …" },
           label: { type: "string", description: "Label exactly as written on the drawing, or a short description if unlabelled." },
-          role: { type: "string", enum: ["machine", "conveyor", "storage", "dock", "utility", "office", "other"] },
+          role: { type: "string", enum: ["machine", "conveyor", "storage", "dock", "utility", "office", "vehicle", "other"], description: "vehicle: AGV/AMR paths, charging stations or automated forklifts shown on the drawing." },
           archetype: { type: "string", enum: [...ASSET_KINDS, "none"] },
           lineHint: nstr,
           box: { type: "array", items: { type: "number" }, description: "[ymin, xmin, ymax, xmax] on a 0–1000 grid" },
@@ -117,13 +117,31 @@ const DRAFT_SCHEMA = {
         required: ["target", "kind", "address", "note", "source"],
       },
     },
+    mobileRobots: {
+      type: "array",
+      description: "Mobile robots (AMRs, AGVs, automated forklifts, tuggers). ONLY when the requirements or the blueprint call for them; otherwise an empty array.",
+      items: {
+        type: "object",
+        properties: {
+          name: { type: "string", description: "Short fleet name, e.g. \"Kitting AMRs Line 1\"." },
+          robotType: { type: "string", enum: ROBOT_TYPES },
+          mission: { type: "string", enum: ROBOT_MISSIONS, description: "kitting: stores → a process line; line-transfer: a process line → the packing line; finished-goods: the packing line → the shipping dock." },
+          line: { type: ["string", "null"], description: "Name of the process line served (kitting, line-transfer). null for finished-goods." },
+          count: { type: "integer", description: "Number of robots in this fleet (as stated; if unstated, 1 and say so in note)." },
+          unitsPerTrip: nnum,
+          source: { type: "string", enum: SOURCES },
+          note: nstr,
+        },
+        required: ["name", "robotType", "mission", "line", "count", "unitsPerTrip", "source", "note"],
+      },
+    },
     assumptions: { type: "array", items: { type: "string" } },
     questions: { type: "array", items: { type: "string" } },
   },
-  required: ["site", "lines", "products", "materials", "integrations", "assumptions", "questions"],
+  required: ["site", "lines", "products", "materials", "integrations", "mobileRobots", "assumptions", "questions"],
 };
 
-const OP_FIELDS = Object.keys(SpecOpSchema.shape).filter((k) => k !== "op" && !["archetype", "kind", "position", "lineId", "machineId"].includes(k));
+const OP_FIELDS = Object.keys(SpecOpSchema.shape).filter((k) => k !== "op" && !["archetype", "kind", "position", "lineId", "machineId", "robotType", "mission"].includes(k));
 /** Fields models confuse most, described explicitly. */
 const OP_DESCRIPTIONS = {
   archetype: { type: ["string", "null"], enum: [...ASSET_KINDS, null], description: "Machine type. Required for add_machine; optional for update_machine and add_line." },
@@ -131,6 +149,8 @@ const OP_DESCRIPTIONS = {
   position: { type: ["number", "null"], description: "0-based index in the line's machine list (add_machine, move_machine). To insert after the machine at index i, use i + 1." },
   lineId: { type: ["string", "null"], description: "Existing line id from the spec." },
   machineId: { type: ["string", "null"], description: "Existing machine id from the spec." },
+  robotType: { type: ["string", "null"], enum: [...ROBOT_TYPES, null], description: "Mobile robot type. For add_robot_fleet (default amr) and update_robot_fleet." },
+  mission: { type: ["string", "null"], enum: [...ROBOT_MISSIONS, null], description: "Mobile robot move. Required for add_robot_fleet." },
 };
 const REFINE_SCHEMA = {
   type: "object",
@@ -146,7 +166,7 @@ const REFINE_SCHEMA = {
           ...Object.fromEntries(
             OP_FIELDS.map((k) => [
               k,
-              ["position", "ratePerHour", "unitPrice", "unitMaterialCost", "unitCost", "leadTimeHours", "onHand"].includes(k)
+              ["position", "ratePerHour", "unitPrice", "unitMaterialCost", "unitCost", "leadTimeHours", "onHand", "count", "unitsPerTrip", "speedMps"].includes(k)
                 ? nnum
                 : ["clearRate", "value"].includes(k)
                   ? { type: ["boolean", "null"] }
@@ -178,6 +198,7 @@ function compactSpec(spec: TwinSpec) {
     products: spec.products.map((p) => ({ id: p.id, name: p.name, unit: p.unit, ratePerHour: p.ratePerHour, materials: p.materials })),
     materials: spec.materials.map((m) => ({ id: m.id, name: m.name, unit: m.unit })),
     integrations: spec.integrations.map((i) => ({ id: i.id, target: i.target, kind: i.kind, address: i.address })),
+    mobileRobots: spec.mobileRobots.map((f) => ({ id: f.id, name: f.name, robotType: f.robotType, mission: f.mission, lineId: f.lineId, count: f.count, unitsPerTrip: f.unitsPerTrip })),
     questions: spec.questions,
     options: spec.options,
   };
@@ -279,6 +300,7 @@ export function geminiBuilderAi(): BuilderAi {
         "- Provenance (`source`): \"blueprint\" only for elements on the blueprint reading (set `blueprintElement` to its id); \"requirement\" for what the user asked for; \"reference\" only when supported by the research notes, citing their [R#] ids in `refs`; \"template\" for elements kept from the given template; otherwise \"default\" for your own typical assumptions.",
         "- Numbers: give ratePerHour, prices and costs ONLY when stated in the requirements, the blueprint or the cited research; otherwise use null and the system will derive stated defaults. Never invent supplier names, addresses or credentials.",
         "- Integrations: only connections the user asked for or that the blueprint shows (PLC, SCADA, historian, cameras). `target` is a line name, a machine name, or \"site\". If the user asks to monitor something without naming the protocol, pick the most likely interface, set source to \"default\" and explain the choice in `note`.",
+        "- Mobile robots: add `mobileRobots` ONLY if the requirements or the blueprint mention AMRs, AGVs, automated forklifts, tuggers or mobile robots; never add them on your own. Map each fleet to one move (kitting, line-transfer or finished-goods), the line it serves, and the count stated (if no count is stated, use 1 and say so in `note`). Mark them \"requirement\" or \"blueprint\". If a requested move is not one of these three, leave it out and say so in `assumptions`.",
         "- Put every assumption you make in `assumptions`, and ask up to 6 short `questions` where information that matters is missing.",
         "- If a template is given, start from it and change it to match the requirements and blueprint.",
         "",
@@ -301,6 +323,7 @@ export function geminiBuilderAi(): BuilderAi {
         "You edit a factory digital-twin spec by returning edit operations as JSON. Apply exactly what the user asks, nothing more.",
         "Use existing ids from the spec for lineId, machineId, productId, materialId, integrationId and questionId. For new items give a `name`.",
         `Machine archetypes (archetype field): ${ASSET_KINDS.join(", ")}. Connection kinds (kind field): ${INTEGRATION_KINDS.join(", ")}. For add_integration, target is a line id, machine id or "site".`,
+        `Mobile robots: add_robot_fleet (mission ${ROBOT_MISSIONS.join("|")}, robotType ${ROBOT_TYPES.join("|")}, lineId of the process line served — null for finished-goods, count, name), update_robot_fleet (fleetId plus the fields to change, e.g. count), remove_robot_fleet (fleetId).`,
         "Do every part of the request that these operations can express. Skip only the parts they cannot (for example an unsupported protocol) and say which parts you skipped and why in `explanation`.",
         "Only set numbers the user states. Never include credentials.",
         "",

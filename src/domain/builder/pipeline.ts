@@ -7,6 +7,7 @@
 import { applyOps, type SpecOp } from "./ops";
 import { specFromDraft, type BlueprintReading, type Draft, type ResearchResult } from "./draft";
 import type { TwinSpec } from "./spec";
+import { mentionsRobots, robotsFromRequirements } from "./robots";
 import { matchTemplate, templateById } from "./templates";
 import { validateSpec, type ValidationResult } from "./validate";
 
@@ -65,7 +66,9 @@ function fromTemplate(input: BuilderInput, reason: string): { spec: TwinSpec; no
   if (input.site.industry?.trim()) spec.site.industry = input.site.industry.trim();
   if (input.site.location?.trim()) spec.site.location = input.site.location.trim();
   const how = chosen ? `the "${tpl.name}" template you picked` : `the "${tpl.name}" template (matched on: ${matched!.matched.join(", ")})`;
-  const note = `${reason}; started from ${how}. Your free-text requirements were not interpreted beyond that.`;
+  const robots = robotsFromRequirements(input.requirements, spec);
+  spec.mobileRobots.push(...robots);
+  const note = `${reason}; started from ${how}.${robots.length ? ` ${robots.length} mobile robot fleet(s) were read from your requirements by keyword matching.` : ""} Your free-text requirements were not interpreted beyond that.`;
   spec.assumptions.unshift(note);
   return { spec, note };
 }
@@ -125,8 +128,17 @@ export async function* runBuilder(input: BuilderInput, ai: BuilderAi): AsyncGene
     try {
       const draft = await ai.draft({ requirements: input.requirements, site: input.site, reading, research, template });
       spec = specFromDraft(draft, { reading, references: research?.references ?? [], blueprintFile: input.blueprint?.fileName ?? null, userSite: input.site });
+      // Safety net: robots the owner asked for are never dropped silently.
+      if (!spec.mobileRobots.length && mentionsRobots(input.requirements)) {
+        const robots = robotsFromRequirements(input.requirements, spec);
+        if (robots.length) {
+          spec.mobileRobots = robots;
+          spec.assumptions.push("The AI draft left out the mobile robots in your requirements; they were added by keyword matching. Check their counts, moves and lines.");
+        }
+      }
       yield { type: "draft", spec, mode: "ai", note: null };
-      yield { type: "stage", stage: "draft", status: "done", summary: `${spec.lines.length} line(s), ${spec.lines.reduce((n, l) => n + l.machines.length, 0)} machine(s), ${spec.products.length} product(s), ${spec.questions.length} open question(s).` };
+      const robotCount = spec.mobileRobots.reduce((n, f) => n + f.count, 0);
+      yield { type: "stage", stage: "draft", status: "done", summary: `${spec.lines.length} line(s), ${spec.lines.reduce((n, l) => n + l.machines.length, 0)} machine(s), ${spec.products.length} product(s)${robotCount ? `, ${robotCount} mobile robot(s)` : ""}, ${spec.questions.length} open question(s).` };
     } catch (e) {
       const reason = `The AI draft failed (${e instanceof Error ? e.message.slice(0, 160) : String(e)})`;
       const fb = fromTemplate(input, reason);

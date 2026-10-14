@@ -7,46 +7,72 @@ export interface AmrPath {
   color: string;
   points: [number, number][];
   length: number;
+  /** Position within its fleet (robots of a fleet share the route, spread out along it). */
+  slot: number;
+  fleetSize: number;
 }
 
 const polyLength = (ps: [number, number][]) => ps.slice(1).reduce((s, p, i) => s + Math.hypot(p[0] - ps[i][0], p[1] - ps[i][1]), 0);
 
 /**
  * Routes that keep to the aisles: kitting robots use the corridor between the stores racks and
- * the line bays, then enter their line's bay beside the first machine; pallet robots leave the
- * packing line's outfeed and run along the dock apron to the truck being loaded.
+ * the line bays, then enter their line's bay beside the first machine; transfer robots run from a
+ * process line's end, alongside the transfer belts, to the packing infeed; pallet robots leave the
+ * outfeed and run along the dock apron to the truck being loaded.
  */
 export function amrPaths(layout: Layout, fleet: Amr[], lineOrder: string[]): AmrPath[] {
   const out: AmrPath[] = [];
   const racks = layout.racks;
   const rackEdge = racks.length ? Math.max(...racks.map((r) => r.x)) + 0.45 : -1.4;
   const pickY = racks.length ? racks.reduce((s, r) => s + r.y, 0) / racks.length : 0;
+  const packingMachines = layout.machines.filter((m) => m.dir === "y");
+  const routes = new Map<string, [number, number][] | null>();
+  const fleetSize = new Map<string, number>();
+  const slotOf = new Map<string, number>();
+  for (const a of fleet) {
+    slotOf.set(a.id, fleetSize.get(a.fleetId) ?? 0);
+    fleetSize.set(a.fleetId, (fleetSize.get(a.fleetId) ?? 0) + 1);
+  }
   let k = 0;
-  for (const amr of fleet) {
+  const routeFor = (amr: Amr): [number, number][] | null => {
     const bay = layout.bays.find((b) => b.id === amr.lineId);
     const ms = layout.machines.filter((m) => m.lineId === amr.lineId);
-    if (!bay || !ms.length) continue;
-    const color = ms[0].color;
+    if (!bay || !ms.length) return null;
     if (amr.mission === "kitting") {
       const corridor = (rackEdge + bay.x0) / 2 - 0.12 * (k % 3);
       const first = ms[0];
       const dropY = first.y - 0.88;
-      const points: [number, number][] = [
+      const pts: [number, number][] = [
         [corridor, pickY + 0.3 * (k % 3)],
         [corridor, dropY],
         [Math.max(bay.x0 + 0.45, first.x - 0.25), dropY],
       ];
-      out.push({ amr, color, points, length: polyLength(points) });
       k++;
-    } else {
-      const last = ms[ms.length - 1];
-      const truck = layout.trucks.find((t) => t.progress < 1) ?? layout.trucks[0];
-      const outfeed: [number, number] = last.dir === "y" ? [last.x, last.y + 0.95] : [last.x + 0.95, last.y];
-      if (!truck) continue;
-      const apronY = truck.y - 0.85;
-      const points: [number, number][] = [outfeed, [outfeed[0], apronY], [truck.x, apronY]];
-      out.push({ amr, color, points, length: polyLength(points) });
+      return pts;
     }
+    const last = ms[ms.length - 1];
+    if (amr.mission === "line-transfer") {
+      const pk = packingMachines[0];
+      if (!pk || last.dir !== "x") return null;
+      // Along the line's own lane (beside its transfer belt) to the side of the packing line.
+      const laneY = last.y - 0.88;
+      return [
+        [last.x + 0.2, laneY],
+        [pk.x - 1.3, laneY],
+      ];
+    }
+    const truck = layout.trucks.find((t) => t.progress < 1) ?? layout.trucks[0];
+    if (!truck) return null;
+    const outfeed: [number, number] = last.dir === "y" ? [last.x, last.y + 0.95] : [last.x + 0.95, last.y];
+    const apronY = truck.y - 0.85;
+    return [outfeed, [outfeed[0], apronY], [truck.x, apronY]];
+  };
+  for (const amr of fleet) {
+    if (!routes.has(amr.fleetId)) routes.set(amr.fleetId, routeFor(amr));
+    const points = routes.get(amr.fleetId);
+    if (!points) continue;
+    const color = layout.machines.find((m) => m.lineId === amr.lineId)?.color ?? "#4c8dff";
+    out.push({ amr, color, points, length: polyLength(points), slot: slotOf.get(amr.id) ?? 0, fleetSize: fleetSize.get(amr.fleetId) ?? 1 });
   }
   // Keep a stable order for rendering (by line order).
   return out.sort((a, b) => lineOrder.indexOf(a.amr.lineId) - lineOrder.indexOf(b.amr.lineId));

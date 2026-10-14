@@ -6,7 +6,7 @@
 import { z } from "zod";
 import { ARCHETYPES, ASSET_KINDS } from "../archetypes";
 import type { AssetKind } from "../types";
-import { INTEGRATION_KINDS, uniqueId, type Prov, type SpecLine, type SpecMaterial, type SpecProduct, type TwinSpec } from "./spec";
+import { INTEGRATION_KINDS, ROBOT_MISSIONS, ROBOT_TYPES, uniqueId, type Prov, type SpecLine, type SpecMaterial, type SpecProduct, type SpecRobotFleet, type TwinSpec } from "./spec";
 
 /* ───────────────────────────── blueprint reading ───────────────────────────── */
 
@@ -21,7 +21,7 @@ export const BlueprintReadingSchema = z.object({
       z.object({
         id: z.string().max(12),
         label: z.string().max(80),
-        role: z.enum(["machine", "conveyor", "storage", "dock", "utility", "office", "other"]),
+        role: z.enum(["machine", "conveyor", "storage", "dock", "utility", "office", "vehicle", "other"]),
         archetype: z.string().max(20).nullable(),
         lineHint: z.string().max(60).nullable(),
         box: z.array(z.number()).length(4).nullable(), // [ymin, xmin, ymax, xmax] on a 0–1000 grid
@@ -117,10 +117,28 @@ export const DraftSchema = z.object({
   integrations: z
     .array(z.object({ target: z.string().max(80), kind: z.string().max(20), address: z.string().max(200).nullable(), note: z.string().max(300).nullable(), source: SOURCE }))
     .max(40),
+  /** Only when the requirements or the blueprint call for mobile robots. */
+  mobileRobots: z
+    .array(
+      z.object({
+        name: z.string().max(80),
+        robotType: z.string().max(20),
+        mission: z.string().max(20),
+        /** Name of the line it serves (null for finished goods: the packing line). */
+        line: z.string().max(80).nullable(),
+        count: z.number().int().min(1).max(50),
+        unitsPerTrip: nullableNum,
+        source: SOURCE,
+        note: z.string().max(300).nullable(),
+      }),
+    )
+    .max(10)
+    .default([]),
   assumptions: z.array(z.string().max(400)).max(20),
   questions: z.array(z.string().max(400)).max(8),
 });
-export type Draft = z.infer<typeof DraftSchema>;
+/** Input shape: `mobileRobots` may be omitted (older recordings, drafts without robots). */
+export type Draft = z.input<typeof DraftSchema>;
 
 /** Archetype catalog given to the model (the only machine types it may use). */
 export const ARCHETYPE_CATALOG = ASSET_KINDS.map((k) => `- ${k}: ${ARCHETYPES[k].name} — ${ARCHETYPES[k].covers}`).join("\n");
@@ -247,6 +265,32 @@ export function specFromDraft(
       prov: prov(i.source, null),
     }));
 
+  // Mobile robots: map line names to ids; unknown types or missions are flagged, never guessed silently.
+  const lineByName = (n: string | null) => (n ? lines.find((l) => near(l.name, n) || l.id === n) : undefined);
+  const mobileRobots: SpecRobotFleet[] = [];
+  for (const r of draft.mobileRobots ?? []) {
+    const type = (ROBOT_TYPES as readonly string[]).includes(r.robotType) ? (r.robotType as SpecRobotFleet["robotType"]) : "amr";
+    const mission = (ROBOT_MISSIONS as readonly string[]).includes(r.mission) ? (r.mission as SpecRobotFleet["mission"]) : null;
+    if (!mission) {
+      assumptions.push(`Mobile robots "${r.name}" were proposed for "${r.mission}", which the simulator does not model; left out. Supported moves: kitting, line-transfer, finished-goods.`);
+      continue;
+    }
+    if (type !== r.robotType) assumptions.push(`"${r.name}": robot type "${r.robotType}" is not supported; modelled as AMRs.`);
+    const count = Math.min(12, r.count);
+    if (count < r.count) assumptions.push(`"${r.name}": ${r.count} robots requested; at most 12 per fleet are simulated.`);
+    mobileRobots.push({
+      id: uniqueId(r.name, taken),
+      name: r.name,
+      robotType: type,
+      mission,
+      lineId: lineByName(r.line)?.id ?? null,
+      count,
+      unitsPerTrip: r.unitsPerTrip,
+      speedMps: null,
+      prov: prov(r.source, r.note),
+    });
+  }
+
   const userName = ctx.userSite.name?.trim();
   const userIndustry = ctx.userSite.industry?.trim();
   return {
@@ -262,6 +306,7 @@ export function specFromDraft(
     products,
     materials,
     integrations,
+    mobileRobots,
     references: ctx.references.map((r) => ({ id: r.id, title: r.title, url: r.url, note: null })),
     assumptions,
     questions: draft.questions.map((text, i) => ({ id: `q${i + 1}`, text, answer: null })),

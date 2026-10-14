@@ -213,7 +213,7 @@ export function Twin3D({
             const o = amrObjects.current.get(a.id);
             return o ? o.getWorldPosition(tmp).add(new THREE.Vector3(0, 0.75, 0)) : null;
           },
-          node: <Chip title={a.id} sub={a.status === "parked" ? `parked · ${a.reason}` : `${a.mission === "kitting" ? "kitting" : "pallets"} · ${a.tripsPerHour} trips/h`} color={a.status === "parked" ? "#f59e0b" : pal.resolve(path.color)} emphasis={sel || a.status === "parked"} pal={pal} />,
+          node: <Chip title={a.id} sub={a.status === "parked" ? `parked · ${a.reason}` : `${a.mission === "kitting" ? "kitting" : a.mission === "line-transfer" ? "transfer" : "pallets"} · ${a.tripsPerHour} trips/h`} color={a.status === "parked" ? "#f59e0b" : pal.resolve(path.color)} emphasis={sel || a.status === "parked"} pal={pal} />,
         });
       }
     return out;
@@ -324,7 +324,9 @@ export function Twin3D({
           <p className="flex items-center gap-1.5 font-medium text-ink">
             <Bot className="h-3.5 w-3.5 text-accent" /> Mobile robots · {fleet.filter((a) => a.status === "active").length} of {fleet.length} active
           </p>
-          <p className="mt-0.5 leading-snug text-muted">Simulated from the plant&apos;s material flow; trip rates follow line output. Animation runs at real speed, the plant clock 30× faster.</p>
+          <p className="mt-0.5 leading-snug text-muted">
+            {fleet[0].configured ? "Fleet from the Twin Builder spec; missions are simulated" : "Demo fleet derived from the plant's material flow"}; trip rates follow line output. Animation runs at real speed, the plant clock 30× faster.
+          </p>
         </div>
       )}
       <p className="pointer-events-none absolute right-3 bottom-3 hidden text-[10.5px] text-muted sm:block">

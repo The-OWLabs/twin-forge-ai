@@ -5,7 +5,10 @@
 import { z } from "zod";
 import { ASSET_KINDS } from "../archetypes";
 import type { AssetKind } from "../types";
-import { INTEGRATION_KINDS, uniqueId, type Prov, type TwinSpec } from "./spec";
+import { INTEGRATION_KINDS, ROBOT_MISSIONS, ROBOT_TYPES, uniqueId, type Prov, type SpecRobotFleet, type TwinSpec } from "./spec";
+
+const ROBOT_LABEL: Record<SpecRobotFleet["robotType"], string> = { amr: "AMR", agv: "AGV", "forklift-agv": "Automated forklift", tugger: "Tugger" };
+const MISSION_LABEL: Record<SpecRobotFleet["mission"], string> = { kitting: "kitting", "line-transfer": "line transfer", "finished-goods": "finished goods" };
 
 const s = (max = 80) => z.string().trim().max(max);
 const opt = <T extends z.ZodTypeAny>(t: T) => t.nullish();
@@ -30,6 +33,9 @@ export const SpecOpSchema = z.object({
     "answer_question",
     "add_assumption",
     "set_option",
+    "add_robot_fleet",
+    "update_robot_fleet",
+    "remove_robot_fleet",
   ]),
   lineId: opt(s(40)),
   machineId: opt(s(40)),
@@ -37,6 +43,12 @@ export const SpecOpSchema = z.object({
   materialId: opt(s(40)),
   integrationId: opt(s(40)),
   questionId: opt(s(40)),
+  fleetId: opt(s(40)),
+  robotType: opt(s(20)),
+  mission: opt(s(20)),
+  count: opt(z.number().int().min(1).max(50)),
+  unitsPerTrip: opt(z.number().finite().positive().max(100000)),
+  speedMps: opt(z.number().finite().positive().max(3)),
   position: opt(z.number().int().min(0).max(20)),
   name: opt(s()),
   archetype: opt(s(20)),
@@ -80,7 +92,10 @@ export function applyOps(input: TwinSpec, ops: SpecOp[], prov: Prov): ApplyResul
     ...spec.products.map((p) => p.id),
     ...spec.materials.map((m) => m.id),
     ...spec.integrations.map((i) => i.id),
+    ...spec.mobileRobots.map((f) => f.id),
   ]);
+  const robotType = (t: string | null | undefined) => (t && (ROBOT_TYPES as readonly string[]).includes(t) ? (t as SpecRobotFleet["robotType"]) : null);
+  const mission = (m: string | null | undefined) => (m && (ROBOT_MISSIONS as readonly string[]).includes(m) ? (m as SpecRobotFleet["mission"]) : null);
   // A line needs one machine, so add_line creates a placeholder; it is replaced by the first real add_machine.
   const placeholders = new Map<string, string>();
   const archetype = (a: string | null | undefined): AssetKind | null => (a && (ASSET_KINDS as string[]).includes(a) ? (a as AssetKind) : null);
@@ -305,6 +320,53 @@ export function applyOps(input: TwinSpec, ops: SpecOp[], prov: Prov): ApplyResul
           spec.assumptions.push(o.text);
           applied.push("Recorded an assumption");
         } else fail("text missing");
+        break;
+      }
+      case "add_robot_fleet": {
+        const m = mission(o.mission);
+        const t = o.robotType ? robotType(o.robotType) : "amr";
+        const line = o.lineId ? findLine(o.lineId) : undefined;
+        if (!m) fail(`"${o.mission}" is not a supported move (${ROBOT_MISSIONS.join(", ")})`);
+        else if (!t) fail(`"${o.robotType}" is not a supported robot type (${ROBOT_TYPES.join(", ")})`);
+        else if (o.lineId && !line) fail(`line "${o.lineId}" not found`);
+        else if (spec.mobileRobots.length >= 10) fail("at most 10 robot fleets are supported");
+        else {
+          const count = Math.min(12, o.count ?? 1);
+          const name = o.name || `${line ? `${line.name} ` : ""}${MISSION_LABEL[m]} ${ROBOT_LABEL[t]}s`;
+          spec.mobileRobots.push({ id: uniqueId(name, taken), name, robotType: t, mission: m, lineId: line?.id ?? null, count, unitsPerTrip: o.unitsPerTrip ?? null, speedMps: o.speedMps ?? null, prov });
+          applied.push(`Added ${count} ${ROBOT_LABEL[t]}${count > 1 ? "s" : ""} for ${MISSION_LABEL[m]}${line ? ` on ${line.name}` : ""}`);
+        }
+        break;
+      }
+      case "update_robot_fleet": {
+        const f = spec.mobileRobots.find((x) => x.id === o.fleetId);
+        const t = o.robotType ? robotType(o.robotType) : null;
+        const m = o.mission ? mission(o.mission) : null;
+        const line = o.lineId ? findLine(o.lineId) : undefined;
+        if (!f) fail(`robot fleet "${o.fleetId}" not found`);
+        else if (o.robotType && !t) fail(`"${o.robotType}" is not a supported robot type`);
+        else if (o.mission && !m) fail(`"${o.mission}" is not a supported move`);
+        else if (o.lineId && !line) fail(`line "${o.lineId}" not found`);
+        else {
+          if (o.name) f.name = o.name;
+          if (t) f.robotType = t;
+          if (m) f.mission = m;
+          if (line) f.lineId = line.id;
+          if (o.count) f.count = Math.min(12, o.count);
+          if (o.unitsPerTrip) f.unitsPerTrip = o.unitsPerTrip;
+          if (o.speedMps) f.speedMps = Math.max(0.2, o.speedMps);
+          f.prov = prov;
+          applied.push(`Updated ${f.name}`);
+        }
+        break;
+      }
+      case "remove_robot_fleet": {
+        const f = spec.mobileRobots.find((x) => x.id === o.fleetId);
+        if (!f) fail(`robot fleet "${o.fleetId}" not found`);
+        else {
+          spec.mobileRobots = spec.mobileRobots.filter((x) => x.id !== f.id);
+          applied.push(`Removed ${f.name}`);
+        }
         break;
       }
       case "set_option": {

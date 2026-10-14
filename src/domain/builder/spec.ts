@@ -85,6 +85,32 @@ export const SpecIntegrationSchema = z.object({
   prov: ProvSchema,
 });
 
+/** Mobile robots: what kind of vehicle, and which material move it does. */
+export const ROBOT_TYPES = ["amr", "agv", "forklift-agv", "tugger"] as const;
+export type RobotType = (typeof ROBOT_TYPES)[number];
+export const ROBOT_MISSIONS = ["kitting", "line-transfer", "finished-goods"] as const;
+export type RobotMission = (typeof ROBOT_MISSIONS)[number];
+
+/**
+ * A fleet of identical mobile robots doing one material move: kitting (stores → a process line),
+ * line-transfer (a process line → the packing line) or finished-goods (the packing line → the
+ * dock). Only added when the owner's requirements or the blueprint call for them.
+ */
+export const SpecRobotFleetSchema = z.object({
+  id,
+  name,
+  robotType: z.enum(ROBOT_TYPES),
+  mission: z.enum(ROBOT_MISSIONS),
+  /** The line it serves: a process line for kitting and line-transfer, the packing line for finished goods. */
+  lineId: id.nullable(),
+  count: z.number().int().min(1).max(12),
+  /** Product units moved per trip (null: a stated default per mission). */
+  unitsPerTrip: num(100000),
+  /** Travel speed in m/s (null: 1.0 m/s, typical for indoor robots in mixed traffic). */
+  speedMps: z.number().finite().min(0.2).max(3).nullable(),
+  prov: ProvSchema,
+});
+
 export const ReferenceSchema = z.object({ id: z.string().max(12), title: z.string().max(200), url: z.string().url().max(2000), note: z.string().max(400).nullish() });
 
 export const TwinSpecSchema = z.object({
@@ -100,6 +126,7 @@ export const TwinSpecSchema = z.object({
   products: z.array(SpecProductSchema).max(6),
   materials: z.array(SpecMaterialSchema).max(12),
   integrations: z.array(SpecIntegrationSchema).max(40),
+  mobileRobots: z.array(SpecRobotFleetSchema).max(10).default([]),
   references: z.array(ReferenceSchema).max(20),
   assumptions: z.array(z.string().max(400)).max(30),
   questions: z.array(z.object({ id, text: z.string().max(400), answer: z.string().max(400).nullable() })).max(12),
@@ -115,6 +142,7 @@ export type SpecMachine = z.infer<typeof SpecMachineSchema>;
 export type SpecProduct = z.infer<typeof SpecProductSchema>;
 export type SpecMaterial = z.infer<typeof SpecMaterialSchema>;
 export type SpecIntegration = z.infer<typeof SpecIntegrationSchema>;
+export type SpecRobotFleet = z.infer<typeof SpecRobotFleetSchema>;
 
 /** Lower-case slug for ids ("Filling Line 1" → "filling-line-1"). */
 export const slug = (s: string, max = 32) =>

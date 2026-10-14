@@ -283,7 +283,9 @@ function OtherNodePanel({ state, id, onClose }: { state: FactoryState; id: strin
   );
 }
 
-/** A mobile robot from the simulated intralogistics layer (derived from the plant's material flow). */
+const ROBOT_TYPE_LABEL = { amr: "Autonomous mobile robot", agv: "Automated guided vehicle", "forklift-agv": "Automated forklift", tugger: "Tugger train" } as const;
+
+/** A mobile robot from the simulated intralogistics layer (from the Twin Builder spec, or the demo's derived fleet). */
 function AmrPanel({ state, id, onClose }: { state: FactoryState; id: string; onClose: () => void }) {
   const fleet = useMemo(() => amrFleet(state), [state]);
   const amr = fleet.find((a) => a.id === id);
@@ -300,7 +302,9 @@ function AmrPanel({ state, id, onClose }: { state: FactoryState; id: string; onC
           <div>
             <p className="font-mono text-[11.5px] text-muted">{amr.id}</p>
             <p className="text-[15px] font-semibold text-ink">{amr.name}</p>
-            <p className="text-[11.5px] text-muted">Autonomous mobile robot · {amr.lineName}</p>
+            <p className="text-[11.5px] text-muted">
+              {ROBOT_TYPE_LABEL[amr.robotType]} · {amr.fleetName} · {amr.lineName}
+            </p>
           </div>
         </div>
         <button onClick={onClose} className="rounded-md p-1 text-muted hover:bg-surface-2 hover:text-ink" aria-label="Close panel">
@@ -310,10 +314,11 @@ function AmrPanel({ state, id, onClose }: { state: FactoryState; id: string; onC
       <div className="mb-3 flex flex-wrap gap-1.5">
         <Badge tone={amr.status === "active" ? "healthy" : "warning"}>{amr.status === "active" ? "On mission" : "Parked"}</Badge>
         <Badge tone="warning">Simulated</Badge>
+        <Badge tone="neutral">{amr.configured ? "From the Twin Builder spec" : "Demo fleet"}</Badge>
       </div>
       {amr.reason && <p className="mb-3 rounded-lg border border-warning/40 bg-warning/5 p-2 text-[12px] text-ink-2">{amr.reason}</p>}
       <div className="space-y-1">
-        <KeyValue k="Mission" v={amr.mission === "kitting" ? "Line-side kitting" : "Finished goods to dock"} />
+        <KeyValue k="Mission" v={amr.mission === "kitting" ? "Line-side kitting" : amr.mission === "line-transfer" ? "Product to the packing line" : "Finished goods to dock"} />
         <KeyValue k="From" v={amr.from} />
         <KeyValue k="To" v={amr.to} />
         <KeyValue k="Payload" v={amr.payload} />
@@ -321,10 +326,11 @@ function AmrPanel({ state, id, onClose }: { state: FactoryState; id: string; onC
         <KeyValue k="Line output" v={`${fmtInt(amr.lineRate)} units/h`} />
         <KeyValue k="Trips" v={`${amr.tripsPerHour} per hour`} />
         {route && <KeyValue k="Route" v={`${Math.round(route.length * METRES_PER_UNIT)} m each way`} />}
+        <KeyValue k="Speed" v={`${amr.speedMps.toFixed(1)} m/s`} />
         {util !== null && <KeyValue k="Busy (est.)" v={`${Math.round(util * 100)}% of the hour`} />}
       </div>
       <p className="mt-3 text-[11px] leading-relaxed text-muted">
-        Simulated intralogistics: trips are sized from the line&apos;s measured output, and the robot parks when its line stops or a part runs out. No robots are connected. A fleet manager (VDA 5050 or a vendor API) would replace this with real positions and missions.
+        Simulated intralogistics: trips are sized from the line&apos;s measured output{amr.configured ? " and shared across its fleet" : ""}, and the robot parks when its line stops or a part runs out. No robots are connected. A fleet manager (VDA 5050 or a vendor API) would replace this with real positions and missions.
       </p>
     </div>
   );

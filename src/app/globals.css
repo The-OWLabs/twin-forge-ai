@@ -297,3 +297,17 @@ body {
     transition-duration: 0.001ms !important;
   }
 }
+
+/* Phones: a full-page notice before the demo (components/shell/mobile-notice.tsx). Shown on small
+   screens, or touch screens narrower than a laptop, until the visitor chooses to continue. */
+.mobile-gate {
+  display: none;
+}
+@media (max-width: 639px), (max-width: 899px) and (pointer: coarse) {
+  html:not([data-mobile-ok]) .mobile-gate {
+    display: flex;
+  }
+  html:not([data-mobile-ok]):has(.mobile-gate) body {
+    overflow: hidden;
+  }
+}

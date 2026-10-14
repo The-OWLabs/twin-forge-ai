@@ -5,7 +5,7 @@
 import { appendAudit } from "../audit";
 import { round } from "../math";
 import { assetIdFor, buildFromPlan, type FactoryPlan, type PlanLine, type PlanOrder } from "../seed";
-import type { DataConnection, FactoryState, InventoryItem, LineCapability, Product } from "../types";
+import type { DataConnection, FactoryState, InventoryItem, LineCapability, MobileRobot, Product } from "../types";
 import { PROVENANCE, type ProvenanceSource, type TwinSpec } from "./spec";
 import { validateSpec, type LineSummary } from "./validate";
 
@@ -224,6 +224,7 @@ export function provenanceCounts(spec: TwinSpec): Record<ProvenanceSource, numbe
   for (const p of spec.products) add(p.prov.source);
   for (const m of spec.materials) add(m.prov.source);
   for (const i of spec.integrations) add(i.prov.source);
+  for (const f of spec.mobileRobots) add(f.prov.source);
   return counts;
 }
 
@@ -245,12 +246,35 @@ export function compileSpec(spec: TwinSpec, anchorISO: string, seed: number, now
       status: "planned",
     }),
   );
+  // Mobile robots: one entry per robot, serving the compiled line.
+  const ROBOT_PREFIX: Record<MobileRobot["robotType"], string> = { amr: "AMR", agv: "AGV", "forklift-agv": "AGF", tugger: "TUG" };
+  const TRIP_DEFAULT: Record<MobileRobot["mission"], number> = { kitting: 60, "line-transfer": 60, "finished-goods": 120 };
+  if (validated.mobileRobots.length) {
+    const robots: MobileRobot[] = [];
+    const used = new Set<string>();
+    for (const f of validated.mobileRobots) {
+      const lineId = f.lineId ? ids.lines[f.lineId] : undefined;
+      if (!lineId) continue;
+      const letter = lineId.replace("LINE-", "");
+      for (let k = 0; k < f.count; k++) {
+        let n = 1;
+        while (used.has(`${ROBOT_PREFIX[f.robotType]}-${letter}${n}`)) n++;
+        const id = `${ROBOT_PREFIX[f.robotType]}-${letter}${n}`;
+        used.add(id);
+        robots.push({ id, name: f.count > 1 ? `${f.name} ${k + 1}` : f.name, fleetId: f.id, fleetName: f.name, robotType: f.robotType, mission: f.mission, lineId, unitsPerTrip: f.unitsPerTrip ?? TRIP_DEFAULT[f.mission], speedMps: f.speedMps ?? 1.0 });
+      }
+      if (f.unitsPerTrip == null) defaults.push(`${f.name}: ${TRIP_DEFAULT[f.mission]} units per trip`);
+      if (f.speedMps == null) defaults.push(`${f.name}: 1.0 m/s travel speed`);
+    }
+    state.mobileRobots = robots;
+  }
+
   const counts = provenanceCounts(validated);
   appendAudit(state, nowISO, {
     category: "system",
     actor: by,
     title: "Twin built from a reviewed spec (Twin Builder)",
-    detail: `${validated.lines.length} lines, ${state.assets.length} machines, ${validated.products.length} products. Sources: ${PROVENANCE.filter((p) => counts[p])
+    detail: `${validated.lines.length} lines, ${state.assets.length} machines, ${validated.products.length} products${state.mobileRobots?.length ? `, ${state.mobileRobots.length} mobile robot(s)` : ""}. Sources: ${PROVENANCE.filter((p) => counts[p])
       .map((p) => `${counts[p]} from ${p}`)
       .join(", ")}; ${validated.references.length} cited reference(s). Defaults applied: ${defaults.join("; ")}.`,
     severity: "info",

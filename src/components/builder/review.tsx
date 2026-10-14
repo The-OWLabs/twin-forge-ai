@@ -2,10 +2,10 @@
 
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { AlertTriangle, ArrowDown, ArrowUp, Factory, Hammer, Info, Plus, RotateCcw, Trash2 } from "lucide-react";
+import { AlertTriangle, ArrowDown, ArrowUp, Bot, Factory, Hammer, Info, Minus, Plus, RotateCcw, Trash2 } from "lucide-react";
 import { useBuilder } from "@/client/builder";
 import { provenanceCounts } from "@/domain/builder/compile";
-import type { SpecLine, TwinSpec } from "@/domain/builder/spec";
+import { ROBOT_MISSIONS, ROBOT_TYPES, type SpecLine, type SpecRobotFleet, type TwinSpec } from "@/domain/builder/spec";
 import type { LineSummary } from "@/domain/builder/validate";
 import type { AssetKind } from "@/domain/types";
 import { cn } from "@/lib/cn";
@@ -95,6 +95,7 @@ export function ReviewWorkspace() {
               </Button>
             )}
           </div>
+          <RobotsEditor spec={spec} />
           <Card>
             <CardBody className="space-y-3 pt-4">
               <OptionRow
@@ -158,6 +159,99 @@ export function ReviewWorkspace() {
 }
 
 const previewLabel = (m: IsoMachine) => ({ title: m.name.length > 20 ? `${m.name.slice(0, 19)}…` : m.name, sub: m.throughput ? `${fmtInt(m.throughput)}/h` : "rate from line" });
+
+const ROBOT_TYPE_LABEL: Record<SpecRobotFleet["robotType"], string> = { amr: "AMR", agv: "AGV", "forklift-agv": "Automated forklift", tugger: "Tugger train" };
+const MISSION_LABEL: Record<SpecRobotFleet["mission"], string> = { kitting: "Kitting: stores → line", "line-transfer": "Transfer: line → packing", "finished-goods": "Finished goods: packing → dock" };
+
+/** Mobile robot fleets in the spec: added from the requirements or the blueprint, editable here or by chat. */
+function RobotsEditor({ spec }: { spec: TwinSpec }) {
+  const edit = useBuilder((s) => s.edit);
+  const process = spec.lines.filter((l) => l.role === "process");
+  const packing = spec.lines.find((l) => l.role === "packing") ?? null;
+  const total = spec.mobileRobots.reduce((n, f) => n + f.count, 0);
+  return (
+    <Card data-testid="robots-editor">
+      <CardHeader
+        title={`Mobile robots${total ? ` · ${total}` : ""}`}
+        description="AMRs, AGVs, automated forklifts and tuggers that move material. Added when your requirements or drawing mention them; their trips follow line output in the twin."
+        icon={<Bot className="h-4 w-4" />}
+      />
+      <CardBody className="space-y-2">
+        {spec.mobileRobots.length === 0 && (
+          <p className="text-[12.5px] text-muted">
+            None in this plant. Add a fleet below, or ask the agent, for example &ldquo;add 3 AMRs for kitting on {process[0]?.name ?? "line 1"}&rdquo;.
+          </p>
+        )}
+        {spec.mobileRobots.map((f) => (
+          <div key={f.id} className="rounded-xl border border-line bg-shell p-2.5" data-testid="robot-fleet">
+            <div className="flex flex-wrap items-center gap-2">
+              <Bot className="h-4 w-4 shrink-0 text-muted" />
+              <Input
+                aria-label="Fleet name"
+                className="h-7 min-w-[160px] flex-1 text-[12.5px]"
+                defaultValue={f.name}
+                key={`fn-${f.id}-${f.name}`}
+                onBlur={(e) => e.target.value.trim() && e.target.value !== f.name && edit([{ op: "update_robot_fleet", fleetId: f.id, name: e.target.value }])}
+              />
+              <ProvBadge prov={f.prov} spec={spec} />
+              <div className="flex items-center rounded-lg border border-line">
+                <button aria-label="Fewer robots" className="px-1.5 py-1 text-muted hover:text-ink disabled:opacity-40" disabled={f.count <= 1} onClick={() => edit([{ op: "update_robot_fleet", fleetId: f.id, count: f.count - 1 }])}>
+                  <Minus className="h-3 w-3" />
+                </button>
+                <span className="tabular w-6 text-center text-[12.5px] text-ink" aria-label="Robots in this fleet">
+                  {f.count}
+                </span>
+                <button aria-label="More robots" className="px-1.5 py-1 text-muted hover:text-ink disabled:opacity-40" disabled={f.count >= 12} onClick={() => edit([{ op: "update_robot_fleet", fleetId: f.id, count: f.count + 1 }])}>
+                  <Plus className="h-3 w-3" />
+                </button>
+              </div>
+              <button className="rounded-md p-1 text-muted hover:bg-surface-2 hover:text-critical" aria-label={`Remove ${f.name}`} onClick={() => edit([{ op: "remove_robot_fleet", fleetId: f.id }])}>
+                <Trash2 className="h-3.5 w-3.5" />
+              </button>
+            </div>
+            <div className="mt-2 grid gap-2 sm:grid-cols-3">
+              <Select aria-label="Robot type" className="w-full" value={f.robotType} onChange={(e) => edit([{ op: "update_robot_fleet", fleetId: f.id, robotType: e.target.value }])}>
+                {ROBOT_TYPES.map((t) => (
+                  <option key={t} value={t}>
+                    {ROBOT_TYPE_LABEL[t]}
+                  </option>
+                ))}
+              </Select>
+              <Select aria-label="Material move" className="w-full" value={f.mission} onChange={(e) => edit([{ op: "update_robot_fleet", fleetId: f.id, mission: e.target.value }])}>
+                {ROBOT_MISSIONS.map((m) => (
+                  <option key={m} value={m} disabled={m === "line-transfer" && !packing}>
+                    {MISSION_LABEL[m]}
+                  </option>
+                ))}
+              </Select>
+              {f.mission === "finished-goods" ? (
+                <span className="flex h-8 items-center px-1 text-[12px] text-muted">From {packing?.name ?? process[process.length - 1]?.name}</span>
+              ) : (
+                <Select aria-label="Line served" className="w-full" value={f.lineId ?? ""} onChange={(e) => edit([{ op: "update_robot_fleet", fleetId: f.id, lineId: e.target.value }])}>
+                  {process.map((l) => (
+                    <option key={l.id} value={l.id}>
+                      {l.name}
+                    </option>
+                  ))}
+                </Select>
+              )}
+            </div>
+            {f.prov.note && <p className="mt-1.5 text-[11px] leading-snug text-muted">{f.prov.note}</p>}
+          </div>
+        ))}
+        <Button
+          size="sm"
+          variant="secondary"
+          disabled={!process.length || spec.mobileRobots.length >= 10}
+          onClick={() => edit([{ op: "add_robot_fleet", mission: "kitting", robotType: "amr", lineId: process[0]?.id, count: 1 }])}
+          data-testid="add-robot-fleet"
+        >
+          <Plus className="h-3.5 w-3.5" /> Add mobile robots
+        </Button>
+      </CardBody>
+    </Card>
+  );
+}
 
 function OptionRow({ label, help, checked, onChange }: { label: string; help: string; checked: boolean; onChange: (v: boolean) => void }) {
   return (

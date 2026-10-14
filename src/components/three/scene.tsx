@@ -461,21 +461,34 @@ export function Amr3D({ path, pal, index, selected, onSelect, register }: { path
     return () => register?.(path.amr.id, null);
   }, [register, path.amr.id]);
   const cargo = useRef<THREE.Mesh>(null);
+  const forks = useRef<THREE.Group>(null);
   const beacon = useRef<THREE.MeshStandardMaterial>(null);
   const color = pal.resolve(path.color);
-  const parked = path.amr.status === "parked";
-  const phase = index * 3.1;
+  const amr = path.amr;
+  const parked = amr.status === "parked";
+  const speed = AMR_SPEED * (amr.speedMps || 1);
+  // Robots of one fleet are spread evenly along their shared route.
+  const cycle = (2 * path.length) / speed + 2 * AMR_DWELL;
+  const phase = (index % 3) * 0.7 + (path.slot * cycle) / Math.max(1, path.fleetSize);
   const heading = useRef(0);
+  // Parking spots side by side at the start of the route.
+  const park = useMemo(() => {
+    const [x0, y0] = path.points[0];
+    const [x1, y1] = path.points[1] ?? [x0 + 1, y0];
+    const len = Math.hypot(x1 - x0, y1 - y0) || 1;
+    const off = path.slot * 0.6;
+    return { x: x0 + (-(y1 - y0) / len) * off, y: y0 + ((x1 - x0) / len) * off, heading: Math.atan2(y1 - y0, x1 - x0) };
+  }, [path.points, path.slot]);
   useFrame(({ clock }) => {
     if (!body.current) return;
     if (parked) {
-      const [x, y] = path.points[0];
-      body.current.position.set(...P(x, y));
+      body.current.position.set(...P(park.x, park.y));
+      body.current.rotation.y = -park.heading;
       if (cargo.current) cargo.current.visible = false;
       if (beacon.current) beacon.current.emissiveIntensity = Math.sin(clock.elapsedTime * 3) > 0 ? 1.4 : 0.3;
       return;
     }
-    const pose = amrPose(path, clock.elapsedTime, AMR_SPEED, AMR_DWELL, phase);
+    const pose = amrPose(path, clock.elapsedTime, speed, AMR_DWELL, phase);
     body.current.position.set(...P(pose.x, pose.y));
     // Smoothly turn toward the travel direction (layout y maps to three z, so the angle is negated).
     const target = -pose.heading;
@@ -484,40 +497,92 @@ export function Amr3D({ path, pal, index, selected, onSelect, register }: { path
     heading.current += d * 0.2;
     body.current.rotation.y = heading.current;
     if (cargo.current) cargo.current.visible = pose.loaded;
+    if (forks.current) forks.current.position.y = pose.loaded ? 0.22 : 0.06;
     if (beacon.current) beacon.current.emissiveIntensity = pose.phase === "moving" || pose.phase === "returning" ? 1.2 : 0.5;
   });
   const routePts = path.points.map(([x, y]) => P(x, y, 0.025));
   const beaconColor = parked ? "#f59e0b" : "#22c55e";
+  const type = amr.robotType;
+  const big = type === "agv" || type === "forklift-agv";
+  const L = big ? 0.78 : 0.62;
+  const W = big ? 0.52 : 0.44;
+  const bodyColor = type === "forklift-agv" ? "#f59e0b" : pal.dark;
+  const cargoGeom: [number, number, number] = amr.mission === "kitting" ? [0.42, 0.18, 0.32] : amr.mission === "line-transfer" ? [0.44, 0.22, 0.34] : [0.5, 0.3, 0.38];
+  const cargoColor = amr.mission === "finished-goods" ? CARTON : "#3b82f6";
   return (
     <group>
-      <Line points={routePts} color={color} lineWidth={selected ? 2.4 : 1.3} dashed dashSize={0.2} gapSize={0.16} transparent opacity={parked ? 0.25 : selected ? 0.95 : 0.5} />
+      {path.slot === 0 && (
+        <Line points={routePts} color={color} lineWidth={selected ? 2.4 : 1.3} dashed dashSize={0.2} gapSize={0.16} transparent opacity={parked ? 0.25 : selected ? 0.95 : 0.5} />
+      )}
       <group ref={body} {...pick(onSelect)}>
         <mesh position={[0, 0.11, 0]} castShadow>
-          <boxGeometry args={[0.62, 0.16, 0.44]} />
-          <meshStandardMaterial color={pal.dark} roughness={0.5} metalness={0.3} />
+          <boxGeometry args={[L, type === "forklift-agv" ? 0.26 : 0.16, W]} />
+          <meshStandardMaterial color={bodyColor} roughness={0.5} metalness={0.3} />
         </mesh>
-        <mesh position={[0, 0.11, 0.223]}>
-          <boxGeometry args={[0.5, 0.05, 0.005]} />
+        <mesh position={[0, 0.11, W / 2 + 0.003]}>
+          <boxGeometry args={[L - 0.12, 0.05, 0.005]} />
           <meshBasicMaterial color={color} />
         </mesh>
-        <mesh position={[0, 0.11, -0.223]}>
-          <boxGeometry args={[0.5, 0.05, 0.005]} />
+        <mesh position={[0, 0.11, -W / 2 - 0.003]}>
+          <boxGeometry args={[L - 0.12, 0.05, 0.005]} />
           <meshBasicMaterial color={color} />
         </mesh>
-        <mesh position={[0.24, 0.22, 0]}>
+        {/* lidar */}
+        <mesh position={[L / 2 - 0.08, type === "forklift-agv" ? 0.3 : 0.22, 0]}>
           <cylinderGeometry args={[0.05, 0.05, 0.06, 14]} />
           <meshStandardMaterial color="#111827" />
         </mesh>
-        <mesh position={[-0.22, 0.24, 0.13]}>
+        <mesh position={[-L / 2 + 0.1, type === "forklift-agv" ? 0.32 : 0.24, W / 2 - 0.09]}>
           <sphereGeometry args={[0.045, 12, 8]} />
           <meshStandardMaterial ref={beacon} color={beaconColor} emissive={beaconColor} emissiveIntensity={1} toneMapped={false} />
         </mesh>
-        <mesh ref={cargo} position={[-0.02, 0.3, 0]} castShadow>
-          <boxGeometry args={path.amr.mission === "kitting" ? [0.42, 0.18, 0.32] : [0.5, 0.3, 0.38]} />
-          <meshStandardMaterial color={path.amr.mission === "kitting" ? "#3b82f6" : CARTON} roughness={0.7} />
-        </mesh>
+        {type === "forklift-agv" ? (
+          <>
+            {/* mast and forks in front */}
+            {[-0.16, 0.16].map((z) => (
+              <mesh key={z} position={[L / 2 + 0.04, 0.55, z]} castShadow>
+                <boxGeometry args={[0.05, 1.05, 0.05]} />
+                <meshStandardMaterial color="#334155" />
+              </mesh>
+            ))}
+            <group ref={forks} position={[L / 2 + 0.3, 0.06, 0]}>
+              {[-0.13, 0.13].map((z) => (
+                <mesh key={z} position={[0, 0, z]}>
+                  <boxGeometry args={[0.5, 0.03, 0.07]} />
+                  <meshStandardMaterial color="#475569" metalness={0.4} />
+                </mesh>
+              ))}
+              <mesh ref={cargo} position={[0, 0.2, 0]} castShadow>
+                <boxGeometry args={[0.5, 0.36, 0.42]} />
+                <meshStandardMaterial color={cargoColor} roughness={0.75} />
+              </mesh>
+            </group>
+          </>
+        ) : type === "tugger" ? (
+          <>
+            {/* tow bar and cart behind */}
+            <mesh position={[-L / 2 - 0.12, 0.1, 0]}>
+              <boxGeometry args={[0.24, 0.03, 0.04]} />
+              <meshStandardMaterial color="#334155" />
+            </mesh>
+            <mesh position={[-L / 2 - 0.55, 0.12, 0]} castShadow>
+              <boxGeometry args={[0.62, 0.06, 0.44]} />
+              <meshStandardMaterial color="#64748b" />
+            </mesh>
+            <mesh ref={cargo} position={[-L / 2 - 0.55, 0.12 + cargoGeom[1] / 2 + 0.03, 0]} castShadow>
+              <boxGeometry args={cargoGeom} />
+              <meshStandardMaterial color={cargoColor} roughness={0.7} />
+            </mesh>
+          </>
+        ) : (
+          <mesh ref={cargo} position={[-0.02, 0.19 + cargoGeom[1] / 2, 0]} castShadow>
+            <boxGeometry args={cargoGeom} />
+            <meshStandardMaterial color={cargoColor} roughness={0.7} />
+          </mesh>
+        )}
+        {/* larger, invisible hit area */}
         <mesh visible={false}>
-          <boxGeometry args={[0.9, 0.6, 0.7]} />
+          <boxGeometry args={[L + 0.3, 0.6, W + 0.3]} />
           <meshBasicMaterial />
         </mesh>
       </group>

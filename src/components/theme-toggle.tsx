@@ -4,11 +4,10 @@ import { useEffect, useState } from "react";
 import { Moon, Sun } from "lucide-react";
 import { cn } from "@/lib/cn";
 
-export type Theme = "dark" | "light";
-export const THEME_KEY = "twinforge-theme";
+import { THEME_KEY } from "./theme-boot";
 
-/** Inline script run before paint so the stored theme applies without a flash. */
-export const themeBootScript = `(function(){try{var t=localStorage.getItem("${THEME_KEY}");if(t!=="light"&&t!=="dark")t="dark";document.documentElement.setAttribute("data-theme",t);}catch(e){document.documentElement.setAttribute("data-theme","dark");}})();`;
+export type Theme = "dark" | "light";
+export { THEME_KEY };
 
 export function useTheme(): [Theme, (t: Theme) => void] {
   const [theme, setThemeState] = useState<Theme>("dark");
