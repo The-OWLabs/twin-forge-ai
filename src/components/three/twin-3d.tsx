@@ -1,11 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState, type MutableRefObject, type ReactNode } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type MutableRefObject, type ReactNode } from "react";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
-import { OrbitControls } from "@react-three/drei";
+import { Environment, Lightformer, OrbitControls, PerformanceMonitor } from "@react-three/drei";
 import * as THREE from "three";
 import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
-import { Bot, Cctv, Crosshair, Eye, Maximize, Pause, Play, RotateCw, Tag } from "lucide-react";
+import { Bot, Cctv, Crosshair, Eye, Gem, Maximize, Pause, Play, RotateCw, Tag } from "lucide-react";
 import type { Highlight } from "@/client/store";
 import { amrFleet } from "@/domain/intralogistics";
 import type { FactoryState } from "@/domain/types";
@@ -14,8 +14,23 @@ import { machineParts } from "../iso/geometry";
 import { isoModelFromState, layoutIso } from "../iso/model";
 import { Tip } from "../ui/primitives";
 import { amrPaths } from "./amr-paths";
+import { useMaterials, type Quality } from "./materials";
 import { usePalette, type Palette } from "./palette";
-import { Amr3D, BayZone, Belt3D, Camera3D, Floor, Machine3D, P, Rack3D, STATUS_COLOR, Truck3D } from "./scene";
+import { Amr3D, BayZone, Belt3D, Camera3D, Machine3D, P, Rack3D, Shell, STATUS_COLOR, Truck3D } from "./scene";
+
+// Post-processing is downloaded only when High quality is on.
+const Effects = lazy(() => import("./effects"));
+
+const QUALITY_KEY = "twinforge-3d-quality";
+/** A remembered choice, if the viewer made one. */
+function storedQuality(): Quality | null {
+  try {
+    const q = localStorage.getItem(QUALITY_KEY);
+    return q === "high" || q === "standard" ? q : null;
+  } catch {
+    return null;
+  }
+}
 
 type Goal = { target: THREE.Vector3; position: THREE.Vector3 } | null;
 
@@ -96,15 +111,22 @@ export function Twin3D({
   orderRisk: Record<string, boolean>;
 }) {
   const pal = usePalette();
-  const [webgl] = useState(() => {
-    if (typeof document === "undefined") return true;
+  // WebGL support, and whether it runs in software (no GPU): probed once, before the scene is created.
+  const [gpu] = useState(() => {
+    if (typeof document === "undefined") return { webgl: true, software: false };
     try {
       const c = document.createElement("canvas");
-      return !!(c.getContext("webgl2") || c.getContext("webgl"));
+      const ctx = (c.getContext("webgl2") || c.getContext("webgl")) as WebGLRenderingContext | null;
+      if (!ctx) return { webgl: false, software: false };
+      const dbg = ctx.getExtension("WEBGL_debug_renderer_info");
+      const renderer = dbg ? String(ctx.getParameter(dbg.UNMASKED_RENDERER_WEBGL)) : "";
+      ctx.getExtension("WEBGL_lose_context")?.loseContext();
+      return { webgl: true, software: /swiftshader|llvmpipe|software/i.test(renderer) };
     } catch {
-      return false;
+      return { webgl: false, software: false };
     }
   });
+  const webgl = gpu.webgl;
   const model = useMemo(() => isoModelFromState(state, orderRisk, { cameras: true }), [state, orderRisk]);
   const layout = useMemo(() => layoutIso(model), [model]);
   const fleet = useMemo(() => amrFleet(state), [state]);
@@ -113,6 +135,19 @@ export function Twin3D({
   const [cameras, setCameras] = useState(true);
   const [robots, setRobots] = useState(true);
   const [spin, setSpin] = useState(false);
+  // High quality (soft ambient occlusion, bloom, more detail) unless the device looks slow; the
+  // viewer can switch, and a sustained frame-rate drop switches down automatically.
+  const chosen = useRef<Quality | null>(storedQuality());
+  const [quality, setQualityState] = useState<Quality>(() => chosen.current ?? (!gpu.software && (navigator.hardwareConcurrency ?? 4) >= 6 ? "high" : "standard"));
+  const chooseQuality = (q: Quality) => {
+    chosen.current = q;
+    setQualityState(q);
+    try {
+      localStorage.setItem(QUALITY_KEY, q);
+    } catch {
+      /* not remembered, still applied */
+    }
+  };
   const [goal, setGoal] = useState<Goal>(null);
 
   const b = layout.bounds;
@@ -233,7 +268,7 @@ export function Twin3D({
     <div className="relative h-full w-full" data-testid="twin-3d">
       <Canvas
         shadows="percentage"
-        dpr={[1, 1.75]}
+        dpr={quality === "high" ? [1, 1.75] : [1, 1.25]}
         camera={{ fov: 38, near: 0.1, far: 400, position: home.toArray() }}
         onPointerMissed={() => onSelect(null)}
         onCreated={({ gl }) => {
@@ -241,8 +276,10 @@ export function Twin3D({
         }}
         aria-label="3D view of the factory digital twin"
       >
+        <PerformanceMonitor onDecline={() => !chosen.current && setQualityState("standard")} />
         <Scene
           pal={pal}
+          quality={quality}
           layout={layout}
           paths={robots ? paths : []}
           selectedId={selectedId}
@@ -266,6 +303,11 @@ export function Twin3D({
         />
         <CameraRig goal={goal} onArrive={() => setGoal(null)} />
         <LabelProjector anchors={anchorsRef} els={labelEls} />
+        {quality === "high" && (
+          <Suspense fallback={null}>
+            <Effects />
+          </Suspense>
+        )}
       </Canvas>
       <div className="pointer-events-none absolute inset-0 overflow-hidden" aria-hidden>
         {anchors.map((a) => (
@@ -308,6 +350,7 @@ export function Twin3D({
           { on: labels === "all", label: labels === "all" ? "All labels" : "Smart labels", icon: Tag, onClick: () => setLabels(labels === "all" ? "smart" : "all") },
           { on: cameras, label: "Cameras", icon: Cctv, onClick: () => setCameras(!cameras) },
           { on: robots, label: "Mobile robots", icon: Bot, onClick: () => setRobots(!robots) },
+          { on: quality === "high", label: quality === "high" ? "High quality" : "Standard quality", icon: Gem, onClick: () => chooseQuality(quality === "high" ? "standard" : "high") },
         ].map((x) => (
           <button
             key={x.label}
@@ -353,6 +396,7 @@ function DoubleClickFocus({ onFocus }: { onFocus: () => void }) {
 
 function Scene({
   pal,
+  quality,
   layout,
   paths,
   selectedId,
@@ -363,6 +407,7 @@ function Scene({
   registerAmr,
 }: {
   pal: Palette;
+  quality: Quality;
   layout: ReturnType<typeof layoutIso>;
   paths: ReturnType<typeof amrPaths>;
   selectedId: string | null;
@@ -376,15 +421,26 @@ function Scene({
   const cx = (b.x0 + b.x1) / 2;
   const cy = (b.y0 + b.y1) / 2;
   const span = Math.max(b.x1 - b.x0, b.y1 - b.y0);
+  const mats = useMaterials(pal, quality);
+  // The light theme already has a bright floor and walls; less studio light keeps it from washing out.
+  const k = pal.theme === "dark" ? 1 : 0.65;
   return (
     <>
-      <hemisphereLight args={[pal.theme === "dark" ? "#b9cbef" : "#ffffff", pal.floor, pal.theme === "dark" ? 1.5 : 1.1]} />
-      <ambientLight intensity={pal.theme === "dark" ? 0.55 : 0.45} />
+      {/* Studio lighting built from light panels (no HDR download): gives metal and glass their reflections. */}
+      <Environment resolution={256} frames={1}>
+        <Lightformer form="rect" intensity={2.4 * k} position={[0, 7, 0]} rotation-x={Math.PI / 2} scale={[14, 14, 1]} />
+        <Lightformer form="rect" intensity={1.3 * k} position={[-9, 3, 0]} rotation-y={Math.PI / 2} scale={[12, 2.5, 1]} />
+        <Lightformer form="rect" intensity={1.3 * k} position={[9, 3, 0]} rotation-y={-Math.PI / 2} scale={[12, 2.5, 1]} />
+        <Lightformer form="rect" intensity={0.9 * k} color="#cfe3ff" position={[0, 3, 9]} rotation-y={Math.PI} scale={[12, 2, 1]} />
+      </Environment>
+      <hemisphereLight args={[pal.theme === "dark" ? "#c4d4f2" : "#ffffff", "#5b636c", pal.theme === "dark" ? 0.7 : 0.6]} />
+      <ambientLight intensity={0.15} />
       <directionalLight
         position={P(cx + span * 0.4, cy - span * 0.2, span * 0.9)}
-        intensity={pal.theme === "dark" ? 1.6 : 1.9}
+        intensity={pal.theme === "dark" ? 1.8 : 1.6}
         castShadow
-        shadow-mapSize={[1536, 1536]}
+        shadow-mapSize={quality === "high" ? [2048, 2048] : [1024, 1024]}
+        shadow-normalBias={0.02}
         shadow-camera-left={-span}
         shadow-camera-right={span}
         shadow-camera-top={span}
@@ -396,20 +452,22 @@ function Scene({
         <object3D attach="target" position={P(cx, cy)} />
       </directionalLight>
 
-      <Floor layout={layout} pal={pal} onMiss={() => onSelect(null)} />
+      <Shell layout={layout} mats={mats} quality={quality} onMiss={() => onSelect(null)} />
       {layout.bays.map((bay) => {
         const hot = !!highlight && (highlight.lineIds.includes(bay.id) || highlight.rerouteLineId === bay.id);
-        return <BayZone key={bay.id} bay={bay} pal={pal} color={pal.resolve(bay.color)} hot={hot} dim={!!highlight && !hot} />;
+        return <BayZone key={bay.id} bay={bay} mats={mats} accent={pal.accent} color={pal.resolve(bay.color)} hot={hot} dim={!!highlight && !hot} />;
       })}
       {layout.belts.map((bt) => {
         const hot = !!highlight && (highlight.rerouteLineId === bt.lineId || highlight.lineIds.includes(bt.lineId));
-        return <Belt3D key={bt.id} bt={bt} pal={pal} hot={hot} dim={!!highlight && !hot} />;
+        return <Belt3D key={bt.id} bt={bt} pal={pal} mats={mats} quality={quality} hot={hot} dim={!!highlight && !hot} />;
       })}
       {layout.machines.map((pm) => (
         <Machine3D
           key={pm.m.id}
           pm={pm}
           pal={pal}
+          mats={mats}
+          quality={quality}
           status={pm.m.status}
           dim={!affected(pm.lineId, pm.m.id)}
           selected={selectedId === pm.m.id}
@@ -419,14 +477,14 @@ function Scene({
         />
       ))}
       {layout.racks.map((rk) => (
-        <Rack3D key={rk.id} rk={rk} pal={pal} selected={selectedId === `inv:${rk.id}`} dim={!!highlight} onSelect={() => onSelect(`inv:${rk.id}`)} />
+        <Rack3D key={rk.id} rk={rk} pal={pal} mats={mats} selected={selectedId === `inv:${rk.id}`} dim={!!highlight} onSelect={() => onSelect(`inv:${rk.id}`)} />
       ))}
       {layout.trucks.map((t) => (
-        <Truck3D key={t.id} t={t} pal={pal} selected={selectedId === `ord:${t.id}`} onSelect={() => onSelect(`ord:${t.id}`)} />
+        <Truck3D key={t.id} t={t} pal={pal} mats={mats} selected={selectedId === `ord:${t.id}`} onSelect={() => onSelect(`ord:${t.id}`)} />
       ))}
-      {cameras && layout.cameras.map((pc) => <Camera3D key={pc.cam.id} pc={pc} pal={pal} selected={selectedId === `cam:${pc.cam.id}`} onSelect={() => onSelect(`cam:${pc.cam.id}`)} />)}
+      {cameras && layout.cameras.map((pc) => <Camera3D key={pc.cam.id} pc={pc} pal={pal} mats={mats} selected={selectedId === `cam:${pc.cam.id}`} onSelect={() => onSelect(`cam:${pc.cam.id}`)} />)}
       {paths.map((p, i) => (
-        <Amr3D key={p.amr.id} path={p} pal={pal} index={i} selected={selectedId === `amr:${p.amr.id}`} onSelect={() => onSelect(`amr:${p.amr.id}`)} register={registerAmr} />
+        <Amr3D key={p.amr.id} path={p} pal={pal} mats={mats} index={i} selected={selectedId === `amr:${p.amr.id}`} onSelect={() => onSelect(`amr:${p.amr.id}`)} register={registerAmr} />
       ))}
     </>
   );
