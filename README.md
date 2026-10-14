@@ -393,12 +393,12 @@ docker run -p 8080:8080 twinforge-ai     # http://localhost:8080
 ## Testing
 
 ```bash
-npm test               # 90 Vitest tests
+npm test               # 91 Vitest tests
 npm run build && npm run test:e2e   # 13 Playwright tests against the production server
 cd services/vision && uv run pytest # 16 pytest tests for the Python vision service
 ```
 
-- **Unit and integration tests** (`tests/`, 90 tests), including a check that the landing story's figures are engine-derived:
+- **Unit and integration tests** (`tests/`, 91 tests), including a check that the landing story's figures are engine-derived:
   - seed reproducibility and entity counts
   - health and status rules, OLS and trend estimation, change-point detection
   - KPIs
@@ -413,7 +413,7 @@ cd services/vision && uv run pytest # 16 pytest tests for the Python vision serv
   - cameras: https-only stream URLs, audited live views, station-log reviews and the human disposition guard
   - mapping of vision-service results to review findings
   - Twin Builder: every template validates cleanly, builds, simulates and runs the six-agent analysis; deterministic builds; industry-appropriate defect classes; validation repairs and errors; and the agent workflow with recorded model responses (blueprint links, citation filtering, unsupported machine types, fallbacks, and chat edits as validated operations). The demo factory is checked byte-identical after the generator refactor.
-- **Admin and settings** (`tests/admin.test.ts`): signed admin cookies (expiry, tampering, passcode rotation, rate limit); settings overriding the environment, turning off and returning to the deployment value; validation (https only, no metadata host); secrets never returned; settings driving the AI and vision adapters; camera source switching with audit; every footage clip shipped with its file, poster and license; stock-outs reported once.
+- **Admin and settings** (`tests/admin.test.ts`): signed admin cookies (expiry, tampering, passcode rotation, rate limit); settings overriding the environment, turning off and returning to the deployment value; never overwriting saved settings that could not be read from Cloud Storage; validation (https only, no metadata host); secrets never returned; settings driving the AI and vision adapters; camera source switching with audit; every footage clip shipped with its file, poster and license; stock-outs reported once.
 - **Agent tools** (`tests/tools.test.ts`): every read tool leaves the twin unchanged; what-if matches the engine; the proposal only creates a pending recommendation; invalid arguments are rejected; no tool can approve, execute or command equipment; numeric grounding of answers.
 - **Python vision service** (`services/vision/tests`, 16 tests, synthetic media): a missing IC found where it should be, a rotated and shifted part aligned, lighting changes ignored, QR and EAN-13 decoding with grades, deterministic output, a video stoppage found at the right time, and API limits.
 - **End-to-end tests** (`e2e/demo.spec.ts`, 13 tests): the CCTV control room switching all cameras to reference footage and back (audited, served as video/mp4); integration settings saved from the UI and returned to the deployment value; MCP protocol (initialize, tools/list with read-only hints, tools/call, errors); the ADK copilot giving a grounded answer with a tool trace (when Gemini is configured); Twin Builder from description to built twin with a planned connection; camera card → audited live view → Visual Quality review confirmed by a person; camera API validation and honest Gemini status; isometric selection and rotation, theme persistence, every landing-story chapter appearing on scroll; every page renders with no console errors; the full guided crisis demo (incident → agents → scenario sensitivity → twin highlight → approval → fast-forward → audit); reset reproducibility; API validation.

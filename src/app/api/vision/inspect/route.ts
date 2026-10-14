@@ -4,6 +4,7 @@ import { json, route } from "@/server/http";
 import { visionService } from "@/server/integrations/vision-service";
 import { getState } from "@/server/store";
 import { opencvInspect } from "@/server/vision/reviews";
+import { ensureFreshSettings } from "@/server/settings";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 150;
@@ -37,6 +38,7 @@ function normalised(f: File): File {
  * a visual review pending human disposition.
  */
 export const POST = route(async (req: Request) => {
+  await ensureFreshSettings();
   if (!visionService.configured()) {
     return json({ error: "The vision service is not configured. Set its URL in Integrations → Vision service (or VISION_SERVICE_URL); see docs/python-services-plan.md." }, 503);
   }

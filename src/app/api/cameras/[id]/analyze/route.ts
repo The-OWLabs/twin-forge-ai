@@ -5,6 +5,7 @@ import { json, parseBody, route } from "@/server/http";
 import { CameraAnalyzeSchema } from "@/server/schemas";
 import { getState } from "@/server/store";
 import { geminiReview, opencvInspect, readFootage } from "@/server/vision/reviews";
+import { ensureFreshSettings } from "@/server/settings";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 150;
@@ -19,6 +20,7 @@ type Ctx = { params: Promise<{ id: string }> };
 export const POST = route(async (req: Request, { params }: Ctx) => {
   const { id } = await params;
   const { engine } = await parseBody(req, CameraAnalyzeSchema);
+  await ensureFreshSettings();
   const camera = getCamera(getState(), id);
   if (camera.stream.kind !== "footage" || !camera.stream.clipId) {
     throw new DomainError(

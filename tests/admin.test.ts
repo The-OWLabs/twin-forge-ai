@@ -98,6 +98,32 @@ describe("integration settings", () => {
     expect(JSON.stringify(s.describeSettings(s.SETTING_KEYS))).not.toContain("abcdefghijklmnop1234");
   });
 
+  it("with a Cloud Storage bucket, never overwrites saved settings it could not read", async () => {
+    vi.stubEnv("TWINFORGE_CONFIG_BUCKET", "cfg-bucket");
+    let saved: { values: Record<string, string> } = { values: { MQTT_TOPIC: "plant/+/telemetry" } };
+    let unreachable = true;
+    vi.doMock("@/server/integrations/gcp", () => ({
+      gcpFetch: vi.fn(async (_url: string, init?: { method?: string; body?: string }) => {
+        if (init?.method === "POST") {
+          saved = JSON.parse(init.body!);
+          return {};
+        }
+        if (unreachable) throw new Error("This operation was aborted");
+        return saved;
+      }),
+    }));
+    const s = await import("@/server/settings");
+    s.__resetSettingsForTests();
+    await expect(s.updateSettings({ MQTT_BROKER_URL: "mqtt://broker:1883" }, "Admin")).rejects.toThrow(/could not be read/);
+    expect(saved.values).toEqual({ MQTT_TOPIC: "plant/+/telemetry" });
+    unreachable = false;
+    await s.updateSettings({ MQTT_BROKER_URL: "mqtt://broker:1883" }, "Admin");
+    expect(saved.values).toEqual({ MQTT_TOPIC: "plant/+/telemetry", MQTT_BROKER_URL: "mqtt://broker:1883" });
+    expect(s.setting("MQTT_TOPIC")).toBe("plant/+/telemetry");
+    expect(s.settingsStorage()).toMatchObject({ kind: "cloud-storage", ok: true });
+    vi.doUnmock("@/server/integrations/gcp");
+  });
+
   it("drives the adapters and the AI configuration", async () => {
     vi.stubEnv("GOOGLE_CLOUD_PROJECT", "twin-forge");
     const s = await import("@/server/settings");

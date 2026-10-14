@@ -190,14 +190,28 @@ interface Persisted {
   updatedBy: string | null;
 }
 
-type Store = { data: Persisted; loaded: boolean; durable: { ok: boolean; detail: string } | null; writing: Promise<void> };
+type Store = {
+  data: Persisted;
+  loaded: boolean;
+  durable: { ok: boolean; detail: string } | null;
+  writing: Promise<void>;
+  /** Local changes since start; a bucket read that started before a change must not overwrite it. */
+  writes: number;
+  lastReadAt: number;
+  refreshing: Promise<void> | null;
+};
 const g = globalThis as unknown as { __twinforgeSettings?: Store };
 const store: Store = (g.__twinforgeSettings ??= {
   data: { version: 1, values: {}, updatedAt: null, updatedBy: null },
   loaded: false,
   durable: null,
   writing: Promise.resolve(),
+  writes: 0,
+  lastReadAt: 0,
+  refreshing: null,
 });
+/** Other instances (or a rollout's new revision) pick up saved changes within this time. */
+const REFRESH_MS = 60_000;
 
 const SERVERLESS = !!(process.env.K_SERVICE || process.env.FUNCTION_TARGET || process.env.FIREBASE_CONFIG);
 const DATA_DIR = process.env.TWINFORGE_DATA_DIR || (SERVERLESS ? path.join(os.tmpdir(), "twinforge") : path.join(process.cwd(), ".data"));
@@ -220,31 +234,63 @@ function loadLocalSync() {
   }
 }
 
+/** Read the saved settings from Cloud Storage once. Never throws; records the outcome in store.durable. */
+async function readBucket(timeoutMs: number) {
+  const writesAtStart = store.writes;
+  try {
+    const { gcpFetch } = await import("./integrations/gcp");
+    const body = await gcpFetch(`https://storage.googleapis.com/storage/v1/b/${bucket()}/o/${encodeURIComponent(OBJECT)}?alt=media`, { timeoutMs });
+    if (store.writes === writesAtStart) store.data = sanitise(body);
+    store.durable = { ok: true, detail: `Loaded from gs://${bucket()}/${OBJECT}` };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    if (msg.startsWith("404")) {
+      if (store.writes === writesAtStart) store.data = sanitise(null);
+      store.durable = { ok: true, detail: `gs://${bucket()}/${OBJECT} (nothing saved yet)` };
+    } else store.durable = { ok: false, detail: `Could not read gs://${bucket()}/${OBJECT}: ${msg === "This operation was aborted" ? "timed out" : msg}` };
+  }
+  store.lastReadAt = Date.now();
+}
+
 /** Load saved settings (Cloud Storage when configured, else the local file). Called once at server start. */
 export async function loadSettings() {
   if (bucket()) {
-    try {
-      const { gcpFetch } = await import("./integrations/gcp");
-      const body = await gcpFetch(`https://storage.googleapis.com/storage/v1/b/${bucket()}/o/${encodeURIComponent(OBJECT)}?alt=media`);
-      store.data = sanitise(body);
-      store.durable = { ok: true, detail: `Loaded from gs://${bucket()}/${OBJECT}` };
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      if (msg.startsWith("404")) store.durable = { ok: true, detail: `gs://${bucket()}/${OBJECT} (nothing saved yet)` };
-      else {
-        store.durable = { ok: false, detail: `Could not read gs://${bucket()}/${OBJECT}: ${msg}` };
-        loadLocalSync();
-      }
+    // The first call on a cold instance can be slow (credentials, connection setup): retry before giving up.
+    for (let attempt = 0; attempt < 3; attempt++) {
+      await readBucket(15_000);
+      if (store.durable?.ok) break;
+      await new Promise((r) => setTimeout(r, 1000 * (attempt + 1)));
     }
+    if (!store.durable?.ok) loadLocalSync();
   } else loadLocalSync();
   store.loaded = true;
 }
 
+/** Re-read the bucket in the background when the last read failed or is older than REFRESH_MS. */
+function maybeRefresh() {
+  if (!bucket() || store.refreshing) return;
+  if (store.durable?.ok && Date.now() - store.lastReadAt < REFRESH_MS) return;
+  store.refreshing = readBucket(15_000).finally(() => {
+    store.refreshing = null;
+  });
+}
+
+/** Wait for an up-to-date read of the saved settings (used before showing or changing them). */
+export async function ensureFreshSettings() {
+  ensureLoaded();
+  if (!bucket()) return;
+  maybeRefresh();
+  if (store.refreshing && !store.durable?.ok) await store.refreshing;
+  else if (store.refreshing) await Promise.race([store.refreshing, new Promise((r) => setTimeout(r, 3000))]);
+}
+
 function ensureLoaded() {
-  if (store.loaded) return;
-  // Synchronous fallback for code paths that run before loadSettings() (local development).
-  loadLocalSync();
-  store.loaded = true;
+  if (!store.loaded) {
+    // Synchronous fallback for code paths that run before loadSettings() (local development).
+    loadLocalSync();
+    store.loaded = true;
+  }
+  maybeRefresh();
 }
 
 /** The effective value: the UI setting when one is saved (an empty string turns it off), else the environment. */
@@ -303,6 +349,12 @@ export class SettingsError extends Error {
  */
 export async function updateSettings(changes: Record<string, string | null>, by: string): Promise<SettingKey[]> {
   ensureLoaded();
+  if (bucket()) {
+    // Start from the latest saved settings, and never overwrite saved settings we could not read.
+    if (store.refreshing) await store.refreshing;
+    if (!store.durable?.ok || Date.now() - store.lastReadAt > 5_000) await readBucket(15_000);
+    if (!store.durable?.ok) throw new Error(`Saved settings could not be read (${store.durable?.detail ?? "unknown error"}), so nothing was changed. Try again in a moment.`);
+  }
   const issues: string[] = [];
   const next = { ...store.data.values };
   for (const [k, raw] of Object.entries(changes)) {
@@ -326,6 +378,7 @@ export async function updateSettings(changes: Record<string, string | null>, by:
   }
   if (issues.length) throw new SettingsError(issues);
   const before = Object.fromEntries(SETTING_KEYS.map((k) => [k, setting(k) ?? ""]));
+  store.writes++;
   store.data = { version: 1, values: next, updatedAt: new Date().toISOString(), updatedBy: by };
   const changed = SETTING_KEYS.filter((k) => (setting(k) ?? "") !== before[k]);
   await persist();
@@ -362,4 +415,5 @@ export function __resetSettingsForTests() {
   store.data = { version: 1, values: {}, updatedAt: null, updatedBy: null };
   store.loaded = true;
   store.durable = null;
+  store.refreshing = null;
 }
