@@ -23,9 +23,16 @@ export async function gcpFetch(url: string, init: RequestInit & { timeoutMs?: nu
       headers: { Authorization: `Bearer ${token.token}`, "Content-Type": "application/json", ...(init.headers ?? {}) },
     });
     const text = await res.text();
-    const body = text ? JSON.parse(text) : {};
+    let body: { error?: { message?: string } } & Record<string, unknown> = {};
+    try {
+      body = text ? JSON.parse(text) : {};
+    } catch {
+      // Some errors (e.g. Cloud Storage "No such object") come back as plain text.
+      if (res.ok) throw new Error(`Unexpected non-JSON response from ${new URL(url).host}`);
+      body = { error: { message: text.slice(0, 200) } };
+    }
     if (!res.ok) throw new Error(`${res.status} ${body?.error?.message ?? res.statusText}`);
-    return body;
+    return body as any; // eslint-disable-line @typescript-eslint/no-explicit-any
   } finally {
     clearTimeout(timer);
   }
