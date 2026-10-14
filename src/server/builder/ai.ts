@@ -4,11 +4,13 @@ import { ARCHETYPE_CATALOG, BlueprintReadingSchema, DraftSchema, type ResearchRe
 import { SpecOpSchema } from "@/domain/builder/ops";
 import type { BuilderAi } from "@/domain/builder/pipeline";
 import { INTEGRATION_KINDS, ROBOT_MISSIONS, ROBOT_TYPES, type TwinSpec } from "@/domain/builder/spec";
-import { aiConfig, geminiGenerate } from "@/server/ai/provider";
+import { aiCapabilities, aiConfig, modelLabel } from "@/server/ai/config";
+import { llmGenerate } from "@/server/ai/llm";
 
 /**
- * Gemini implementation of the Twin Builder agent. Every call uses a JSON schema (except grounded
- * research, which returns cited notes) and every response is validated with zod before use.
+ * The Twin Builder agent on the configured AI provider (Gemini, Claude, OpenAI or a compatible
+ * endpoint). Every call uses a JSON schema (except web research, which returns cited notes) and
+ * every response is validated with zod before use.
  */
 
 const SOURCES = ["blueprint", "requirement", "reference", "template", "default"];
@@ -186,10 +188,6 @@ const REFINE_SCHEMA = {
   required: ["explanation", "ops"],
 };
 
-const json = (text: string | undefined) => {
-  const t = (text ?? "").trim().replace(/^```(?:json)?\s*|\s*```$/g, "");
-  return JSON.parse(t);
-};
 
 function compactSpec(spec: TwinSpec) {
   return {
@@ -204,28 +202,13 @@ function compactSpec(spec: TwinSpec) {
   };
 }
 
-/** Insert [R#] markers after the sentences each grounding chunk supports. */
-function citeNotes(text: string, supports: { segment?: { text?: string }; groundingChunkIndices?: number[] }[], refIdForChunk: (i: number) => string | null) {
-  let out = text;
-  const seen = new Set<string>();
-  for (const s of supports) {
-    const seg = s.segment?.text?.trim();
-    if (!seg || seen.has(seg)) continue;
-    seen.add(seg);
-    const ids = [...new Set((s.groundingChunkIndices ?? []).map(refIdForChunk).filter((x): x is string => !!x))];
-    if (!ids.length) continue;
-    const at = out.indexOf(seg);
-    if (at >= 0) out = `${out.slice(0, at + seg.length)} [${ids.join(", ")}]${out.slice(at + seg.length)}`;
-  }
-  return out;
-}
-
-export function geminiBuilderAi(): BuilderAi {
+export function builderAi(): BuilderAi {
   const cfg = aiConfig();
-  const available = cfg.provider !== "none";
+  const caps = aiCapabilities(cfg);
   return {
-    available,
-    model: available ? cfg.model : null,
+    available: caps.available,
+    model: caps.available ? modelLabel(cfg) : null,
+    researchUnavailable: caps.available && !caps.webSearch ? `Web research needs a provider with web search (Gemini, Claude or OpenAI); ${modelLabel(cfg)} has none.` : null,
 
     async readBlueprint(file, hints) {
       const prompt = [
@@ -239,12 +222,8 @@ export function geminiBuilderAi(): BuilderAi {
         "",
         `Context from the user (may be empty): industry=${hints.industry ?? ""}; requirements=${hints.requirements.slice(0, 1500)}`,
       ].join("\n");
-      const { res } = await geminiGenerate({
-        contents: [{ role: "user", parts: [{ inlineData: { mimeType: file.mimeType, data: file.data } }, { text: prompt }] }],
-        config: { responseMimeType: "application/json", responseJsonSchema: READ_SCHEMA, maxOutputTokens: 8192 },
-        timeoutMs: 90_000,
-      });
-      const raw = json(res.text);
+      const r = await llmGenerate({ prompt, media: [{ mimeType: file.mimeType, data: file.data }], json: { name: "blueprint_reading", schema: READ_SCHEMA }, maxOutputTokens: 8192, timeoutMs: 90_000 });
+      const raw = r.json as { elements?: { archetype?: string | null }[] };
       for (const e of raw.elements ?? []) if (e.archetype === "none") e.archetype = null;
       return BlueprintReadingSchema.parse(raw);
     },
@@ -264,29 +243,9 @@ export function geminiBuilderAi(): BuilderAi {
       ]
         .filter(Boolean)
         .join("\n");
-      const { res } = await geminiGenerate({ contents: prompt, config: { tools: [{ googleSearch: {} }], maxOutputTokens: 8192 }, timeoutMs: 90_000 });
-      const cand = res.candidates?.[0];
-      const gm = (cand?.groundingMetadata ?? {}) as {
-        groundingChunks?: { web?: { uri?: string; title?: string } }[];
-        groundingSupports?: { segment?: { text?: string }; groundingChunkIndices?: number[] }[];
-        webSearchQueries?: string[];
-        searchEntryPoint?: { renderedContent?: string };
-      };
-      const references: ResearchResult["references"] = [];
-      const idForUri = new Map<string, string>();
-      const chunkRef: (string | null)[] = (gm.groundingChunks ?? []).map((c) => {
-        const uri = c.web?.uri;
-        if (!uri) return null;
-        if (!idForUri.has(uri)) {
-          if (references.length >= 15) return null;
-          const id = `R${references.length + 1}`;
-          idForUri.set(uri, id);
-          references.push({ id, title: (c.web?.title || new URL(uri).hostname).slice(0, 200), url: uri });
-        }
-        return idForUri.get(uri)!;
-      });
-      const notes = citeNotes(res.text ?? "", gm.groundingSupports ?? [], (i) => chunkRef[i] ?? null).slice(0, 8000);
-      return { notes, references, queries: gm.webSearchQueries ?? [], searchEntryPoint: gm.searchEntryPoint?.renderedContent ?? null };
+      const r = await llmGenerate({ prompt, webSearch: true, maxOutputTokens: 8192, timeoutMs: 90_000 });
+      const references: ResearchResult["references"] = r.citations.map((c) => ({ id: c.id, title: c.title, url: c.url }));
+      return { notes: r.markedText.slice(0, 8000), references, queries: r.queries, searchEntryPoint: r.searchEntryPoint };
     },
 
     async draft(ctx) {
@@ -314,8 +273,8 @@ export function geminiBuilderAi(): BuilderAi {
           template: ctx.template ? compactSpec(ctx.template) : null,
         }),
       ].join("\n");
-      const { res } = await geminiGenerate({ contents: prompt, config: { responseMimeType: "application/json", responseJsonSchema: DRAFT_SCHEMA, maxOutputTokens: 16384 }, timeoutMs: 120_000 });
-      return DraftSchema.parse(json(res.text));
+      const r = await llmGenerate({ prompt, json: { name: "factory_draft", schema: DRAFT_SCHEMA }, maxOutputTokens: 16384, timeoutMs: 120_000 });
+      return DraftSchema.parse(r.json);
     },
 
     async refine(spec, instruction) {
@@ -331,8 +290,8 @@ export function geminiBuilderAi(): BuilderAi {
         "",
         `USER REQUEST: ${instruction.slice(0, 2000)}`,
       ].join("\n");
-      const { res } = await geminiGenerate({ contents: prompt, config: { responseMimeType: "application/json", responseJsonSchema: REFINE_SCHEMA, maxOutputTokens: 8192 }, timeoutMs: 60_000 });
-      const raw = json(res.text) as { explanation?: string; ops?: unknown[] };
+      const r = await llmGenerate({ prompt, json: { name: "spec_edits", schema: REFINE_SCHEMA }, maxOutputTokens: 8192, timeoutMs: 60_000 });
+      const raw = r.json as { explanation?: string; ops?: unknown[] };
       return { explanation: String(raw.explanation ?? "").slice(0, 600), ops: (raw.ops ?? []) as never };
     },
   };

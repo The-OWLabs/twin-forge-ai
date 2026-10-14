@@ -2,6 +2,8 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Check, FileVideo, Image as ImageIcon, ScanEye, ScanSearch, Sparkles, Upload, X } from "lucide-react";
+import { aiShortName, useAiInfo } from "@/client/ai";
+import { contactSheet } from "@/client/frames";
 import { useFactory } from "@/client/store";
 import type { FactoryState, VisionFinding, VisionReview } from "@/domain/types";
 import type { InspectionResult } from "@/domain/vision";
@@ -53,6 +55,9 @@ export function ReviewTools({ state }: { state: FactoryState }) {
   const [refresh, setRefresh] = useState(0);
   const status = useIntegrationStatus(["vertex-ai", "vision-service"], refresh);
   const gemini = status["vertex-ai"];
+  const ai = useAiInfo(refresh);
+  const name = aiShortName(ai);
+  const [capturing, setCapturing] = useState(false);
   const inspection = state.cameras.filter((c) => c.kind === "inspection");
   const [cameraId, setCameraId] = useState(inspection[0]?.id ?? "");
   const [file, setFile] = useState<File | null>(null);
@@ -88,11 +93,12 @@ export function ReviewTools({ state }: { state: FactoryState }) {
 
       <div className="rounded-xl border border-line bg-shell p-3.5">
         <p className="flex items-center gap-1.5 text-[13px] font-semibold text-ink">
-          <Sparkles className="h-4 w-4 text-agent" /> Review footage with Gemini
+          <Sparkles className="h-4 w-4 text-agent" /> Review footage with {name}
           <StatusBadge status={gemini} />
         </p>
         <p className="mt-1 text-[12px] leading-relaxed text-muted">
-          Upload a short clip or photo (MP4, WebM, MOV, JPEG, PNG, WebP; up to 15 MB). Gemini reports what it can see using fixed defect categories. Results are advisory and wait for your decision.
+          Upload a short clip or photo (MP4, WebM, MOV, JPEG, PNG, WebP; up to 15 MB). {ai?.model ?? "The AI model"} reports what it can see using fixed defect categories.
+          {ai && !ai.capabilities.video && ai.capabilities.available ? " This provider reads images, so a clip is sent as a sheet of four frames captured in your browser." : ""} Results are advisory and wait for your decision.
         </p>
         <div className="mt-3 flex flex-wrap items-end gap-2">
           <input ref={input} type="file" accept={ACCEPT} className="hidden" onChange={(e) => setFile(e.target.files?.[0] ?? null)} data-testid="vision-file" />
@@ -109,11 +115,20 @@ export function ReviewTools({ state }: { state: FactoryState }) {
           <Button
             size="sm"
             variant="agent"
-            loading={busyAnalyze}
+            loading={busyAnalyze || capturing}
             disabled={!available || !file || tooBig}
             onClick={async () => {
               if (!file) return;
-              const r = await analyze(file, cameraId || null);
+              let r;
+              if (file.type.startsWith("video/") && ai && !ai.capabilities.video) {
+                setCapturing(true);
+                try {
+                  const sheet = await contactSheet(file);
+                  r = await analyze(sheet.blob, cameraId || null, sheet.times, `${file.name} (frames).jpg`);
+                } finally {
+                  setCapturing(false);
+                }
+              } else r = await analyze(file, cameraId || null);
               if (r) {
                 setFile(null);
                 if (input.current) input.current.value = "";
@@ -130,7 +145,7 @@ export function ReviewTools({ state }: { state: FactoryState }) {
         )}
         {gemini?.state === "not-configured" && (
           <p className="mt-2 text-[11.5px] leading-relaxed text-warning-ink">
-            Gemini isn&apos;t configured on this deployment, so uploads are off. Set GOOGLE_CLOUD_PROJECT (Vertex AI) or GEMINI_API_KEY to turn them on. The station-log review still works.
+            {ai?.disabled ? "AI is turned off on this deployment" : "No AI provider is configured on this deployment"}, so uploads are off. Choose one in Integrations → AI model provider (Gemini, Claude, OpenAI or a compatible endpoint). The station-log review and the OpenCV check still work.
           </p>
         )}
       </div>
@@ -335,7 +350,7 @@ function ReviewCard({ state, review }: { state: FactoryState; review: VisionRevi
       <div className="flex flex-wrap items-center gap-2">
         <span className="font-mono text-[12px] text-ink">{review.id}</span>
         <Badge tone={review.source === "gemini" ? "agent" : review.source === "opencv" ? "accent" : "neutral"}>
-          {review.source === "gemini" ? `Gemini · ${review.model ?? "model"}` : review.source === "opencv" ? (review.model ?? "OpenCV · vision service") : "Simulated inspection log"}
+          {review.source === "gemini" ? `AI · ${review.model ?? "model"}` : review.source === "opencv" ? (review.model ?? "OpenCV · vision service") : "Simulated inspection log"}
         </Badge>
         {review.cameraId && <Badge tone="accent">{review.cameraId}</Badge>}
         <span className="text-[11.5px] text-muted">{fmtSimTime(state, review.hour)}</span>

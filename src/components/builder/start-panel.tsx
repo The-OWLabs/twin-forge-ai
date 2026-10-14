@@ -56,7 +56,7 @@ export function StartPanel({ file, setFile }: { file: File | null; setFile: (f: 
                 <div className="min-w-0 flex-1 text-[12.5px]">
                   <p className="truncate font-medium text-ink">{file?.name ?? blueprint?.fileName}</p>
                   <p className="text-muted">{file ? `${Math.max(1, Math.round(file.size / 1024))} KB` : "Choose the file again to re-read it (files are not stored)."}</p>
-                  {!ai && <p className="mt-1 text-warning-ink">Reading drawings needs Gemini, which isn&apos;t configured here.</p>}
+                  {!ai && <p className="mt-1 text-warning-ink">Reading drawings needs an AI model, which is off or not configured here.</p>}
                 </div>
                 <Button
                   size="icon"
@@ -161,7 +161,7 @@ export function StartPanel({ file, setFile }: { file: File | null; setFile: (f: 
                 <p className="flex items-center gap-1.5 text-[13px] font-medium text-ink">
                   <Globe className="h-4 w-4 text-accent" /> Research standard layouts on the web
                 </p>
-                <p className="text-[11.5px] leading-snug text-muted">Gemini with Google Search grounding. Every value it uses from the web is cited.</p>
+                <p className="text-[11.5px] leading-snug text-muted">Web search through the AI provider (Gemini, Claude or OpenAI). Every value it uses from the web is cited.</p>
               </div>
               <Switch checked={input.research && ai} disabled={!ai} onCheckedChange={(v) => setInput({ research: v })} aria-label="Research on the web" />
             </div>
@@ -177,7 +177,7 @@ export function StartPanel({ file, setFile }: { file: File | null; setFile: (f: 
               ) : (
                 <>
                   <Badge tone="warning" className="mr-1">AI off</Badge>
-                  Gemini isn&apos;t configured on this server, so drawings can&apos;t be read and free text is matched to a template by keywords. You can still edit everything before building.
+                  AI is off or not configured on this server (Integrations → AI model provider), so drawings can&apos;t be read and free text is matched to a template by keywords (robots included). You can still edit everything before building.
                 </>
               )}
             </p>

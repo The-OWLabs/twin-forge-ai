@@ -145,4 +145,22 @@ describe("mobile robots in the Twin Builder", () => {
     expect(out!.mobileRobots[0].count).toBe(2);
     expect(out!.assumptions.some((a) => /left out the mobile robots/.test(a))).toBe(true);
   });
+
+  it("skips web research, with the reason, when the AI provider has no web search", async () => {
+    const tpl = bottling();
+    const draft: Draft = {
+      site: { name: "Plant", industry: "Beverage", location: "", productionType: "" },
+      lines: tpl.lines.map((l) => ({ name: l.name, role: l.role, products: l.role === "process" ? ["Water"] : [], source: "requirement", note: null, machines: l.machines.map((m) => ({ name: m.name, archetype: m.archetype, ratePerHour: null, source: "requirement", note: null, refs: [], blueprintElement: null })) })),
+      products: [{ name: "Water", unit: "bottles", ratePerHour: null, unitPrice: null, unitMaterialCost: null, source: "requirement", note: null, refs: [], materials: [] }],
+      materials: [],
+      integrations: [],
+      assumptions: [],
+      questions: [],
+    };
+    const local: BuilderAi = { ...noAi, available: true, model: "llama3.3 via localhost:11434", researchUnavailable: "Web research needs a provider with web search.", draft: async () => structuredClone(draft) };
+    const events: BuilderEvent[] = [];
+    for await (const e of runBuilder({ requirements: "Bottling", site: {}, templateId: null, blueprint: null, research: true }, local)) events.push(e);
+    const research = events.find((e): e is Extract<BuilderEvent, { type: "stage" }> => e.type === "stage" && e.stage === "research" && e.status !== "running")!;
+    expect(research).toMatchObject({ status: "skipped", summary: "Web research needs a provider with web search." });
+  });
 });

@@ -36,6 +36,8 @@ interface SettingView {
   label: string;
   help: string;
   secret: boolean;
+  /** Only relevant for these AI providers. */
+  providers: string[] | null;
   options: { value: string; label: string }[] | null;
   defaultValue: string | null;
   placeholder: string | null;
@@ -93,6 +95,15 @@ const ICON: Record<string, typeof Cloud> = {
   "vision-service": ScanEye,
   mcp: Network,
 };
+
+/** Settings that apply to the selected AI provider (the others are hidden, not cleared). */
+function relevant(settings: SettingView[], provider?: string | null) {
+  const p = provider ?? (() => {
+    const s = settings.find((x) => x.key === "AI_PROVIDER");
+    return s ? s.value || s.defaultValue : null;
+  })();
+  return settings.filter((s) => !s.providers || !p || s.providers.includes(p));
+}
 
 const SOURCE_LABEL: Record<SettingView["source"], string> = { ui: "set here", environment: "from deployment", unset: "not set" };
 
@@ -298,7 +309,7 @@ function IntegrationCard({ item: i, admin, testing, onTest, onSave }: { item: In
         <p className="mt-3 text-[12px] leading-relaxed text-ink-2">{i.detail}</p>
         {i.settings.length > 0 && !open && (
           <dl className="mt-3 grid grid-cols-[minmax(0,auto)_1fr] gap-x-3 gap-y-1 text-[11.5px]">
-            {i.settings.map((s) => (
+            {relevant(i.settings).map((s) => (
               <div key={s.key} className="contents">
                 <dt className="text-muted">{s.label}</dt>
                 <dd className="flex min-w-0 items-center gap-1.5">
@@ -358,6 +369,8 @@ function SettingsForm({ item, onSave, onDone }: { item: Integration; onSave: (v:
       return n;
     });
   const dirty = Object.keys(edits).length > 0;
+  const providerEdit = edits.AI_PROVIDER;
+  const shown = relevant(item.settings, typeof providerEdit === "string" ? providerEdit : null);
 
   return (
     <form
@@ -372,7 +385,7 @@ function SettingsForm({ item, onSave, onDone }: { item: Integration; onSave: (v:
       }}
       data-testid={`settings-form-${item.id}`}
     >
-      {item.settings.map((s) => {
+      {shown.map((s) => {
         const id = `set-${item.id}-${s.key}`;
         const edited = s.key in edits;
         const current = edited ? edits[s.key] : undefined;

@@ -237,7 +237,7 @@ export function CopilotPanel() {
 
         <div className="border-t border-line px-5 py-3">
           {!available ? (
-            <p className="text-[12px] text-warning-ink">The copilot needs Gemini (Vertex AI), which isn&apos;t configured on this server. The MCP tools at /api/mcp still work.</p>
+            <p className="text-[12px] text-warning-ink">The copilot needs an AI model. AI is turned off or no provider is configured on this server (Integrations → AI model provider: Gemini, Claude, OpenAI or a compatible endpoint). The MCP tools at /api/mcp still work.</p>
           ) : (
             <div className="flex gap-2">
               <Textarea

@@ -18,13 +18,17 @@ import { getState, mutate } from "@/server/store";
 
 export type ReviewOutcome<T> = { ok: true; value: T } | { ok: false; error: string; status: number };
 
-/** Gemini looks at an image or clip and reports findings in the plant's defect categories. */
-export async function geminiReview(input: { bytes: Buffer; mime: string; fileName: string; camera: Camera | null; note?: string; context?: string }) {
+/**
+ * The configured AI model looks at an image, a clip, or a contact sheet of frames from a clip
+ * (`frames`: their times in seconds) and reports findings in the plant's defect categories.
+ */
+export async function aiReview(input: { bytes: Buffer; mime: string; fileName: string; camera: Camera | null; note?: string; context?: string; frames?: number[] }) {
   const { camera } = input;
   const result = await analyzeMedia(input.bytes, input.mime, {
     station: camera ? `${camera.name} (${camera.purpose})${input.context ? `. ${input.context}` : ""}` : (input.context ?? "Unspecified station"),
     standard: camera?.standard ?? null,
     categories: VISION_CATEGORIES,
+    frames: input.frames,
   });
   if (!result.ok) return { ok: false as const, error: result.error, status: result.status };
   const at = nowISO();
@@ -42,7 +46,7 @@ export async function geminiReview(input: { bytes: Buffer; mime: string; fileNam
       disposition: "pending-human-review" as const,
       note: input.note ?? "",
     };
-    addVisionReview(s, r, `Gemini (${result.analysis.model})`, at);
+    addVisionReview(s, r, `AI review (${result.analysis.model})`, at);
     return r;
   });
   return { ok: true as const, value: { review, state: getState() } };
@@ -102,4 +106,11 @@ export async function readFootage(clip: FootageClip): Promise<Buffer> {
     }
   }
   throw new Error(`Footage file ${clip.src} is not on this server`);
+}
+
+/** "1.2,3.5,…" → [1.2, 3.5, …] (at most 9 frames), or undefined. */
+export function parseFrames(v: FormDataEntryValue | null): number[] | undefined {
+  if (typeof v !== "string" || !v.trim()) return undefined;
+  const xs = v.split(",").map(Number).filter((n) => Number.isFinite(n) && n >= 0 && n < 36000).slice(0, 9);
+  return xs.length ? xs : undefined;
 }

@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { refineSpec } from "@/domain/builder/pipeline";
-import { geminiBuilderAi } from "@/server/builder/gemini";
+import { builderAi } from "@/server/builder/ai";
 import { json, parseBody, route } from "@/server/http";
 
 export const dynamic = "force-dynamic";
@@ -11,7 +11,7 @@ const Body = z.object({ spec: z.unknown(), instruction: z.string().trim().min(2)
 /** Chat refinement: Gemini proposes edit operations; they are applied and validated in code. */
 export const POST = route(async (req: Request) => {
   const { spec, instruction } = await parseBody(req, Body);
-  const ai = geminiBuilderAi();
+  const ai = builderAi();
   if (!ai.available) return json({ error: "Chat edits need Gemini (Vertex AI), which is not configured on this server. You can still edit everything directly." }, 503);
   const { validateSpec } = await import("@/domain/builder/validate");
   const v = validateSpec(spec);

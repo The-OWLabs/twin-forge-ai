@@ -22,6 +22,8 @@ interface SettingDef {
   /** Effective value when nothing is set. */
   defaultValue?: string;
   placeholder?: string;
+  /** Only relevant for these AI providers (the form hides it for others). */
+  providers?: AiProviderId[];
   /** Returns an error message, or null when valid. Empty values are always allowed (they turn the setting off). */
   validate?: (v: string) => string | null;
 }
@@ -40,6 +42,10 @@ const httpsUrl = (v: string) => {
   return null;
 };
 const pattern = (re: RegExp, msg: string) => (v: string) => (re.test(v) ? null : msg);
+const apiKey = pattern(/^[A-Za-z0-9_\-.]{20,300}$/, "That doesn't look like an API key");
+
+export const AI_PROVIDERS = ["vertex", "gemini-api", "anthropic", "openai", "openai-compatible"] as const;
+export type AiProviderId = (typeof AI_PROVIDERS)[number];
 
 export const SETTINGS = {
   GOOGLE_CLOUD_PROJECT: {
@@ -57,6 +63,17 @@ export const SETTINGS = {
       { value: "false", label: "Off (deterministic only)" },
     ],
   },
+  AI_PROVIDER: {
+    label: "Provider",
+    help: "Which AI platform runs the agents, the copilot, the Twin Builder and footage review. Gemini on Vertex AI bills your Google Cloud project; the Gemini API has a free tier with an AI Studio key; Claude and OpenAI need an API key from their platforms (separate from chat subscriptions).",
+    options: [
+      { value: "vertex", label: "Gemini on Vertex AI (Google Cloud billing)" },
+      { value: "gemini-api", label: "Gemini API (AI Studio key, free tier available)" },
+      { value: "anthropic", label: "Claude (Anthropic API key)" },
+      { value: "openai", label: "OpenAI (API key)" },
+      { value: "openai-compatible", label: "OpenAI-compatible endpoint (OpenRouter, Groq, Ollama…)" },
+    ],
+  },
   GOOGLE_GENAI_USE_VERTEXAI: {
     defaultValue: "true",
     label: "Gemini endpoint",
@@ -68,21 +85,59 @@ export const SETTINGS = {
   },
   GOOGLE_CLOUD_LOCATION: {
     defaultValue: "global",
+    providers: ["vertex"],
     label: "Vertex AI region",
     help: "Region that serves the model. asia-southeast1 is co-located with this deployment.",
     options: ["asia-southeast1", "asia-south1", "asia-northeast1", "europe-west4", "europe-west1", "us-central1", "us-east4", "global"].map((r) => ({ value: r, label: r })),
   },
   GEMINI_MODEL: {
-    label: "Model",
+    providers: ["vertex", "gemini-api"],
+    label: "Gemini model",
     help: "Gemini model id.",
     placeholder: "gemini-3.5-flash",
     validate: pattern(/^[a-z0-9][a-z0-9.\-]{2,60}$/, "Use a model id such as gemini-3.5-flash"),
   },
   GEMINI_API_KEY: {
     label: "Gemini API key",
-    help: "Only used with the Gemini API endpoint. Stored on the server; never shown again.",
+    help: "From Google AI Studio (aistudio.google.com). A key from a project without billing uses the free tier. Stored on the server; never shown again.",
     secret: true,
-    validate: pattern(/^[A-Za-z0-9_\-]{20,120}$/, "That doesn't look like an API key"),
+    providers: ["gemini-api"],
+    validate: apiKey,
+  },
+  ANTHROPIC_API_KEY: {
+    label: "Anthropic API key",
+    help: "From platform.claude.com → API keys. API usage is billed separately from Claude Pro/Max subscriptions. Stored on the server; never shown again.",
+    secret: true,
+    providers: ["anthropic"],
+    validate: apiKey,
+  },
+  ANTHROPIC_MODEL: {
+    label: "Claude model",
+    help: "claude-sonnet-5-5 (default), claude-haiku-5-5 (cheaper, faster) or claude-opus-5-5 (most capable).",
+    placeholder: "claude-sonnet-5-5",
+    providers: ["anthropic"],
+    validate: pattern(/^[a-z0-9][a-z0-9.\-]{2,60}$/, "Use a model id such as claude-sonnet-5-5"),
+  },
+  OPENAI_API_KEY: {
+    label: "API key",
+    help: "OpenAI: from platform.openai.com. OpenAI-compatible endpoints: the provider's key (leave empty for a local server such as Ollama). Stored on the server; never shown again.",
+    secret: true,
+    providers: ["openai", "openai-compatible"],
+    validate: apiKey,
+  },
+  OPENAI_MODEL: {
+    label: "Model",
+    help: "OpenAI: e.g. gpt-6-luna (lower cost) or gpt-6.1-sol. Compatible endpoints: the model name they expect (for example llama3.3 on Ollama).",
+    placeholder: "gpt-6-luna",
+    providers: ["openai", "openai-compatible"],
+    validate: pattern(/^[A-Za-z0-9][A-Za-z0-9.:/_\-]{1,100}$/, "Not a valid model name"),
+  },
+  OPENAI_BASE_URL: {
+    label: "Endpoint URL",
+    help: "Base URL of an OpenAI-compatible API, e.g. https://openrouter.ai/api/v1 or http://localhost:11434/v1 (Ollama, local only).",
+    placeholder: "https://openrouter.ai/api/v1",
+    providers: ["openai-compatible"],
+    validate: httpsUrl,
   },
   VISION_SERVICE_URL: {
     label: "Service URL",
@@ -174,6 +229,7 @@ export interface SettingView {
   label: string;
   help: string;
   secret: boolean;
+  providers: AiProviderId[] | null;
   options: Option[] | null;
   defaultValue: string | null;
   placeholder: string | null;
@@ -306,6 +362,16 @@ export function settingSource(key: SettingKey): SettingSource {
   return process.env[key] ? "environment" : "unset";
 }
 
+/** The AI provider when none is chosen in the UI: what the deployment's environment implies. */
+export function defaultAiProvider(): AiProviderId {
+  const useVertex = (setting("GOOGLE_GENAI_USE_VERTEXAI") || "true").toLowerCase() !== "false";
+  if (useVertex && setting("GOOGLE_CLOUD_PROJECT")) return "vertex";
+  if (setting("GEMINI_API_KEY")) return "gemini-api";
+  if (setting("ANTHROPIC_API_KEY")) return "anthropic";
+  if (setting("OPENAI_API_KEY")) return "openai";
+  return "vertex";
+}
+
 export function describeSettings(keys: SettingKey[]): SettingView[] {
   return keys.map((key) => {
     const def: SettingDef = SETTINGS[key];
@@ -315,8 +381,9 @@ export function describeSettings(keys: SettingKey[]): SettingView[] {
       label: def.label,
       help: def.help,
       secret: !!def.secret,
+      providers: def.providers ?? null,
       options: def.options ?? null,
-      defaultValue: def.defaultValue ?? null,
+      defaultValue: key === "AI_PROVIDER" ? defaultAiProvider() : (def.defaultValue ?? null),
       placeholder: def.placeholder ?? null,
       source: settingSource(key),
       isSet: v !== "",

@@ -1,6 +1,7 @@
 import "server-only";
 import { appendAudit } from "@/domain/audit";
-import { aiConfig, aiRuntime, resetAiRuntime, testAi } from "@/server/ai/provider";
+import { aiCapabilities, aiConfig, aiRuntime, modelLabel, PROVIDER_NAME, resetAiRuntime } from "@/server/ai/config";
+import { testAi } from "@/server/ai/provider";
 import { describeSettings, setting, settingsStorage, SETTINGS, updateSettings, type SettingKey, type SettingView } from "@/server/settings";
 import { mutate, persistenceInfo } from "@/server/store";
 import type { Recommendation, ScenarioRun } from "@/domain/types";
@@ -30,7 +31,7 @@ const checks: Record<string, Check> = (g.__twinforgeChecks ??= {});
 /** Which settings belong to which integration card (the shared project id is edited once, at the top of the page). */
 export const INTEGRATION_SETTINGS: Record<string, SettingKey[]> = {
   telemetry: ["TELEMETRY_SOURCE"],
-  "vertex-ai": ["AI_ENABLED", "GOOGLE_GENAI_USE_VERTEXAI", "GOOGLE_CLOUD_LOCATION", "GEMINI_MODEL", "GEMINI_API_KEY"],
+  "vertex-ai": ["AI_ENABLED", "AI_PROVIDER", "GOOGLE_CLOUD_LOCATION", "GEMINI_MODEL", "GEMINI_API_KEY", "ANTHROPIC_MODEL", "ANTHROPIC_API_KEY", "OPENAI_BASE_URL", "OPENAI_MODEL", "OPENAI_API_KEY"],
   "vision-service": ["VISION_SERVICE_URL", "VISION_SERVICE_AUTH"],
   mcp: ["TWINFORGE_MCP_ENABLED", "TWINFORGE_MCP_TOKEN"],
   bigquery: ["BIGQUERY_DATASET"],
@@ -51,12 +52,14 @@ export function integrationStatuses(): IntegrationStatus[] {
   const ai = aiConfig();
   const rt = aiRuntime();
   let aiState: IntegrationState = ai.provider === "none" ? "not-configured" : "configured-untested";
+  const caps = aiCapabilities(ai);
+  const lacks = [!caps.video && "video (frames are sent instead)", !caps.webSearch && "web research", !caps.pdf && "PDF drawings"].filter(Boolean);
   let aiDetail =
     ai.provider === "none"
       ? ai.disabled
-        ? "Turned off in Integrations. Agents use deterministic narratives generated from simulation outputs; the copilot is unavailable."
-        : "Agents use deterministic narratives generated from simulation outputs."
-      : `${ai.model} via ${ai.provider === "vertex" ? `Vertex AI · project ${ai.project} · ${ai.location}` : "Gemini API key"}.`;
+        ? "Turned off in Integrations: no AI calls are made (no AI cost). Agents use deterministic narratives generated from simulation outputs; the copilot is unavailable and the Twin Builder starts from templates."
+        : `${PROVIDER_NAME[ai.wanted ?? "vertex"]} is selected but missing: ${ai.missing.join(", ")}. Agents use deterministic narratives.`
+      : `${modelLabel(ai)}${ai.provider === "vertex" ? ` · project ${ai.project}` : ""}.${lacks.length ? ` Not available with this provider: ${lacks.join(", ")}.` : ""}`;
   if (ai.provider !== "none") {
     const c = checks["vertex-ai"];
     const lastOk = rt.lastSuccessAt ? Date.parse(rt.lastSuccessAt) : 0;
@@ -99,9 +102,9 @@ export function integrationStatuses(): IntegrationStatus[] {
     },
     {
       id: "vertex-ai",
-      name: "Gemini on Vertex AI",
-      service: "Vertex AI",
-      purpose: "Agent narratives, trade-off explanations and operator briefings (never the numbers).",
+      name: "AI model provider",
+      service: ai.provider === "none" ? PROVIDER_NAME[ai.wanted ?? "vertex"] : PROVIDER_NAME[ai.provider],
+      purpose: "Agent narratives, the copilot, the Twin Builder and footage review (never the numbers). Gemini, Claude, OpenAI or a compatible endpoint.",
       state: aiState,
       detail: aiDetail,
       settings: settingsFor("vertex-ai"),

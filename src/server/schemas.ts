@@ -107,7 +107,8 @@ export const CameraStreamsSchema = z.object({
     .max(60),
   by: z.string().trim().min(1).max(60).default("Operator"),
 });
-export const CameraAnalyzeSchema = z.object({ engine: z.enum(["gemini", "opencv"]) });
+/** "ai" runs the configured AI provider ("gemini" is the older name for it); "opencv" the vision service. */
+export const CameraAnalyzeSchema = z.object({ engine: z.enum(["ai", "gemini", "opencv"]) });
 export const CameraViewSchema = z.object({ by: z.string().trim().min(1).max(60).default("Operator") });
 export const ReviewLogSchema = z.object({ cameraId: z.string().min(1) });
 export const DispositionSchema = z.object({

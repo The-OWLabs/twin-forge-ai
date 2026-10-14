@@ -179,7 +179,7 @@ test("cameras: twin card → live view (audited) → visual quality review with 
   expect(errors).toEqual([]);
 });
 
-test("camera API rejects insecure stream URLs and reports Gemini honestly", async ({ request }) => {
+test("camera API rejects insecure stream URLs and reports AI status honestly", async ({ request }) => {
   const insecure = await request.patch("/api/cameras/CCTV-A1", { data: { kind: "hls", url: "http://10.0.0.9/a.m3u8" } });
   expect(insecure.status()).toBe(400);
   const unknown = await request.post("/api/cameras/NOPE/view", { data: {} });
@@ -260,7 +260,7 @@ test("MCP server: initialize, list tools with read-only hints, call a tool", asy
 
 test("Copilot (ADK): grounded answer with a visible tool trace", async ({ page, request }) => {
   const info = (await (await request.get("/api/copilot")).json()) as { available: boolean };
-  test.skip(!info.available, "Gemini is not configured on this server");
+  test.skip(!info.available, "No AI provider is configured (or AI is off) on this server");
   test.setTimeout(150_000);
   const errors = collectErrors(page);
   await request.post("/api/demo/crisis");
@@ -326,6 +326,17 @@ test("integrations can be configured from the UI and returned to the deployment 
   await page.getByTestId("save-mqtt").click();
   await expect(card.getByText("Configured · not yet verified")).toBeVisible();
   await expect(card.getByText("set here").first()).toBeVisible();
+
+  // The AI card shows only the selected provider's fields
+  await page.getByTestId("configure-vertex-ai").click();
+  const ai = page.getByTestId("settings-form-vertex-ai");
+  await ai.getByLabel("Provider").selectOption("anthropic");
+  await expect(ai.getByLabel("Anthropic API key")).toBeVisible();
+  await expect(ai.getByLabel("Claude model")).toBeVisible();
+  await expect(ai.getByLabel("Vertex AI region")).toHaveCount(0);
+  await ai.getByLabel("Provider").selectOption("openai-compatible");
+  await expect(ai.getByLabel("Endpoint URL")).toBeVisible();
+  await ai.getByRole("button", { name: "Cancel" }).click();
 
   const reset = await request.put("/api/integrations/settings", { data: { values: { MQTT_BROKER_URL: null } } });
   expect(reset.ok()).toBeTruthy();

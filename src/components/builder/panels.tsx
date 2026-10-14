@@ -33,7 +33,7 @@ export function AgentPanel() {
         <div className="max-h-72 space-y-2 overflow-y-auto">
           {chat.length === 0 && (
             <p className="text-[12px] leading-relaxed text-muted">
-              {ai ? "For example: “Add a second filler on Filling Line 1 at 6,000 bottles/h”, “Connect all fillers over OPC UA”, or “Remove the palletizer”." : "Chat edits need Gemini, which isn't configured here. Edit lines, products and connections directly."}
+              {ai ? "For example: “Add a second filler on Filling Line 1 at 6,000 bottles/h”, “Connect all fillers over OPC UA”, or “Remove the palletizer”." : "Chat edits need an AI model, which is off or not configured here (Integrations → AI model provider). Edit lines, products, robots and connections directly."}
             </p>
           )}
           {chat.map((c, i) => (
@@ -66,7 +66,7 @@ export function AgentPanel() {
             className="min-h-0 text-[12.5px]"
             value={text}
             disabled={!ai}
-            placeholder={ai ? "Tell the agent what to change…" : "Gemini not configured"}
+            placeholder={ai ? "Tell the agent what to change…" : "AI is off or not configured"}
             onChange={(e) => setText(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === "Enter" && !e.shiftKey) {

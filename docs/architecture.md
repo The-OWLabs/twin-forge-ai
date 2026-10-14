@@ -300,6 +300,18 @@ Validation errors return 400 with field issues, missing admin 401, unknown ids 4
 
 ## 12. AI configuration and behaviour
 
+**Providers.** Every AI feature goes through one provider-neutral layer (`src/server/ai/llm.ts`), chosen on **Integrations → AI model provider** (or `AI_PROVIDER`):
+
+| Provider | Protocol | Images / PDF / video | Web research | Copilot |
+|---|---|---|---|---|
+| Gemini on Vertex AI (default) | `@google/genai`, ADC | ✓ / ✓ / ✓ | Google Search grounding | ADK native `Gemini` |
+| Gemini API (AI Studio key; free tier) | `@google/genai`, API key | ✓ / ✓ / ✓ | Google Search grounding | ADK native `Gemini` |
+| Claude | Anthropic Messages API; JSON via a forced tool | ✓ / ✓ / frames | `web_search_20250305`, citations | ADK through `ProviderLlm` |
+| OpenAI | Responses API; `json_schema` output | ✓ / ✓ / frames | `web_search`, url citations | ADK through `ProviderLlm` |
+| OpenAI-compatible (OpenRouter, Groq, Ollama…) | Chat Completions; `json_object` + schema in the prompt | ✓ / – / frames | – (stage skipped, with the reason) | ADK through `ProviderLlm` |
+
+`ProviderLlm` (`src/server/copilot/provider-llm.ts`) is an ADK `BaseLlm` that translates Gemini-format contents, function declarations and function calls to Claude or OpenAI tool calling and back, so the same coordinator, specialists and confirmation gate run on any provider. Providers that can't watch video get a contact sheet of four frames captured in the browser, with their times. Every structured result is still validated with zod, and every number still goes through the grounding check. **AI_ENABLED=false** turns all AI calls off (no AI cost); the demo then runs on its deterministic fallbacks.
+
 | Setting | Value | Why |
 |---|---|---|
 | Model | `gemini-3.5-flash` on Vertex AI | Current fast Gemini model; `gemini-2.5-flash` is being retired |
@@ -312,7 +324,7 @@ Validation errors return 400 with field issues, missing admin 401, unknown ids 4
 | Grounded research | `googleSearch` tool; citations from grounding metadata; Search suggestions displayed | Required by Google's terms; prevents invented sources |
 | Fallbacks | Deterministic narrative, template mode, station-log review | The demo works without AI |
 
-**Cost.** Per-token pricing; each Twin Builder run with research adds a few grounded searches. A demo's usage costs cents to a few dollars. A billing budget alert is recommended.
+**Cost.** Per-token pricing on every provider; web research adds per-search fees (Google Search grounding, Claude web search at $10 per 1,000). Turn AI off in Integrations to stop AI spending entirely, or use the Gemini API free tier. A billing budget alert is recommended.
 
 ---
 
@@ -353,8 +365,8 @@ Validation errors return 400 with field issues, missing admin 401, unknown ids 4
 
 | Suite | Count | Covers |
 |---|---|---|
-| Vitest (`tests/`) | 103 | Seed reproducibility; physics, KPIs and trend estimation; scenario outcomes, sensitivity and ranking; agent pipeline; approvals, rejection and rollback; LLM grounding and fallback; quality and cameras; Twin Builder templates, validation, compile and agent workflow with recorded responses; the tool layer (read-only guarantee, proposal semantics, argument validation); numeric grounding; admin sessions (signing, expiry, rate limit); settings overrides, validation and secret handling; camera sources and the footage library; stock-outs reported once |
-| Playwright (`e2e/`) | 15 | Every page renders with no console errors; guided crisis demo; reset; API validation; iso view and theme; landing story; cameras and Visual Quality; Twin Builder end to end; MCP protocol; ADK copilot with a grounded answer (runs when Gemini is configured); CCTV control room switching to reference footage and back; integration settings from the UI; the 3D view with mobile robots; Twin Builder robots end to end; the phone notice |
+| Vitest (`tests/`) | 110 | Seed reproducibility; physics, KPIs and trend estimation; scenario outcomes, sensitivity and ranking; agent pipeline; approvals, rejection and rollback; LLM grounding and fallback; quality and cameras; Twin Builder templates, validation, compile and agent workflow with recorded responses; the tool layer (read-only guarantee, proposal semantics, argument validation); numeric grounding; admin sessions (signing, expiry, rate limit); settings overrides, validation and secret handling; camera sources and the footage library; stock-outs reported once |
+| Playwright (`e2e/`) | 15 | Every page renders with no console errors; guided crisis demo; reset; API validation; iso view and theme; landing story; cameras and Visual Quality; Twin Builder end to end; MCP protocol; ADK copilot with a grounded answer (runs when Gemini is configured); CCTV control room switching to reference footage and back; integration settings from the UI, including the AI provider picker; the 3D view with mobile robots; Twin Builder robots end to end; the phone notice |
 | pytest (`services/vision`) | 16 | Golden comparison (missing part, rotated part, lighting), codes, quality, video stoppage, determinism, API limits |
 
 The e2e suite runs against local production builds and against the live URL (`E2E_BASE_URL`). With AI on, the Twin Builder and copilot tests exercise real Gemini.

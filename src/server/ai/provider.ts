@@ -1,5 +1,6 @@
 import "server-only";
-import { setting } from "@/server/settings";
+import { aiCapabilities, aiConfig, modelLabel, recordAiError, type AiConfig } from "./config";
+import { AiUnsupported, errorMessage, llmGenerate } from "./llm";
 import { z } from "zod";
 import { deterministicNarrative, type NarrativeInput } from "@/domain/narrative";
 import type { Narrative } from "@/domain/types";
@@ -12,48 +13,7 @@ import type { Narrative } from "@/domain/types";
  * numeric grounding check. Any failure falls back to the deterministic narrative.
  */
 
-export interface AiConfig {
-  provider: "vertex" | "gemini-api" | "none";
-  model: string;
-  project?: string;
-  location?: string;
-  timeoutMs: number;
-  missing: string[];
-  /** Turned off in Integrations (AI_ENABLED=false). */
-  disabled?: boolean;
-}
-
-export function aiConfig(): AiConfig {
-  const model = setting("GEMINI_MODEL") || "gemini-3.5-flash";
-  const timeoutMs = Number(process.env.AI_TIMEOUT_MS || 30000);
-  if ((setting("AI_ENABLED") ?? "true").toLowerCase() === "false") return { provider: "none", model, timeoutMs, missing: [], disabled: true };
-  const useVertex = (setting("GOOGLE_GENAI_USE_VERTEXAI") || "true").toLowerCase() !== "false";
-  const project = setting("GOOGLE_CLOUD_PROJECT");
-  const location = setting("GOOGLE_CLOUD_LOCATION") || "global";
-  if (useVertex && project) return { provider: "vertex", model, project, location, timeoutMs, missing: [] };
-  if (setting("GEMINI_API_KEY")) return { provider: "gemini-api", model, timeoutMs, missing: [] };
-  return {
-    provider: "none",
-    model,
-    timeoutMs,
-    missing: ["GOOGLE_CLOUD_PROJECT (+ Application Default Credentials) for Vertex AI, or GEMINI_API_KEY"],
-  };
-}
-
-type AiRuntime = { lastSuccessAt: string | null; lastError: string | null; lastLatencyMs: number | null; calls: number };
-const g = globalThis as unknown as { __twinforgeAi?: AiRuntime };
-const runtime: AiRuntime = (g.__twinforgeAi ??= { lastSuccessAt: null, lastError: null, lastLatencyMs: null, calls: 0 });
-
-export function aiRuntime() {
-  return { ...runtime };
-}
-
-/** Forget the last call's outcome (after the AI settings change, so the status reflects the new configuration). */
-export function resetAiRuntime() {
-  runtime.lastSuccessAt = null;
-  runtime.lastError = null;
-  runtime.lastLatencyMs = null;
-}
+export { aiConfig, aiRuntime, resetAiRuntime, aiCapabilities, modelLabel, type AiConfig } from "./config";
 
 const NarrativeSchema = z.object({
   summary: z.string().min(20).max(900),
@@ -115,63 +75,34 @@ export function ungroundedFigures(text: string, input: NarrativeInput) {
   });
 }
 
-async function callGemini(cfg: AiConfig, input: NarrativeInput): Promise<Narrative> {
-  const { GoogleGenAI, ThinkingLevel } = await import("@google/genai");
-  const ai =
-    cfg.provider === "vertex"
-      ? new GoogleGenAI({ vertexai: true, project: cfg.project, location: cfg.location, httpOptions: { timeout: cfg.timeoutMs } })
-      : new GoogleGenAI({ apiKey: setting("GEMINI_API_KEY"), httpOptions: { timeout: cfg.timeoutMs } });
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), cfg.timeoutMs);
-  const started = Date.now();
-  try {
-    const res = await ai.models.generateContent({
-      model: cfg.model,
-      contents: buildPrompt(input),
-      config: {
-        responseMimeType: "application/json",
-        responseJsonSchema: RESPONSE_JSON_SCHEMA,
-        temperature: 0.2,
-        // Thinking tokens count toward the output limit on Gemini 3.x, so leave headroom.
-        maxOutputTokens: 4096,
-        // A briefing written from fixed facts needs little reasoning; low thinking keeps it fast.
-        thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
-        abortSignal: controller.signal,
-      },
-    });
-    const text = res.text ?? "";
-    const parsed = NarrativeSchema.parse(JSON.parse(text));
-    const all = [parsed.summary, parsed.rationale, parsed.operatorBriefing, ...parsed.risks].join(" ");
-    const bad = ungroundedFigures(all, input);
-    runtime.lastLatencyMs = Date.now() - started;
-    if (bad.length) {
-      throw new Error(`grounding check failed — figure(s) ${bad.slice(0, 3).join(", ")} not found in simulation outputs`);
-    }
-    runtime.lastSuccessAt = new Date().toISOString();
-    runtime.lastError = null;
-    return {
-      source: "gemini",
-      model: `${cfg.model} via ${cfg.provider === "vertex" ? `Vertex AI (${cfg.location})` : "Gemini API"}`,
-      ...parsed,
-      note: `Schema-validated; all figures traced to simulation outputs. ${runtime.lastLatencyMs} ms.`,
-    };
-  } finally {
-    clearTimeout(timer);
-  }
+async function callModel(input: NarrativeInput): Promise<Narrative> {
+  const r = await llmGenerate({
+    prompt: buildPrompt(input),
+    json: { name: "operations_briefing", schema: RESPONSE_JSON_SCHEMA },
+    temperature: 0.2,
+    // Thinking tokens count toward the output limit on Gemini 3.x, so leave headroom.
+    maxOutputTokens: 4096,
+    // A briefing written from fixed facts needs little reasoning; low thinking keeps it fast.
+    thinkingLow: true,
+  });
+  const parsed = NarrativeSchema.parse(r.json);
+  const all = [parsed.summary, parsed.rationale, parsed.operatorBriefing, ...parsed.risks].join(" ");
+  const bad = ungroundedFigures(all, input);
+  if (bad.length) throw new Error(`grounding check failed — figure(s) ${bad.slice(0, 3).join(", ")} not found in simulation outputs`);
+  return { source: "gemini", model: r.model, ...parsed, note: `Schema-validated; all figures traced to simulation outputs. ${r.latencyMs} ms.` };
 }
 
 export async function generateNarrative(input: NarrativeInput): Promise<Narrative> {
   const cfg = aiConfig();
   if (cfg.provider === "none") {
-    return deterministicNarrative(input, "Gemini not configured — deterministic narrative generated from simulation outputs.");
+    return deterministicNarrative(input, `${cfg.disabled ? "AI is turned off" : "No AI provider is configured"} — deterministic narrative generated from simulation outputs.`);
   }
-  runtime.calls++;
   try {
-    return await withRetry(() => callGemini(cfg, input));
+    return await callModel(input);
   } catch (e) {
-    const msg = e instanceof Error ? (e.name === "AbortError" ? `timed out after ${cfg.timeoutMs} ms` : e.message) : String(e);
-    runtime.lastError = `${new Date().toISOString()} — ${msg}`.slice(0, 400);
-    return deterministicNarrative(input, `Gemini call failed (${msg.slice(0, 160)}); fell back to deterministic narrative.`);
+    const msg = errorMessage(e);
+    if (/grounding check failed/.test(msg)) recordAiError(msg);
+    return deterministicNarrative(input, `${modelLabel(cfg)} call failed (${msg.slice(0, 160)}); fell back to deterministic narrative.`);
   }
 }
 
@@ -188,12 +119,13 @@ export async function testAi(): Promise<{ ok: boolean; detail: string }> {
     recommended: { id: "continue", name: "Continue", explanation: ["Test only."], risks: ["Test risk."], benefits: [] },
     conflicts: [],
   };
+  const started = Date.now();
   try {
-    const n = await withRetry(() => callGemini(cfg, sample));
-    return { ok: true, detail: `${n.model} responded (${runtime.lastLatencyMs} ms).` };
+    const n = await callModel(sample);
+    return { ok: true, detail: `${n.model} responded (${Date.now() - started} ms).` };
   } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
-    runtime.lastError = `${new Date().toISOString()} — ${msg}`.slice(0, 400);
+    const msg = errorMessage(e);
+    recordAiError(msg);
     return { ok: false, detail: msg.slice(0, 300) };
   }
 }
@@ -219,29 +151,38 @@ export interface MediaAnalysis {
 }
 
 /**
- * Ask Gemini to review uploaded footage. Results are ADVISORY: probabilistic model output that
+ * Ask the configured AI model to review footage or images. Results are ADVISORY: probabilistic model output that
  * always lands as "pending human review" — never an automatic accept/reject decision.
  */
 export async function analyzeMedia(
   bytes: Buffer,
   mimeType: string,
-  context: { station: string; standard: string | null; categories: readonly string[] },
+  context: { station: string; standard: string | null; categories: readonly string[]; frames?: number[] },
 ): Promise<{ ok: true; analysis: MediaAnalysis } | { ok: false; status: number; error: string }> {
   const cfg = aiConfig();
   if (cfg.provider === "none") {
-    return { ok: false, status: 503, error: "Gemini is not configured. Enable Vertex AI (GOOGLE_CLOUD_PROJECT) or set GEMINI_API_KEY to analyze uploaded footage." };
+    return { ok: false, status: 503, error: cfg.disabled ? "AI is turned off in Integrations. Turn it on, or use the OpenCV check." : "No AI provider is configured. Choose one in Integrations (Gemini, Claude, OpenAI or a compatible endpoint)." };
   }
   if (!MEDIA_TYPES.includes(mimeType)) return { ok: false, status: 415, error: `Unsupported file type ${mimeType}. Use MP4, WebM, MOV, JPEG, PNG or WebP.` };
   if (bytes.byteLength > MEDIA_LIMIT_BYTES) return { ok: false, status: 413, error: "File is larger than 15 MB. Trim the clip and try again." };
+  if (mimeType.startsWith("video/") && !aiCapabilities(cfg).video) {
+    return { ok: false, status: 415, error: `${modelLabel(cfg)} can't watch video. Send still frames instead (the control room does this automatically), use the OpenCV motion check, or choose Gemini for video.` };
+  }
+  const contactSheet = !!context.frames?.length;
   const prompt = [
     "You are a visual quality-inspection assistant for an electronics factory.",
     `Station: ${context.station}. Applicable criteria: ${context.standard ?? "general visual inspection"}.`,
-    "Review the attached footage and report ONLY what is clearly visible. Do not guess hidden details.",
+    contactSheet
+      ? `The image is a contact sheet of ${context.frames!.length} frames from one clip, left to right and top to bottom, taken at ${context.frames!.map((t) => `${t}s`).join(", ")}. Treat it as video: give timestampSec from these times.`
+      : "Review the attached footage and report ONLY what is clearly visible. Do not guess hidden details.",
+    "Report ONLY what is clearly visible. Do not guess hidden details.",
     `Use one of these categories for each finding: ${context.categories.join("; ")}.`,
     'If nothing abnormal is visible, return a single finding with category "No defect visible".',
-    "For video, give timestampSec where the issue is visible; for images use null.",
+    contactSheet ? "" : "For video, give timestampSec where the issue is visible; for images use null.",
     "confidence is your own 0–1 estimate. Safety observations are advisory only. Never state that a part is certified or compliant.",
-  ].join("\n");
+  ]
+    .filter(Boolean)
+    .join("\n");
   const responseSchema = {
     type: "object",
     properties: {
@@ -263,95 +204,14 @@ export async function analyzeMedia(
     },
     required: ["summary", "findings"],
   };
-  runtime.calls++;
-  const started = Date.now();
-  const timeoutMs = Math.max(cfg.timeoutMs, 45000);
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const { GoogleGenAI } = await import("@google/genai");
-    const ai =
-      cfg.provider === "vertex"
-        ? new GoogleGenAI({ vertexai: true, project: cfg.project, location: cfg.location, httpOptions: { timeout: timeoutMs } })
-        : new GoogleGenAI({ apiKey: setting("GEMINI_API_KEY"), httpOptions: { timeout: timeoutMs } });
-    const res = await ai.models.generateContent({
-      model: cfg.model,
-      contents: [{ role: "user", parts: [{ inlineData: { mimeType, data: bytes.toString("base64") } }, { text: prompt }] }],
-      config: { responseMimeType: "application/json", responseJsonSchema: responseSchema, temperature: 0, maxOutputTokens: 8192, abortSignal: controller.signal },
-    });
-    const parsed = MediaSchema.parse(JSON.parse(res.text ?? ""));
+    const r = await llmGenerate({ prompt, media: [{ mimeType, data: bytes.toString("base64") }], json: { name: "visual_review", schema: responseSchema }, temperature: 0, maxOutputTokens: 8192, timeoutMs: 45000 });
+    const parsed = MediaSchema.parse(r.json);
     const allowed = new Set(context.categories);
     const findings = parsed.findings.map((f) => ({ ...f, category: allowed.has(f.category) ? f.category : "Other" }));
-    runtime.lastSuccessAt = new Date().toISOString();
-    runtime.lastLatencyMs = Date.now() - started;
-    runtime.lastError = null;
-    return { ok: true, analysis: { summary: parsed.summary, findings, model: `${cfg.model} via ${cfg.provider === "vertex" ? `Vertex AI (${cfg.location})` : "Gemini API"}` } };
+    return { ok: true, analysis: { summary: parsed.summary, findings, model: r.model } };
   } catch (e) {
-    const msg = e instanceof Error ? (e.name === "AbortError" ? `timed out after ${timeoutMs} ms` : e.message) : String(e);
-    runtime.lastError = `${new Date().toISOString()} — ${msg}`.slice(0, 400);
-    return { ok: false, status: 502, error: `Gemini analysis failed: ${msg.slice(0, 200)}` };
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
-/* ───────────────────────────── shared call helper ───────────────────────────── */
-
-/** Vertex occasionally stalls a request until its deadline; one retry recovers almost all of them. */
-const RETRYABLE = /DEADLINE_EXCEEDED|"code":\s*(429|500|503|504)|UNAVAILABLE|RESOURCE_EXHAUSTED|timed out|fetch failed|ECONNRESET/i;
-async function withRetry<T>(fn: () => Promise<T>, retries = 1): Promise<T> {
-  for (let attempt = 0; ; attempt++) {
-    try {
-      return await fn();
-    } catch (e) {
-      const msg = e instanceof Error ? (e.name === "AbortError" ? "timed out" : e.message) : String(e);
-      if (attempt >= retries || !RETRYABLE.test(msg)) throw e;
-      await new Promise((r) => setTimeout(r, /429|RESOURCE_EXHAUSTED/.test(msg) ? 2000 : 300));
-    }
-  }
-}
-
-export interface GeminiCall {
-  contents: unknown;
-  config?: Record<string, unknown>;
-  timeoutMs: number;
-}
-
-/**
- * One Gemini call with timeout and runtime bookkeeping (used by the Twin Builder agent).
- * Returns the raw response so callers can read text and grounding metadata.
- */
-export async function geminiGenerate(call: GeminiCall) {
-  return withRetry(() => geminiGenerateOnce(call));
-}
-
-async function geminiGenerateOnce(call: GeminiCall) {
-  const cfg = aiConfig();
-  if (cfg.provider === "none") throw new Error("Gemini is not configured");
-  const { GoogleGenAI } = await import("@google/genai");
-  const ai =
-    cfg.provider === "vertex"
-      ? new GoogleGenAI({ vertexai: true, project: cfg.project, location: cfg.location, httpOptions: { timeout: call.timeoutMs } })
-      : new GoogleGenAI({ apiKey: setting("GEMINI_API_KEY"), httpOptions: { timeout: call.timeoutMs } });
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), call.timeoutMs);
-  const started = Date.now();
-  runtime.calls++;
-  try {
-    const res = await ai.models.generateContent({
-      model: cfg.model,
-      contents: call.contents as never,
-      config: { ...(call.config ?? {}), abortSignal: controller.signal },
-    });
-    runtime.lastSuccessAt = new Date().toISOString();
-    runtime.lastLatencyMs = Date.now() - started;
-    runtime.lastError = null;
-    return { res, model: `${cfg.model} via ${cfg.provider === "vertex" ? `Vertex AI (${cfg.location})` : "Gemini API"}`, latencyMs: Date.now() - started };
-  } catch (e) {
-    const msg = e instanceof Error ? (e.name === "AbortError" ? `timed out after ${call.timeoutMs} ms` : e.message) : String(e);
-    runtime.lastError = `${new Date().toISOString()} — ${msg}`.slice(0, 400);
-    throw new Error(msg);
-  } finally {
-    clearTimeout(timer);
+    if (e instanceof AiUnsupported) return { ok: false, status: 415, error: e.message };
+    return { ok: false, status: 502, error: `AI review failed: ${errorMessage(e).slice(0, 200)}` };
   }
 }

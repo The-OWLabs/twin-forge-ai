@@ -3,9 +3,10 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { AgentTool, FunctionTool, Gemini, InMemorySessionService, LlmAgent, Runner, getFunctionCalls, getFunctionResponses, type BaseTool, type Event } from "@google/adk";
 import { checkGrounding } from "@/domain/tools/grounding";
 import { callTwinTool, TWIN_TOOLS, type TwinToolName } from "@/domain/tools/twin-tools";
-import { aiConfig } from "@/server/ai/provider";
+import { aiConfig, modelLabel } from "@/server/ai/config";
 import { setting } from "@/server/settings";
 import { serverToolStore } from "@/server/tools/store";
+import { ProviderLlm } from "./provider-llm";
 import { objectSchema } from "./schema";
 
 /**
@@ -82,10 +83,13 @@ const afterTool = ({ tool, response, context }: { tool: BaseTool; response: Reco
 
 function buildCopilot() {
   const cfg = aiConfig();
+  // Gemini runs on ADK's native model; Claude, OpenAI and compatible endpoints through an adapter.
   const model =
     cfg.provider === "vertex"
       ? new Gemini({ model: cfg.model, vertexai: true, project: cfg.project, location: cfg.location })
-      : new Gemini({ model: cfg.model, apiKey: setting("GEMINI_API_KEY") });
+      : cfg.provider === "gemini-api"
+        ? new Gemini({ model: cfg.model, apiKey: setting("GEMINI_API_KEY") })
+        : new ProviderLlm(cfg);
   const gen = { temperature: 0.2, maxOutputTokens: 4096, thinkingConfig: { thinkingLevel: "LOW" as never } };
   const specialist = (name: string, description: string, focus: string, tools: TwinToolName[]) =>
     new LlmAgent({
@@ -143,7 +147,9 @@ function copilot() {
   const cfg = aiConfig();
   if (cfg.provider === "none") return null;
   // Rebuild the agents when the AI settings change in Integrations (sessions start over).
-  const config = [cfg.provider, cfg.model, cfg.project, cfg.location, cfg.provider === "gemini-api" ? (setting("GEMINI_API_KEY") ?? "").slice(-6) : ""].join("|");
+  const keyTail = { "gemini-api": "GEMINI_API_KEY", anthropic: "ANTHROPIC_API_KEY", openai: "OPENAI_API_KEY", "openai-compatible": "OPENAI_API_KEY" } as const;
+  const key = cfg.provider in keyTail ? (setting(keyTail[cfg.provider as keyof typeof keyTail]) ?? "").slice(-6) : "";
+  const config = [cfg.provider, cfg.model, cfg.project, cfg.location, cfg.baseUrl, key].join("|");
   if (!g.__twinforgeCopilot || g.__twinforgeCopilot.config !== config) {
     const sessions = new InMemorySessionService();
     g.__twinforgeCopilot = { runner: new Runner({ appName: APP, agent: buildCopilot(), sessionService: sessions }), sessions, config, busy: new Set(), evidence: new Map() };
@@ -155,7 +161,7 @@ export function copilotInfo() {
   const cfg = aiConfig();
   return {
     available: cfg.provider !== "none",
-    model: cfg.provider === "none" ? null : cfg.model,
+    model: cfg.provider === "none" ? null : modelLabel(cfg),
     framework: "Google Agent Development Kit (TypeScript)",
     agents: [
       { name: "twinforge_copilot", role: "Coordinator", tools: ["get_plant_overview", "search_audit", "propose_plan (needs your confirmation)"] },
@@ -172,7 +178,7 @@ export type CopilotInput = { sessionId: string; message?: string; confirm?: { ca
 export async function* runCopilot(input: CopilotInput): AsyncGenerator<CopilotEvent> {
   const c = copilot();
   if (!c) {
-    yield { type: "error", message: "The copilot needs Gemini (Vertex AI), which is not configured on this server. The MCP tools still work without it." };
+    yield { type: "error", message: "The copilot needs an AI provider, which is turned off or not configured on this server (Integrations → AI model provider). The MCP tools still work without it." };
     return;
   }
   if (c.busy.has(input.sessionId)) {

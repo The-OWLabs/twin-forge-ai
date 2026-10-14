@@ -79,9 +79,10 @@ interface FactoryStore {
   logCameraView: (id: string) => Promise<void>;
   setCameraStream: (id: string, kind: CameraStreamKind, url: string | null, clipId?: string | null) => Promise<boolean>;
   setCameraStreams: (streams: { id: string; kind: CameraStreamKind; url?: string | null; clipId?: string | null }[], success: string) => Promise<boolean>;
-  analyzeCameraFeed: (cameraId: string, engine: "gemini" | "opencv") => Promise<VisionReview | undefined>;
+  analyzeCameraFeed: (cameraId: string, engine: "ai" | "opencv", sheet?: { blob: Blob; times: number[] }) => Promise<VisionReview | undefined>;
   reviewInspectionLog: (cameraId: string) => Promise<VisionReview | undefined>;
-  analyzeMedia: (file: File, cameraId: string | null) => Promise<VisionReview | undefined>;
+  /** `frames` marks `file` as a contact sheet of a clip (times in seconds). */
+  analyzeMedia: (file: File | Blob, cameraId: string | null, frames?: number[], fileName?: string) => Promise<VisionReview | undefined>;
   inspectWithService: (file: File, reference: File | null, cameraId: string | null) => Promise<{ review: VisionReview; result: InspectionResult } | undefined>;
   dispositionReview: (id: string, disposition: "confirmed" | "dismissed", note: string) => Promise<boolean>;
 }
@@ -414,15 +415,25 @@ export const useFactory = create<FactoryStore>((set, get) => ({
     return !!r;
   },
 
-  analyzeCameraFeed: async (cameraId, engine) => {
+  analyzeCameraFeed: async (cameraId, engine, sheet) => {
     return get().run(
-      engine === "gemini" ? "feedGemini" : "feedOpencv",
+      engine === "ai" ? "feedAi" : "feedOpencv",
       async () => {
-        const res = await api<{ review: VisionReview; state: FactoryState }>(`/api/cameras/${cameraId}/analyze`, { body: { engine } });
+        let res: { review: VisionReview; state: FactoryState };
+        if (sheet) {
+          const form = new FormData();
+          form.append("engine", engine);
+          form.append("sheet", sheet.blob, "frames.jpg");
+          form.append("frames", sheet.times.join(","));
+          const r = await fetch(`/api/cameras/${cameraId}/analyze`, { method: "POST", body: form, cache: "no-store" });
+          const data = (await r.json().catch(() => null)) as { review?: VisionReview; state?: FactoryState; error?: string } | null;
+          if (!r.ok || !data?.review || !data.state) throw new ApiError(data?.error ?? `Analysis failed (${r.status})`, r.status);
+          res = { review: data.review, state: data.state };
+        } else res = await api<{ review: VisionReview; state: FactoryState }>(`/api/cameras/${cameraId}/analyze`, { body: { engine } });
         get().apply(res.state);
         return res.review;
       },
-      (r) => `${r.id}: ${engine === "gemini" ? "Gemini" : "OpenCV"} returned ${r.findings.length} finding(s) — pending your review`,
+      (r) => `${r.id}: ${engine === "ai" ? "AI review" : "OpenCV"} returned ${r.findings.length} finding(s) — pending your review`,
     );
   },
 
@@ -438,20 +449,21 @@ export const useFactory = create<FactoryStore>((set, get) => ({
     );
   },
 
-  analyzeMedia: async (file, cameraId) => {
+  analyzeMedia: async (file, cameraId, frames, fileName) => {
     return get().run(
       "visionAnalyze",
       async () => {
         const form = new FormData();
-        form.append("file", file);
+        form.append("file", file, fileName ?? (file instanceof File ? file.name : "frames.jpg"));
         if (cameraId) form.append("cameraId", cameraId);
+        if (frames?.length) form.append("frames", frames.join(","));
         const res = await fetch("/api/vision/analyze", { method: "POST", body: form, cache: "no-store" });
         const data = (await res.json().catch(() => null)) as { review?: VisionReview; state?: FactoryState; error?: string } | null;
         if (!res.ok || !data?.review || !data.state) throw new ApiError(data?.error ?? `Analysis failed (${res.status})`, res.status);
         get().apply(data.state);
         return data.review;
       },
-      (r) => `${r.id}: Gemini returned ${r.findings.length} finding(s) — pending your review`,
+      (r) => `${r.id}: AI review returned ${r.findings.length} finding(s) — pending your review`,
     );
   },
 

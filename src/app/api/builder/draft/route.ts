@@ -1,6 +1,6 @@
 import { DomainError } from "@/domain/actions";
 import { runBuilder, type BuilderEvent, type BuilderInput } from "@/domain/builder/pipeline";
-import { geminiBuilderAi } from "@/server/builder/gemini";
+import { builderAi } from "@/server/builder/ai";
 import { route } from "@/server/http";
 
 export const dynamic = "force-dynamic";
@@ -48,7 +48,7 @@ export const POST = route(async (req: Request) => {
         }
       };
       try {
-        for await (const e of runBuilder(input, geminiBuilderAi())) send(e);
+        for await (const e of runBuilder(input, builderAi())) send(e);
       } catch (e) {
         send({ type: "error", message: e instanceof Error ? e.message : String(e) });
       } finally {

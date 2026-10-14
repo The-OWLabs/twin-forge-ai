@@ -326,7 +326,7 @@ Everything works **without credentials**. Turn integrations on from **Admin → 
 
 | Service | What it does here | Required configuration |
 |---|---|---|
-| **Gemini on Vertex AI** | Twin Builder (reading drawings, Google Search-grounded research, drafting, chat edits); orchestrator narratives (never metrics); advisory review of uploaded inspection footage | `GOOGLE_CLOUD_PROJECT`, ADC (`gcloud auth application-default login`), `GOOGLE_CLOUD_LOCATION` (default `global`; this project uses `asia-southeast1`), `GEMINI_MODEL` (default `gemini-3.5-flash`). Alternatively `GOOGLE_GENAI_USE_VERTEXAI=false` with `GEMINI_API_KEY`. |
+| **AI model provider** | Agent narratives, the ADK copilot (coordinator + specialists), the Twin Builder (drawings, cited research, drafting, chat edits) and footage review. Choose on **Integrations → AI model provider**: Gemini on Vertex AI, the Gemini API (free tier with an AI Studio key), **Claude** (Anthropic API key), **OpenAI**, or any **OpenAI-compatible** endpoint (OpenRouter, Groq, a local Ollama). Claude and OpenAI read images and PDFs but not video: the control room and uploads send four frames captured in the browser instead. Compatible endpoints have no web research. **Turn AI off** there to stop all AI spending. | `AI_PROVIDER` plus that provider's key and model (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `OPENAI_BASE_URL`…), or Vertex AI via `GOOGLE_CLOUD_PROJECT` and ADC. A Claude Pro/Max subscription does not include API access. |
 | **BigQuery** | Mirrors scenario outcomes and decisions; schema for telemetry, production and health history | `BIGQUERY_DATASET`, then create tables with `infra/bigquery/schema.sql` |
 | **Pub/Sub** | Telemetry ingestion: `{assetId, vibration, temperature, powerKw}` messages override simulated measurements | `PUBSUB_TELEMETRY_SUBSCRIPTION`, `TELEMETRY_SOURCE=pubsub` |
 | **Cloud Storage** | Per-asset documents under `assets/<assetId>/` | `GCS_BUCKET` |
@@ -394,12 +394,12 @@ docker run -p 8080:8080 twinforge-ai     # http://localhost:8080
 ## Testing
 
 ```bash
-npm test               # 103 Vitest tests
+npm test               # 110 Vitest tests
 npm run build && npm run test:e2e   # 15 Playwright tests against the production server
 cd services/vision && uv run pytest # 16 pytest tests for the Python vision service
 ```
 
-- **Unit and integration tests** (`tests/`, 103 tests), including a check that the landing story's figures are engine-derived:
+- **Unit and integration tests** (`tests/`, 110 tests), including a check that the landing story's figures are engine-derived:
   - seed reproducibility and entity counts
   - health and status rules, OLS and trend estimation, change-point detection
   - KPIs
@@ -415,6 +415,7 @@ cd services/vision && uv run pytest # 16 pytest tests for the Python vision serv
   - mapping of vision-service results to review findings
   - Twin Builder: every template validates cleanly, builds, simulates and runs the six-agent analysis; deterministic builds; industry-appropriate defect classes; validation repairs and errors; and the agent workflow with recorded model responses (blueprint links, citation filtering, unsupported machine types, fallbacks, and chat edits as validated operations). The demo factory is checked byte-identical after the generator refactor.
 - **Admin and settings** (`tests/admin.test.ts`): signed admin cookies (expiry, tampering, passcode rotation, rate limit); settings overriding the environment, turning off and returning to the deployment value; never overwriting saved settings that could not be read from Cloud Storage; validation (https only, no metadata host); secrets never returned; settings driving the AI and vision adapters; camera source switching with audit; every footage clip shipped with its file, poster and license; stock-outs reported once.
+- **AI providers** (`tests/ai-providers.test.ts`, recorded responses, no network): provider selection and missing settings; Claude JSON through a forced tool, image and PDF blocks, web-search citations and the refusal of video; OpenAI Responses JSON and citation markers; OpenAI-compatible JSON, and honest refusals of web search and PDFs; the ADK adapter translating Gemini contents, schemas and function calls.
 - **Agent tools** (`tests/tools.test.ts`): every read tool leaves the twin unchanged; what-if matches the engine; the proposal only creates a pending recommendation; invalid arguments are rejected; no tool can approve, execute or command equipment; numeric grounding of answers.
 - **Python vision service** (`services/vision/tests`, 16 tests, synthetic media): a missing IC found where it should be, a rotated and shifted part aligned, lighting changes ignored, QR and EAN-13 decoding with grades, deterministic output, a video stoppage found at the right time, and API limits.
 - **End-to-end tests** (`e2e/`, 15 tests): the phone notice and continuing past it; the 3D view rendering with mobile robots and layer toggles; Twin Builder robots from the requirements through review to the built twin; the CCTV control room switching all cameras to reference footage and back (audited, served as video/mp4); integration settings saved from the UI and returned to the deployment value; MCP protocol (initialize, tools/list with read-only hints, tools/call, errors); the ADK copilot giving a grounded answer with a tool trace (when Gemini is configured); Twin Builder from description to built twin with a planned connection; camera card → audited live view → Visual Quality review confirmed by a person; camera API validation and honest Gemini status; isometric selection and rotation, theme persistence, every landing-story chapter appearing on scroll; every page renders with no console errors; the full guided crisis demo (incident → agents → scenario sensitivity → twin highlight → approval → fast-forward → audit); reset reproducibility; API validation.

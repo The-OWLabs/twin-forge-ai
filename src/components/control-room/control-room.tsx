@@ -4,13 +4,15 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { Clapperboard, Columns2, Film, LayoutGrid, Lock, MonitorPlay, Radio, ScanSearch, Sparkles, Video } from "lucide-react";
 import { useAdmin } from "@/client/admin";
+import { aiShortName, useAiInfo } from "@/client/ai";
+import { contactSheet } from "@/client/frames";
 import { useFactory } from "@/client/store";
 import { AdminAccess } from "@/components/admin/admin-access";
 import { PageHeader, SectionLabel } from "@/components/page";
 import { Badge, Button, Card, CardBody, CardHeader, Input, Label, Select, type Tone } from "@/components/ui/primitives";
 import { CAMERA_KIND_META, FootageCredit } from "@/components/vision/camera-panel";
 import { CameraFeed } from "@/components/vision/feeds";
-import { clipsFor, FOOTAGE, suggestedClip } from "@/domain/footage";
+import { clipsFor, FOOTAGE, getClip, suggestedClip } from "@/domain/footage";
 import { cameraView } from "@/domain/quality";
 import type { Camera, CameraStreamKind, FactoryState } from "@/domain/types";
 import { cn } from "@/lib/cn";
@@ -34,7 +36,7 @@ function useAvailability(): Availability | null {
       .then((d: { integrations: { id: string; state: string }[] }) => {
         const st = (id: string) => d.integrations.find((i) => i.id === id)?.state ?? "not-configured";
         setA({
-          gemini: st("vertex-ai") === "not-configured" ? { ok: false, why: "Gemini is not configured (Integrations → Gemini on Vertex AI)." } : { ok: true, why: "" },
+          gemini: st("vertex-ai") === "not-configured" ? { ok: false, why: "AI is off or no provider is configured (Integrations → AI model provider)." } : { ok: true, why: "" },
           opencv: st("vision-service") === "not-configured" ? { ok: false, why: "The vision service is not configured (Integrations → Vision service)." } : { ok: true, why: "" },
         });
       })
@@ -183,6 +185,21 @@ function Inspector({ state, camera }: { state: FactoryState; camera: Camera }) {
   const analyze = useFactory((s) => s.analyzeCameraFeed);
   const busy = useFactory((s) => s.busy);
   const availability = useAvailability();
+  const ai = useAiInfo();
+  const [capturing, setCapturing] = useState(false);
+  const runAi = async () => {
+    const clip = camera.stream.clipId ? getClip(camera.stream.clipId) : null;
+    if (ai && !ai.capabilities.video && clip) {
+      // This provider reads images, not video: send a sheet of frames captured in the browser.
+      setCapturing(true);
+      try {
+        const sheet = await contactSheet(clip.src);
+        await analyze(camera.id, "ai", sheet);
+      } finally {
+        setCapturing(false);
+      }
+    } else await analyze(camera.id, "ai");
+  };
   const clips = useMemo(() => clipsFor(camera), [camera]);
   const [kind, setKind] = useState<CameraStreamKind>(camera.stream.kind);
   const [clipId, setClipId] = useState(camera.stream.clipId ?? clips[0]?.id ?? "");
@@ -294,13 +311,13 @@ function Inspector({ state, camera }: { state: FactoryState; camera: Camera }) {
             <Button
               size="sm"
               variant="secondary"
-              loading={busy.feedGemini}
+              loading={busy.feedAi || capturing}
               disabled={availability ? !availability.gemini.ok : false}
               title={availability?.gemini.why}
-              onClick={() => void analyze(camera.id, "gemini")}
-              data-testid="qa-gemini"
+              onClick={() => void runAi()}
+              data-testid="qa-ai"
             >
-              <Sparkles className="h-3.5 w-3.5" /> Gemini review
+              <Sparkles className="h-3.5 w-3.5" /> {aiShortName(ai)} review
             </Button>
             <Button
               size="sm"
@@ -315,7 +332,7 @@ function Inspector({ state, camera }: { state: FactoryState; camera: Camera }) {
             </Button>
           </div>
           <p className="mt-1.5 text-[11.5px] leading-relaxed text-muted">
-            Gemini describes what it sees in the plant&apos;s defect categories; OpenCV measures motion, still periods and codes. Both are advisory: results wait in{" "}
+            {ai?.model ?? "The AI model"} describes what it sees in the plant&apos;s defect categories{ai && !ai.capabilities.video && ai.capabilities.available ? " (from four frames captured in your browser)" : ""}; OpenCV measures motion, still periods and codes. Both are advisory: results wait in{" "}
             <Link href="/quality#reviews" className="text-accent-ink hover:underline">
               Visual Quality
             </Link>{" "}
@@ -327,7 +344,7 @@ function Inspector({ state, camera }: { state: FactoryState; camera: Camera }) {
       ) : (
         <p className="text-[11.5px] leading-relaxed text-muted">
           {camera.stream.kind === "simulated"
-            ? "Switch this camera to reference footage to run Gemini and OpenCV on real video. On the twin feed, inspection cameras can review their station log in Visual Quality."
+            ? "Switch this camera to reference footage to run the AI review and OpenCV on real video. On the twin feed, inspection cameras can review their station log in Visual Quality."
             : "Gateway streams are analysed by the edge worker on the plant network, so frames never leave the site."}
         </p>
       )}
@@ -337,7 +354,7 @@ function Inspector({ state, camera }: { state: FactoryState; camera: Camera }) {
             <li key={r.id} className="rounded-lg border border-line bg-shell p-2 text-[11.5px]">
               <div className="flex items-center justify-between gap-2">
                 <span className="font-mono text-muted">
-                  {r.id} · {r.source === "opencv" ? "OpenCV" : r.source === "gemini" ? "Gemini" : "Station log"}
+                  {r.id} · {r.source === "opencv" ? "OpenCV" : r.source === "gemini" ? "AI review" : "Station log"}
                 </span>
                 <Badge tone={r.disposition === "pending-human-review" ? "warning" : r.disposition === "confirmed" ? "healthy" : "neutral"}>{r.disposition.replace(/-/g, " ")}</Badge>
               </div>

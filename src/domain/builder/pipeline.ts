@@ -31,6 +31,8 @@ export interface DraftContext {
 export interface BuilderAi {
   available: boolean;
   model: string | null;
+  /** Set when the provider can't search the web: the research stage is skipped with this reason. */
+  researchUnavailable?: string | null;
   readBlueprint(file: BlueprintFile, hints: { industry?: string; requirements: string }): Promise<BlueprintReading>;
   research(q: { industry: string; productionType: string; requirements: string; drawing: string | null }): Promise<ResearchResult>;
   draft(ctx: DraftContext): Promise<Draft>;
@@ -54,7 +56,7 @@ export type BuilderEvent =
   | { type: "error"; message: string }
   | { type: "complete"; spec: TwinSpec | null };
 
-const NO_AI = "Gemini (Vertex AI) is not configured on this server";
+const NO_AI = "AI is not configured on this server (or is turned off)";
 
 function fromTemplate(input: BuilderInput, reason: string): { spec: TwinSpec; note: string } | null {
   const chosen = input.templateId ? templateById(input.templateId) : null;
@@ -105,7 +107,9 @@ export async function* runBuilder(input: BuilderInput, ai: BuilderAi): AsyncGene
   if (!input.research) {
     yield { type: "stage", stage: "research", status: "skipped", summary: "Research turned off." };
   } else if (!ai.available) {
-    yield { type: "stage", stage: "research", status: "skipped", summary: `${NO_AI}; web research needs Gemini with Google Search grounding.` };
+    yield { type: "stage", stage: "research", status: "skipped", summary: `${NO_AI}; web research needs an AI provider with web search.` };
+  } else if (ai.researchUnavailable) {
+    yield { type: "stage", stage: "research", status: "skipped", summary: ai.researchUnavailable };
   } else {
     yield { type: "stage", stage: "research", status: "running" };
     try {
