@@ -177,10 +177,16 @@ export function integrationStatuses(): IntegrationStatus[] {
     {
       id: "persistence",
       name: "State persistence",
-      service: "Local JSON file",
+      service: "Server storage",
       purpose: "Keeps factory state across refreshes and restarts.",
       state: persistence.lastWriteError || !store.ok ? "error" : "active-simulated",
-      detail: `${persistence.note} ${persistence.path}${persistence.lastWriteError ? ` — write error: ${persistence.lastWriteError}` : ""} Integration settings: ${store.where}${store.detail ? ` — ${store.detail}` : ""}.`,
+      detail: [
+        "Factory state is kept on this server instance.",
+        persistence.lastWriteError ? `It could not be saved: ${persistence.lastWriteError}.` : "",
+        store.ok ? (store.kind === "cloud-storage" ? "Integration settings are saved to Cloud Storage." : "Integration settings are saved on this server.") : `Integration settings could not be read: ${store.detail ?? "unknown error"}.`,
+      ]
+        .filter(Boolean)
+        .join(" "),
       settings: [],
       fallback: "In-memory only if the file cannot be written.",
       lastCheckedAt: null,
