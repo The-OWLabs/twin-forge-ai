@@ -7,19 +7,14 @@
  * real equipment: no PLC writes, no machine commands.
  */
 import { appendAudit } from "./audit";
+import { DomainError } from "./errors";
 import { nextId } from "./ids";
 import { round } from "./math";
 import { describeAllocation } from "./world";
 import type { Directive, ExecutionStep, FactoryState, Recommendation } from "./types";
 
-export class DomainError extends Error {
-  constructor(
-    message: string,
-    public status = 400,
-  ) {
-    super(message);
-  }
-}
+/** Re-exported so existing `@/domain/actions` imports keep working; the class lives in ./errors. */
+export { DomainError };
 
 function getRec(state: FactoryState, id: string) {
   const rec = state.recommendations.find((r) => r.id === id);

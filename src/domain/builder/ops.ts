@@ -5,7 +5,7 @@
 import { z } from "zod";
 import { ASSET_KINDS } from "../archetypes";
 import type { AssetKind } from "../types";
-import { INTEGRATION_KINDS, ROBOT_MISSIONS, ROBOT_TYPES, uniqueId, type Prov, type SpecRobotFleet, type SpecRule, type TwinSpec } from "./spec";
+import { INTEGRATION_KINDS, ROBOT_MISSIONS, ROBOT_TYPES, RULE_KINDS, uniqueId, type Prov, type SpecRobotFleet, type SpecRule, type TwinSpec } from "./spec";
 
 const ROBOT_LABEL: Record<SpecRobotFleet["robotType"], string> = { amr: "AMR", agv: "AGV", "forklift-agv": "Automated forklift", tugger: "Tugger" };
 const MISSION_LABEL: Record<SpecRobotFleet["mission"], string> = { kitting: "kitting", "line-transfer": "line transfer", "finished-goods": "finished goods" };
@@ -66,7 +66,7 @@ export const SpecOpSchema = z.object({
   triggerKind: opt(z.enum(["output", "schedule"])),
   everyMinutes: opt(z.number().finite().min(1).max(1440)),
   ruleId: opt(s(40)),
-  ruleKind: opt(z.enum(["inventory", "maintenance", "connector"])),
+  ruleKind: opt(z.enum(RULE_KINDS)),
   enabled: opt(z.boolean()),
   below: opt(z.number().finite().min(0)),
   orderQty: opt(z.number().finite().positive()),
@@ -502,7 +502,7 @@ export function applyOps(input: TwinSpec, ops: SpecOp[], prov: Prov): ApplyResul
               speedPct: action === "slow" ? (o.speedPct ?? 60) : null,
               bufferUnits: when === "buffer-full" ? (o.bufferUnits ?? 200) : null,
             };
-        } else fail(`"${o.ruleKind}" is not a supported rule kind (inventory, maintenance, connector)`);
+        } else fail(`"${o.ruleKind}" is not a supported rule kind (${RULE_KINDS.join(", ")})`);
         if (rule) {
           spec.rules.push(rule);
           applied.push(`Added rule: ${rule.name}`);

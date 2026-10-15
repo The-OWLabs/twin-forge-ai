@@ -16,8 +16,6 @@ import { getState, mutate } from "@/server/store";
  * Both engines are advisory: every result is stored as a review awaiting a person's disposition.
  */
 
-export type ReviewOutcome<T> = { ok: true; value: T } | { ok: false; error: string; status: number };
-
 /**
  * The configured AI model looks at an image, a clip, or a contact sheet of frames from a clip
  * (`frames`: their times in seconds) and reports findings in the plant's defect categories.

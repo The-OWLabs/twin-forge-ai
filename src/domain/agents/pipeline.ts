@@ -10,8 +10,8 @@ import { detectAnomalies, type Anomaly } from "../anomaly";
 import { appendAudit } from "../audit";
 import { nextId } from "../ids";
 import { deterministicNarrative, type NarrativeInput } from "../narrative";
-import { buildRecommendation } from "../recommendations";
-import { pickFocusAsset, presetScenarios } from "../scenarios";
+import { addRecommendation, buildRecommendation } from "../recommendations";
+import { addScenarioRun, pickFocusAsset, presetScenarios } from "../scenarios";
 import { simulateScenarios } from "../simulation";
 import type { AgentId, AgentReport, AnalysisRun, FactoryState, Narrative, Recommendation, ScenarioResult, ScenarioRun, StageState, WorkflowStage } from "../types";
 import { AGENT_META, fmtInt, type AnalysisContext } from "./context";
@@ -21,6 +21,9 @@ import { buildOrchestratorReport, detectConflicts, runScenarioSet } from "./orch
 import { runProductionAgent } from "./production";
 import { runSupplyAgent } from "./supply";
 import { runQualityAgent } from "./quality";
+
+/** Re-exported for existing importers; the function lives with the other scenario helpers. */
+export { addScenarioRun };
 
 export const STAGES: WorkflowStage[] = ["observe", "investigate", "predict", "simulate", "recommend", "approval"];
 
@@ -237,13 +240,7 @@ export function commitAnalysis(live: FactoryState, bundle: AnalysisBundle, nowIS
   live.analyses.unshift(bundle.analysis);
   live.analyses = live.analyses.slice(0, 5);
   if (bundle.scenarioRun) addScenarioRun(live, bundle.scenarioRun);
-  if (bundle.recommendation) {
-    for (const r of live.recommendations) {
-      if (r.status === "pending" && r.affectedAssetIds[0] === bundle.recommendation.affectedAssetIds[0]) r.status = "superseded";
-    }
-    live.recommendations.unshift(bundle.recommendation);
-    live.recommendations = live.recommendations.slice(0, 20);
-  }
+  if (bundle.recommendation) addRecommendation(live, bundle.recommendation);
   if (bundle.analysis.incidentId) {
     const inc = live.incidents.find((i) => i.id === bundle.analysis.incidentId);
     if (inc && inc.status === "open") inc.status = "investigating";
@@ -257,10 +254,4 @@ export function commitAnalysis(live: FactoryState, bundle: AnalysisBundle, nowIS
     refs: { analysisId: bundle.analysis.id, incidentId: bundle.analysis.incidentId ?? undefined, assetIds: bundle.analysis.focusAssetId ? [bundle.analysis.focusAssetId] : [] },
   });
   for (const a of bundle.audit) appendAudit(live, nowISO, a as Parameters<typeof appendAudit>[2]);
-}
-
-/** Keep recent scenario runs; strip hourly series from older runs to bound state size. */
-export function addScenarioRun(live: FactoryState, run: ScenarioRun) {
-  live.scenarioRuns.unshift(run);
-  live.scenarioRuns = live.scenarioRuns.slice(0, 8).map((r, i) => (i < 3 ? r : { ...r, results: r.results.map((x) => ({ ...x, hourly: [] })) }));
 }

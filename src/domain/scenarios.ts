@@ -1,5 +1,8 @@
-import { calibrateAsset, findRerouteLine, MAINTENANCE_HOURS_BY_KIND, primaryProductOf } from "./simulation";
-import type { FactoryState, ScenarioDefinition, ScenarioParams } from "./types";
+import { appendAudit } from "./audit";
+import { DomainError } from "./errors";
+import { nextId } from "./ids";
+import { calibrateAsset, findRerouteLine, MAINTENANCE_HOURS_BY_KIND, primaryProductOf, rankScenarios, simulateScenarios } from "./simulation";
+import type { FactoryState, ScenarioDefinition, ScenarioParams, ScenarioRun } from "./types";
 
 export interface SharedAssumptions {
   horizonHours: number;
@@ -117,4 +120,51 @@ export function applyShared(defs: ScenarioDefinition[], shared: SharedAssumption
       orderOverrides: { ...shared.orderOverrides },
     },
   }));
+}
+
+/** Keep recent scenario runs; strip hourly series from older runs to bound state size. */
+export function addScenarioRun(live: FactoryState, run: ScenarioRun) {
+  live.scenarioRuns.unshift(run);
+  live.scenarioRuns = live.scenarioRuns.slice(0, 8).map((r, i) => (i < 3 ? r : { ...r, results: r.results.map((x) => ({ ...x, hourly: [] })) }));
+}
+
+export interface OperatorScenarioInput {
+  /** Asset to plan around; defaults to the first definition's target, then the incident focus. */
+  targetAssetId?: string;
+  /** Plans to compare; defaults to the preset plans for the target. */
+  definitions?: ScenarioDefinition[];
+  /** Store the run (and audit it); otherwise it is a preview with id "PREVIEW". */
+  persist: boolean;
+}
+
+/** Run (and by default store) an operator's scenario comparison. Every figure is recomputed here. */
+export function runOperatorScenarios(state: FactoryState, input: OperatorScenarioInput, nowISO: string): ScenarioRun {
+  const target = input.targetAssetId ?? input.definitions?.[0]?.params.targetAssetId ?? pickFocusAsset(state).id;
+  if (!state.assets.some((a) => a.id === target)) throw new DomainError(`Unknown asset ${target}`, 404);
+  const defs = input.definitions ?? presetScenarios(state, target);
+  const results = simulateScenarios(state, defs);
+  const ranking = rankScenarios(results);
+  const run: ScenarioRun = {
+    id: input.persist ? nextId(state, "RUN", 500) : "PREVIEW",
+    createdHour: state.clock.hour,
+    at: nowISO,
+    source: "operator",
+    targetAssetId: target,
+    results,
+    baselineId: results.find((x) => x.definition.kind === "baseline")?.definition.id ?? results[0].definition.id,
+    recommendedId: ranking[0]?.scenarioId ?? null,
+    ranking,
+  };
+  if (input.persist) {
+    addScenarioRun(state, run);
+    appendAudit(state, nowISO, {
+      category: "scenario",
+      actor: "Operator",
+      title: `Scenario run ${run.id}: ${results.length} scenarios for ${target}`,
+      detail: ranking.map((x) => `${results.find((y) => y.definition.id === x.scenarioId)?.definition.name} ${x.score.toFixed(1)}`).join(" · "),
+      severity: "info",
+      refs: { scenarioRunId: run.id, assetIds: [target] },
+    });
+  }
+  return run;
 }

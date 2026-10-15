@@ -1,7 +1,7 @@
 import "server-only";
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
+import { dataDir, displayPath, isServerless, writeFileAtomic } from "./runtime";
 
 /**
  * Integration settings that an admin can change in the UI.
@@ -269,9 +269,7 @@ const store: Store = (g.__twinforgeSettings ??= {
 /** Other instances (or a rollout's new revision) pick up saved changes within this time. */
 const REFRESH_MS = 60_000;
 
-const SERVERLESS = !!(process.env.K_SERVICE || process.env.FUNCTION_TARGET || process.env.FIREBASE_CONFIG);
-const DATA_DIR = process.env.TWINFORGE_DATA_DIR || (SERVERLESS ? path.join(os.tmpdir(), "twinforge") : path.join(process.cwd(), ".data"));
-const FILE = path.join(DATA_DIR, "settings.json");
+const FILE = path.join(dataDir(), "settings.json");
 const OBJECT = "twinforge/settings.json";
 const bucket = () => process.env.TWINFORGE_CONFIG_BUCKET || "";
 
@@ -396,9 +394,9 @@ export function settingsStorage() {
   if (bucket()) return { kind: "cloud-storage" as const, where: `gs://${bucket()}/${OBJECT}`, ok: store.durable?.ok ?? true, detail: store.durable?.detail ?? null, updatedAt: store.data.updatedAt, updatedBy: store.data.updatedBy };
   return {
     kind: "local-file" as const,
-    where: path.relative(process.cwd(), FILE).startsWith("..") ? FILE : path.relative(process.cwd(), FILE),
+    where: displayPath(FILE),
     ok: true,
-    detail: SERVERLESS ? "Saved on this server instance only; set TWINFORGE_CONFIG_BUCKET to keep settings across restarts." : null,
+    detail: isServerless() ? "Saved on this server instance only; set TWINFORGE_CONFIG_BUCKET to keep settings across restarts." : null,
     updatedAt: store.data.updatedAt,
     updatedBy: store.data.updatedBy,
   };
@@ -456,10 +454,7 @@ async function persist() {
   const snapshot = JSON.stringify(store.data);
   const write = async () => {
     try {
-      fs.mkdirSync(DATA_DIR, { recursive: true });
-      const tmp = `${FILE}.${process.pid}.tmp`;
-      fs.writeFileSync(tmp, snapshot, { mode: 0o600 });
-      fs.renameSync(tmp, FILE);
+      writeFileAtomic(FILE, snapshot, { mode: 0o600 });
     } catch (e) {
       console.warn("[settings] could not write local settings:", e);
     }

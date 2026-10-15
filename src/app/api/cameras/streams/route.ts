@@ -1,4 +1,4 @@
-import { setCameraStream } from "@/domain/vision";
+import { setCameraStreams } from "@/domain/vision";
 import { adminActor, requireAdmin } from "@/server/admin";
 import { json, nowISO, parseBody, route } from "@/server/http";
 import { CameraStreamsSchema } from "@/server/schemas";
@@ -10,11 +10,6 @@ export const POST = route(async (req: Request) => {
   const { streams, by } = await parseBody(req, CameraStreamsSchema);
   const actor = adminActor(by);
   const at = nowISO();
-  mutate((s) => {
-    // Validate every entry on a copy first, so an invalid one leaves the plant unchanged.
-    const trial = structuredClone(s);
-    for (const st of streams) setCameraStream(trial, st.id, st, actor, at);
-    for (const st of streams) setCameraStream(s, st.id, st, actor, at);
-  });
+  mutate((s) => setCameraStreams(s, streams, actor, at));
   return json({ state: getState() });
 });

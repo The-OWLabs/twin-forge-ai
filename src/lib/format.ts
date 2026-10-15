@@ -16,8 +16,6 @@ export const fmtMoney = (n: number | null | undefined) => {
   return `$${Math.round(n).toLocaleString("en-US")}`;
 };
 
-export const fmtCompact = (n: number) => (Math.abs(n) >= 1000 ? `${(n / 1000).toFixed(Math.abs(n) >= 10000 ? 0 : 1)}K` : `${Math.round(n)}`);
-
 export const fmtHours = (h: number | null | undefined) => {
   if (h === null || h === undefined || !Number.isFinite(h)) return "—";
   if (Math.abs(h) < 1) return `${Math.round(h * 60)} min`;

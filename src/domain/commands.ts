@@ -1,15 +1,16 @@
 /** State-changing commands invoked by the API layer. Pure functions over FactoryState. */
-import { DomainError } from "./actions";
+import { machineTemplate } from "./archetypes";
 import { appendAudit } from "./audit";
 import { TICK_HOURS, TICK_INTERVAL_MS } from "./constants";
+import { DomainError } from "./errors";
 import { nextId } from "./ids";
 import { round } from "./math";
 import { runMaintenanceRules } from "./rules";
-import { machineTemplate } from "./seed";
 import { advanceFactory } from "./telemetry";
 import type { Asset, AssetKind, FactoryState } from "./types";
 
-export type FaultMode = "bearing-wear" | "overheating" | "failure" | "restore";
+export const FAULT_MODES = ["bearing-wear", "overheating", "failure", "restore"] as const;
+export type FaultMode = (typeof FAULT_MODES)[number];
 
 export interface FaultInput {
   assetId: string;

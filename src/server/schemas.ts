@@ -1,5 +1,7 @@
 import { z } from "zod";
 import { ASSET_KINDS } from "@/domain/archetypes";
+import { FAULT_MODES } from "@/domain/commands";
+import { CAMERA_STREAM_KINDS } from "@/domain/vision";
 import type { AssetKind } from "@/domain/types";
 
 const assetKind = z.enum(ASSET_KINDS as [AssetKind, ...AssetKind[]]);
@@ -41,7 +43,7 @@ export const ConnectionSchema = z.object({ source: z.string().min(1), target: z.
 
 export const FaultSchema = z.object({
   assetId: z.string().min(1),
-  mode: z.enum(["bearing-wear", "overheating", "failure", "restore"]),
+  mode: z.enum(FAULT_MODES),
   severity: z.number().min(0).max(100).default(50),
 });
 
@@ -87,8 +89,10 @@ export const CreateRecommendationSchema = z.object({ scenarioRunId: z.string().m
 export const DecisionSchema = z.object({ by: z.string().trim().min(1).max(60).default("Operator"), note: z.string().trim().max(300).default("") });
 export const IntegrationTestSchema = z.object({ id: z.string().min(1) });
 
+const cameraStreamKind = z.enum(CAMERA_STREAM_KINDS);
+
 export const CameraStreamSchema = z.object({
-  kind: z.enum(["simulated", "footage", "hls", "mp4", "mjpeg"]),
+  kind: cameraStreamKind,
   url: z.string().trim().max(500).nullable().default(null),
   clipId: z.string().trim().max(60).nullable().default(null),
   by: z.string().trim().min(1).max(60).default("Operator"),
@@ -98,7 +102,7 @@ export const CameraStreamsSchema = z.object({
     .array(
       z.object({
         id: z.string().min(1).max(40),
-        kind: z.enum(["simulated", "footage", "hls", "mp4", "mjpeg"]),
+        kind: cameraStreamKind,
         url: z.string().trim().max(500).nullable().default(null),
         clipId: z.string().trim().max(60).nullable().default(null),
       }),

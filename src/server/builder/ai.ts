@@ -3,7 +3,7 @@ import { ASSET_KINDS } from "@/domain/archetypes";
 import { ARCHETYPE_CATALOG, BlueprintReadingSchema, DraftSchema, type ResearchResult } from "@/domain/builder/draft";
 import { SpecOpSchema } from "@/domain/builder/ops";
 import type { BuilderAi } from "@/domain/builder/pipeline";
-import { INTEGRATION_KINDS, ROBOT_MISSIONS, ROBOT_TYPES, type TwinSpec } from "@/domain/builder/spec";
+import { INTEGRATION_KINDS, ROBOT_MISSIONS, ROBOT_TYPES, RULE_KINDS, type TwinSpec } from "@/domain/builder/spec";
 import { aiCapabilities, aiConfig, modelLabel } from "@/server/ai/config";
 import { llmGenerate } from "@/server/ai/llm";
 
@@ -153,7 +153,7 @@ const OP_DESCRIPTIONS = {
   machineId: { type: ["string", "null"], description: "Existing machine id from the spec." },
   robotType: { type: ["string", "null"], enum: [...ROBOT_TYPES, null], description: "Mobile robot type. For add_robot_fleet (default amr) and update_robot_fleet." },
   mission: { type: ["string", "null"], enum: [...ROBOT_MISSIONS, null], description: "Mobile robot move. Required for add_robot_fleet." },
-  ruleKind: { type: ["string", "null"], enum: ["inventory", "maintenance", "connector", null], description: "Rule type. Required for add_rule." },
+  ruleKind: { type: ["string", "null"], enum: [...RULE_KINDS, null], description: "Rule type. Required for add_rule." },
   when: { type: ["string", "null"], enum: ["upstream-stops", "downstream-stops", "buffer-full", null], description: "Connector rule trigger: upstream-stops = lineId itself stops; downstream-stops = the packing line after it stops; buffer-full = the buffer between lineId and packing reaches bufferUnits." },
   action: { type: ["string", "null"], enum: ["divert", "slow", "pause", null], description: "Connector rule action: divert (toLineId takes over lineId's work; only with upstream-stops), slow (lineId to speedPct), pause (lineId stops until the condition clears)." },
   metric: { type: ["string", "null"], enum: ["health", "vibration", null], description: "Maintenance rule metric: health score (0–100, fires below threshold) or vibration (mm/s, fires above threshold)." },

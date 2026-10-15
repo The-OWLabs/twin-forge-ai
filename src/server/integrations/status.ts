@@ -2,6 +2,7 @@ import "server-only";
 import { appendAudit } from "@/domain/audit";
 import { aiCapabilities, aiConfig, aiRuntime, modelLabel, PROVIDER_NAME, resetAiRuntime } from "@/server/ai/config";
 import { testAi } from "@/server/ai/provider";
+import { isCloudRun } from "@/server/runtime";
 import { describeSettings, setting, settingsStorage, SETTINGS, updateSettings, type SettingKey, type SettingView } from "@/server/settings";
 import { mutate, persistenceInfo } from "@/server/store";
 import type { Recommendation, ScenarioRun } from "@/domain/types";
@@ -83,7 +84,7 @@ export function integrationStatuses(): IntegrationStatus[] {
   const vs = stateFor("vision-service", visionService.configured());
   const persistence = persistenceInfo();
   const store = settingsStorage();
-  const onCloudRun = !!process.env.K_SERVICE;
+  const onCloudRun = isCloudRun();
 
   return [
     {

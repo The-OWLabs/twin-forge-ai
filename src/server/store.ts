@@ -1,9 +1,9 @@
 import "server-only";
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { buildDemoFactory, SCHEMA_VERSION } from "@/domain/seed";
 import type { FactoryState } from "@/domain/types";
+import { dataDir, displayPath, writeFileAtomic } from "./runtime";
 
 /**
  * Server-authoritative factory state.
@@ -14,10 +14,7 @@ import type { FactoryState } from "@/domain/types";
  * filesystem (`/tmp`), so state is per-instance and resets when the instance is recycled —
  * deploy with max-instances=1 for demos (see README).
  */
-// On serverless runtimes (Cloud Run / Cloud Functions / App Hosting) only /tmp is writable.
-const SERVERLESS = !!(process.env.K_SERVICE || process.env.FUNCTION_TARGET || process.env.FIREBASE_CONFIG);
-const DATA_DIR = process.env.TWINFORGE_DATA_DIR || (SERVERLESS ? path.join(os.tmpdir(), "twinforge") : path.join(process.cwd(), ".data"));
-const FILE = path.join(DATA_DIR, "factory-state.json");
+const FILE = path.join(dataDir(), "factory-state.json");
 
 type Cache = { state: FactoryState | null; writeError: string | null };
 const g = globalThis as unknown as { __twinforge?: Cache };
@@ -39,10 +36,7 @@ function load(): FactoryState {
 
 function persist(state: FactoryState) {
   try {
-    fs.mkdirSync(DATA_DIR, { recursive: true });
-    const tmp = `${FILE}.${process.pid}.tmp`;
-    fs.writeFileSync(tmp, JSON.stringify(state));
-    fs.renameSync(tmp, FILE);
+    writeFileAtomic(FILE, JSON.stringify(state));
     cache.writeError = null;
   } catch (e) {
     cache.writeError = e instanceof Error ? e.message : String(e);
@@ -71,7 +65,7 @@ export function replaceState(next: FactoryState) {
 export function persistenceInfo() {
   return {
     kind: "local-json-file" as const,
-    path: path.relative(process.cwd(), FILE).startsWith("..") ? FILE : path.relative(process.cwd(), FILE),
+    path: displayPath(FILE),
     lastWriteError: cache.writeError,
     note: "State is persisted to a local JSON file (per server instance). Not shared across instances.",
   };

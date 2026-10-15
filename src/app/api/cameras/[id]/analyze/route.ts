@@ -1,4 +1,4 @@
-import { DomainError } from "@/domain/actions";
+import { DomainError } from "@/domain/errors";
 import { getClip } from "@/domain/footage";
 import { getCamera } from "@/domain/vision";
 import { json, route } from "@/server/http";

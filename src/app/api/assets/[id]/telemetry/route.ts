@@ -1,4 +1,4 @@
-import { DomainError } from "@/domain/actions";
+import { DomainError } from "@/domain/errors";
 import { diagnoseAsset } from "@/domain/anomaly";
 import { readingsFor } from "@/domain/telemetry";
 import { json, route } from "@/server/http";

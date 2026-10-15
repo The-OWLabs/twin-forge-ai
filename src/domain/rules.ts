@@ -3,11 +3,10 @@
  * (world.ts); maintenance rules work on measured condition, so they run after each live step and
  * create a PENDING preventive-maintenance proposal. A person still approves it in Approvals.
  */
-import { addScenarioRun } from "./agents/pipeline";
 import { appendAudit } from "./audit";
 import { nextId } from "./ids";
-import { buildRecommendation } from "./recommendations";
-import { presetScenarios } from "./scenarios";
+import { addRecommendation, buildRecommendation } from "./recommendations";
+import { addScenarioRun, presetScenarios } from "./scenarios";
 import { rankScenarios, simulateScenarios } from "./simulation";
 import type { Asset, FactoryState, PlantRule, ScenarioRun } from "./types";
 
@@ -56,8 +55,7 @@ function propose(state: FactoryState, r: MaintenanceRule, a: Asset, nowISO: stri
     if (!chosen?.feasible) throw new Error(chosen?.infeasibleReason ?? "no preventive plan for this machine");
     const run: ScenarioRun = { id: nextId(state, "RUN", 500), createdHour: state.clock.hour, at: nowISO, source: "rule", targetAssetId: a.id, results, baselineId: "baseline", recommendedId: ranking[0]?.scenarioId ?? null, ranking };
     addScenarioRun(state, run);
-    const rec = buildRecommendation(state, run, "preventive", { source: "rule", analysisId: null, nowISO });
-    state.recommendations.unshift(rec);
+    const rec = addRecommendation(state, buildRecommendation(state, run, "preventive", { source: "rule", analysisId: null, nowISO }));
     appendAudit(state, nowISO, {
       category: "recommendation",
       actor: "Automation rule (simulated)",

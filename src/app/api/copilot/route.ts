@@ -1,6 +1,6 @@
 import { z } from "zod";
-import { copilotInfo, runCopilot, type CopilotEvent } from "@/server/copilot/agent";
-import { json, parseBody, route } from "@/server/http";
+import { copilotInfo, runCopilot } from "@/server/copilot/agent";
+import { json, ndjsonResponse, parseBody, route } from "@/server/http";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;
@@ -18,28 +18,5 @@ const Body = z
 /** One copilot turn (ADK multi-agent), streamed as NDJSON: tool calls, results, confirmations, answer. */
 export const POST = route(async (req: Request) => {
   const body = await parseBody(req, Body);
-  const encoder = new TextEncoder();
-  const stream = new ReadableStream({
-    async start(controller) {
-      const send = (e: CopilotEvent) => {
-        try {
-          controller.enqueue(encoder.encode(JSON.stringify(e) + "\n"));
-        } catch {
-          /* client went away */
-        }
-      };
-      try {
-        for await (const e of runCopilot(body)) send(e);
-      } catch (e) {
-        send({ type: "error", message: e instanceof Error ? e.message : String(e) });
-      } finally {
-        try {
-          controller.close();
-        } catch {
-          /* already closed */
-        }
-      }
-    },
-  });
-  return new Response(stream, { headers: { "Content-Type": "application/x-ndjson; charset=utf-8", "Cache-Control": "no-store", "X-Accel-Buffering": "no" } });
+  return ndjsonResponse(runCopilot(body));
 });

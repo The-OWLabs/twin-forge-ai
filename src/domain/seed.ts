@@ -54,7 +54,7 @@ export const DEMO_BLUEPRINT: FactoryBlueprint = {
 
 const TEMPLATES = Object.fromEntries(ASSET_KINDS.map((k) => [k, machineTemplate(k)])) as Record<AssetKind, MachineTemplate>;
 
-export { ASSET_KIND_LABEL, machineTemplate };
+export { ASSET_KIND_LABEL };
 
 const PRODUCTS: (Product & { bom: { itemId: string; qty: number }[]; rate: number })[] = [
   {
@@ -728,6 +728,9 @@ function buildCameras(lines: ProductionLine[], assets: Asset[], quality: Factory
   );
   return cams;
 }
+
+/** Seed for a newly created factory's simulated noise (changes every second). */
+export const newFactorySeed = (nowMs = Date.now()) => Math.floor(nowMs / 1000) % 2147483647;
 
 /** Anchor demo time at the top of the current hour so the "shift clock" reads naturally. */
 export function defaultAnchor(now = new Date()) {

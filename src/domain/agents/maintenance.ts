@@ -1,3 +1,4 @@
+import { maintenanceHoursFor } from "../scenarios";
 import type { AgentFinding, AgentProposal, AgentReport, Evidence } from "../types";
 import { confidenceFrom, fmtHours, type AnalysisContext } from "./context";
 
@@ -111,7 +112,7 @@ export function runMaintenanceAgent(ctx: AnalysisContext): AgentReport {
   } else {
     proposals.push({
       title: `Schedule preventive maintenance on ${focus.id} within ${Number.isFinite(d.hoursToTrip) ? lead : 12} h`,
-      detail: `Inspect ${(focus.condition.failureMode ?? "drive train").toLowerCase()}; replace bearing set if spalling confirmed. Estimated ${focus.kind === "robot" ? 6 : 4} h with a 3-person crew.`,
+      detail: `Inspect ${(focus.condition.failureMode ?? "drive train").toLowerCase()}; replace bearing set if spalling confirmed. Estimated ${maintenanceHoursFor(state, focus.id)} h with a 3-person crew.`,
       priority: d.hoursToTrip < 24 ? "now" : "soon",
     });
     if (vib.current >= focus.thresholds.vibrationAlarm * 0.8) {

@@ -1,7 +1,7 @@
-import { DomainError } from "@/domain/actions";
-import { runBuilder, type BuilderEvent, type BuilderInput } from "@/domain/builder/pipeline";
+import { DomainError } from "@/domain/errors";
+import { runBuilder, type BuilderInput } from "@/domain/builder/pipeline";
 import { builderAi } from "@/server/builder/ai";
-import { route } from "@/server/http";
+import { ndjsonResponse, route } from "@/server/http";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -37,28 +37,5 @@ export const POST = route(async (req: Request) => {
     throw new DomainError("Describe your factory, upload a blueprint or pick a template.");
   }
 
-  const encoder = new TextEncoder();
-  const stream = new ReadableStream({
-    async start(controller) {
-      const send = (e: BuilderEvent) => {
-        try {
-          controller.enqueue(encoder.encode(JSON.stringify(e) + "\n"));
-        } catch {
-          /* client went away */
-        }
-      };
-      try {
-        for await (const e of runBuilder(input, builderAi())) send(e);
-      } catch (e) {
-        send({ type: "error", message: e instanceof Error ? e.message : String(e) });
-      } finally {
-        try {
-          controller.close();
-        } catch {
-          /* already closed */
-        }
-      }
-    },
-  });
-  return new Response(stream, { headers: { "Content-Type": "application/x-ndjson; charset=utf-8", "Cache-Control": "no-store", "X-Accel-Buffering": "no" } });
+  return ndjsonResponse(() => runBuilder(input, builderAi()));
 });

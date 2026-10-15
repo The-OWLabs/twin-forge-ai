@@ -1,6 +1,6 @@
 /** Camera configuration, access logging and visual-review records. */
-import { DomainError } from "./actions";
 import { appendAudit } from "./audit";
+import { DomainError } from "./errors";
 import { nextId } from "./ids";
 import { round } from "./math";
 import { inspectionFrames } from "./quality";
@@ -45,6 +45,9 @@ export function getCamera(state: FactoryState, id: string): Camera {
   return cam;
 }
 
+/** Every kind of camera source (see CameraStreamKind). */
+export const CAMERA_STREAM_KINDS = ["simulated", "footage", "hls", "mp4", "mjpeg"] as const satisfies readonly CameraStreamKind[];
+
 /**
  * Choose what a camera shows: the twin-rendered feed, a looped clip from the reference footage
  * library, or a real stream served by a plant-side gateway (HLS / MP4 / MJPEG over HTTPS).
@@ -79,6 +82,16 @@ export function setCameraStream(state: FactoryState, id: string, stream: { kind:
   }
   appendAudit(state, nowISO, { category: "asset", actor: by, title, detail, severity: "info", refs: { assetIds: cam.assetId ? [cam.assetId] : [] } });
   return cam;
+}
+
+/**
+ * Switch several cameras at once (CCTV control room). All-or-nothing: every entry is validated on
+ * a copy first, so an invalid one leaves the plant unchanged.
+ */
+export function setCameraStreams(state: FactoryState, streams: { id: string; kind: CameraStreamKind; url?: string | null; clipId?: string | null }[], by: string, nowISO: string) {
+  const trial = structuredClone(state);
+  for (const st of streams) setCameraStream(trial, st.id, st, by, nowISO);
+  for (const st of streams) setCameraStream(state, st.id, st, by, nowISO);
 }
 
 /** Plain-language description of a camera's current source (for logs, tools and labels). */

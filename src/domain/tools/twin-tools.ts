@@ -7,7 +7,6 @@
  * human action in the Approvals screen. No tool can command equipment.
  */
 import { z } from "zod";
-import { addScenarioRun } from "../agents/pipeline";
 import { detectAnomalies, diagnoseAsset } from "../anomaly";
 import { ARCHETYPES } from "../archetypes";
 import { appendAudit } from "../audit";
@@ -16,8 +15,8 @@ import { computeKpis, consumptionPerHour } from "../kpis";
 import { round } from "../math";
 import { cameraView, computeQuality, recentDefectTypes } from "../quality";
 import { describeStream } from "../vision";
-import { buildRecommendation } from "../recommendations";
-import { pickFocusAsset, presetScenarios } from "../scenarios";
+import { addRecommendation, buildRecommendation } from "../recommendations";
+import { addScenarioRun, pickFocusAsset, presetScenarios } from "../scenarios";
 import { rankScenarios, simulateScenarios } from "../simulation";
 import type { FactoryState, ScenarioDefinition, ScenarioResult, ScenarioRun } from "../types";
 
@@ -427,9 +426,7 @@ export const TWIN_TOOLS = [
         const chosen = results.find((r) => r.definition.id === a.plan)!;
         if (!chosen.feasible) throw new Error(`The ${a.plan} plan is not feasible: ${chosen.infeasibleReason}`);
         addScenarioRun(s, run);
-        const rec = buildRecommendation(s, run, a.plan, { source: "operator", analysisId: null, nowISO: at });
-        for (const other of s.recommendations) if (other.status === "pending" && other.affectedAssetIds[0] === rec.affectedAssetIds[0]) other.status = "superseded";
-        s.recommendations.unshift(rec);
+        const rec = addRecommendation(s, buildRecommendation(s, run, a.plan, { source: "operator", analysisId: null, nowISO: at }));
         appendAudit(s, at, {
           category: "recommendation",
           actor,

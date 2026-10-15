@@ -1,4 +1,4 @@
-import { DomainError } from "@/domain/actions";
+import { DomainError } from "@/domain/errors";
 import { json, route } from "@/server/http";
 import { readLocalDocument } from "@/server/documents";
 

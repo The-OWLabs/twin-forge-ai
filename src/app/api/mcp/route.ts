@@ -1,6 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import { callTwinTool, TWIN_TOOLS } from "@/domain/tools/twin-tools";
+import { safeEqual } from "@/server/admin";
 import { setting } from "@/server/settings";
 import { serverToolStore } from "@/server/tools/store";
 
@@ -44,7 +45,7 @@ async function handle(req: Request) {
     return new Response(JSON.stringify({ jsonrpc: "2.0", error: { code: -32000, message: "The MCP endpoint is turned off in Integrations." }, id: null }), { status: 503, headers: { "content-type": "application/json" } });
   }
   const token = setting("TWINFORGE_MCP_TOKEN");
-  if (token && req.headers.get("authorization") !== `Bearer ${token}`) {
+  if (token && !safeEqual(req.headers.get("authorization") ?? "", `Bearer ${token}`)) {
     return new Response(JSON.stringify({ jsonrpc: "2.0", error: { code: -32001, message: "Unauthorized" }, id: null }), { status: 401, headers: { "content-type": "application/json" } });
   }
   const server = buildServer();

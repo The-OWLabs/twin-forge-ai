@@ -1,4 +1,4 @@
-import { DomainError } from "@/domain/actions";
+import { DomainError } from "@/domain/errors";
 import { updateAsset } from "@/domain/commands";
 import { json, nowISO, parseBody, route } from "@/server/http";
 import { AssetPatchSchema } from "@/server/schemas";

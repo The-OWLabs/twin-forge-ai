@@ -1,6 +1,7 @@
 import "server-only";
 import crypto from "node:crypto";
-import { DomainError } from "@/domain/actions";
+import { DomainError } from "@/domain/errors";
+import { isCloudRun } from "./runtime";
 
 /**
  * Admin access for configuration changes (integration settings, camera sources).
@@ -20,7 +21,7 @@ export type AdminMode = "passcode" | "open-local" | "locked";
 
 export function adminMode(): AdminMode {
   if (process.env.TWINFORGE_ADMIN_KEY) return "passcode";
-  return process.env.K_SERVICE ? "locked" : "open-local";
+  return isCloudRun() ? "locked" : "open-local";
 }
 
 const keyBytes = () => crypto.createHash("sha256").update(`twinforge-admin:${process.env.TWINFORGE_ADMIN_KEY ?? ""}`).digest();
@@ -35,7 +36,8 @@ function readCookie(req: Request, name: string) {
   return null;
 }
 
-function safeEqual(a: string, b: string) {
+/** Constant-time string comparison for secrets (passcodes, signatures, bearer tokens). */
+export function safeEqual(a: string, b: string) {
   const ha = crypto.createHash("sha256").update(a).digest();
   const hb = crypto.createHash("sha256").update(b).digest();
   return crypto.timingSafeEqual(ha, hb) && a.length === b.length;

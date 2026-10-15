@@ -8,12 +8,13 @@ import { runProductionAgent } from "@/domain/agents/production";
 import { runSupplyAgent } from "@/domain/agents/supply";
 import { runQualityAgent } from "@/domain/agents/quality";
 import { detectAnomalies } from "@/domain/anomaly";
-import { fastForward, injectFault } from "@/domain/commands";
+import { fastForward } from "@/domain/commands";
+import { applyScriptedCrisis, CRISIS_ASSET_ID } from "@/domain/crisis";
+import { isoModelFromState, type IsoModel } from "@/domain/layout";
 import { buildRecommendation } from "@/domain/recommendations";
 import { buildDemoFactory } from "@/domain/seed";
-import { advanceFactory, readingsFor } from "@/domain/telemetry";
+import { readingsFor } from "@/domain/telemetry";
 import type { AgentId } from "@/domain/types";
-import { isoModelFromState, type IsoModel } from "@/components/iso/model";
 
 /**
  * Data for the landing-page scroll story. Every figure is produced by running the real
@@ -43,12 +44,10 @@ let cached: StoryData | null = null;
 function compute(): StoryData {
   const base = buildDemoFactory(ANCHOR);
   const before = isoModelFromState(base);
-  const crisis = structuredClone(base);
-  injectFault(crisis, { assetId: "A-ROB-03", mode: "bearing-wear", severity: 50 }, NOW);
-  advanceFactory(crisis, 0.5, { nowISO: NOW });
+  const crisis = applyScriptedCrisis(structuredClone(base), NOW);
 
   const { anomalies, diagnostics } = detectAnomalies(crisis);
-  const focus = crisis.assets.find((a) => a.id === "A-ROB-03")!;
+  const focus = crisis.assets.find((a) => a.id === CRISIS_ASSET_ID)!;
   const ctx = { state: crisis, focus, anomalies, diagnostics };
   const reports = [runMaintenanceAgent(ctx), runQualityAgent(ctx), runProductionAgent(ctx), runSupplyAgent(ctx), runEnergyAgent(ctx)];
   const run = runScenarioSet(crisis, focus.id, "agent", NOW);
