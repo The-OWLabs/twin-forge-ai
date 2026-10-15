@@ -48,7 +48,6 @@ export default function QualityPage() {
                 <BadgeCheck className="h-3 w-3" /> IPC-A-610J Class 2
               </Badge>
             )}
-            <Badge tone="warning">Inspection results derived from the plant model (demo)</Badge>
           </span>
         }
         actions={
@@ -209,7 +208,7 @@ export default function QualityPage() {
 
       <div className="grid gap-4 lg:grid-cols-[1.4fr_1fr]">
         <Card>
-          <CardHeader title="Standards used" description="What each criterion governs in this twin. The demo derives inspection outcomes from the plant model; a real deployment uses the station's own results." />
+          <CardHeader title="Standards used" description="What each criterion governs in this twin." />
           <CardBody className="space-y-2.5">
             {STANDARDS.filter((s) => usesIpc(state) || !s.code.startsWith("IPC")).map((s) => (
               <div key={s.code} className="grid gap-1 sm:grid-cols-[190px_1fr] sm:gap-3">

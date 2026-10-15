@@ -9,19 +9,14 @@ import { machineParts, type Part, type Tone } from "../iso/geometry";
 import { FOOTPRINT, type Belt, type Bay, type Layout, type PlacedCamera, type PlacedMachine } from "../iso/model";
 import { amrPose, type AmrPath } from "./amr-paths";
 import type { MaterialName, Materials, Quality } from "./materials";
-import type { Palette } from "./palette";
+import type { Palette } from "./palette";import { CAMERA_LENS_COLOR, STATUS_COLOR } from "../ui/labels";
+
 
 /** Layout (x, y on the floor, z up) → three.js (x, y up, z). */
 export const P = (x: number, y: number, z = 0) => [x, z, y] as [number, number, number];
 
-export const STATUS_COLOR: Record<AssetStatus, string> = {
-  healthy: "#10b981",
-  warning: "#f59e0b",
-  critical: "#ef4444",
-  offline: "#64748b",
-  maintenance: "#818cf8",
-};
-const CAM_LENS: Record<string, string> = { area: "#38bdf8", inspection: "#4c8dff", thermal: "#fb923c", dock: "#38bdf8" };
+export { STATUS_COLOR };
+const CAM_LENS = CAMERA_LENS_COLOR;
 const WALL_H = 3.2;
 
 const TONE_MATERIAL: Record<Exclude<Tone, "accent">, MaterialName> = {

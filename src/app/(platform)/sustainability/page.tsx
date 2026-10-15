@@ -52,12 +52,7 @@ export default function SustainabilityPage() {
     <div className="animate-fade-in">
       <PageHeader
         title="Sustainability & Waste Intelligence"
-        description="Energy, idle waste and scrap from the twin's metered history (last 24 h of plant time). Savings figures are estimates that depend on the stated assumptions below — they are not measured reductions."
-        eyebrow={
-          <Badge tone="healthy">
-            <Leaf className="h-3 w-3" /> Estimates from simulated demo data
-          </Badge>
-        }
+        description="Energy, idle waste and scrap from the twin's metered history (last 24 h of plant time). Savings depend on the assumptions below."
       />
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <StatTile label="Energy per unit produced" icon={<Zap className="h-4 w-4" />} value={`${fmtNum(stats.output > 0 ? stats.kwh / stats.output : 0, 3)} kWh`} sub={`${fmtInt(stats.kwh)} kWh for ${fmtInt(stats.output)} packaged units`} />
@@ -80,7 +75,7 @@ export default function SustainabilityPage() {
           icon={<Leaf className="h-4 w-4" />}
           tone="healthy"
           value={`${fmtInt(stats.avoidableIdle)} kWh`}
-          sub={`+ ${fmtInt(stats.excessScrap)} excess scrap units / 24 h (assumption-based)`}
+          sub={`+ ${fmtInt(stats.excessScrap)} excess scrap units / 24 h`}
         />
       </div>
 
@@ -203,7 +198,7 @@ export default function SustainabilityPage() {
                     Choosing <span className="font-semibold text-ink">{best.definition.name}</span> instead of continuing unchanged is estimated to avoid{" "}
                     <span className="font-semibold text-ink">{fmtInt(cont.metrics.scrapUnits - best.metrics.scrapUnits)} scrapped units</span> (≈{fmtMoney(cont.metrics.scrapCost - best.metrics.scrapCost)} of components) and{" "}
                     <span className="font-semibold text-ink">{fmtInt(cont.metrics.idleEnergyKwh - best.metrics.idleEnergyKwh)} kWh of idle energy</span>; total energy changes by{" "}
-                    {fmtInt(best.metrics.energyKwh - cont.metrics.energyKwh)} kWh because the plan also produces {fmtInt(best.metrics.totalOutput - cont.metrics.totalOutput)} more units. Model estimate, not a measured saving.
+                    {fmtInt(best.metrics.energyKwh - cont.metrics.energyKwh)} kWh because the plan also produces {fmtInt(best.metrics.totalOutput - cont.metrics.totalOutput)} more units.
                   </div>
                 )}
               </>
@@ -225,7 +220,7 @@ export default function SustainabilityPage() {
             <KeyValue k="Standby reduction" v={`${STANDBY_REDUCTION * 100}% of idle draw`} />
             <KeyValue k="Scrap material value" v={`$${stats.avgMaterial.toFixed(0)}/unit avg`} />
             <ul className="space-y-1.5 pt-1 text-[11.5px] leading-relaxed text-muted">
-              <li>• Energy is metered per machine by the plant model: active power scales with speed; idle draw applies while a machine waits; maintenance lock-out draws 0 kW.</li>
+              <li>• Energy is metered per machine: active power scales with speed; idle draw applies while a machine waits; maintenance lock-out draws 0 kW.</li>
               <li>• Degraded machines draw extra power (3.5% of rated kW per mm/s of excess vibration).</li>
               <li>• Excess scrap = scrap above each line&apos;s baseline scrap rate.</li>
               <li>• CO₂e is energy × the grid factor above; Scope 2 only.</li>

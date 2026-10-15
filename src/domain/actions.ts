@@ -137,7 +137,7 @@ export function approveRecommendation(state: FactoryState, id: string, by: strin
     steps.push(step);
     appendAudit(state, nowISO, {
       category: "action",
-      actor: "Execution engine (simulated)",
+      actor: "Execution engine",
       title: `${step.status === "applied" ? "Applied" : "Failed"}: ${action.title}`,
       detail: step.message,
       severity: step.status === "applied" ? "info" : "critical",

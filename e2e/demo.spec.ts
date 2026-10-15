@@ -69,7 +69,7 @@ test("guided factory crisis demo: incident → agents → scenarios → twin →
   await expect(page.getByRole("heading", { name: "Human Approval & Execution" })).toBeVisible();
   await page.getByRole("button", { name: "Approve & execute" }).first().click();
   await page.getByRole("dialog").getByRole("button", { name: "Approve & execute" }).click();
-  await expect(page.getByText("Execution status (simulated)")).toBeVisible();
+  await expect(page.getByText("Execution status", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Fast-forward 8 h" }).click();
   await expect(page.getByText("All actions completed in the twin")).toBeVisible();
   await expect(page.getByText(/A-ROB-03\s*is\s*healthy/)).toBeVisible();
@@ -153,7 +153,7 @@ test("cameras: twin card → live view (audited) → visual quality review with 
   const card = page.getByTestId("camera-panel");
   await expect(card).toBeVisible();
   await expect(card.getByText(/Hottest: A-ROB-03/)).toBeVisible();
-  await expect(card.getByText("Simulated feed", { exact: true })).toBeVisible();
+  await expect(card.getByText("Twin feed", { exact: true })).toBeVisible();
 
   // The user chooses to watch the live stream; the access is written to the audit trail
   await card.getByRole("button", { name: "Watch live stream" }).click();

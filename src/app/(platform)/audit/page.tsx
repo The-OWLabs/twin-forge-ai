@@ -51,7 +51,7 @@ export default function AuditPage() {
     <div className="animate-fade-in">
       <PageHeader
         title="Audit Trail & Event Timeline"
-        description="Every telemetry alert, agent investigation, scenario run, recommendation, human decision, simulated action and resulting state change — in order, with links to the evidence."
+        description="Every telemetry alert, agent investigation, scenario run, recommendation, human decision, executed action and resulting state change — in order, with links to the evidence."
         actions={
           <Button size="sm" variant="secondary" onClick={exportJson}>
             <Download className="h-3.5 w-3.5" /> Export JSON
@@ -63,6 +63,7 @@ export default function AuditPage() {
           <button
             key={c.id}
             onClick={() => setCat(c.id)}
+            aria-pressed={cat === c.id}
             className={cn(
               "h-7 rounded-lg border px-2.5 text-[12px] transition-colors",
               cat === c.id ? "border-accent/50 bg-accent/12 text-accent-ink" : "border-line text-muted hover:text-ink",

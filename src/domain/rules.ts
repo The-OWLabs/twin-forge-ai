@@ -58,7 +58,7 @@ function propose(state: FactoryState, r: MaintenanceRule, a: Asset, nowISO: stri
     const rec = addRecommendation(state, buildRecommendation(state, run, "preventive", { source: "rule", analysisId: null, nowISO }));
     appendAudit(state, nowISO, {
       category: "recommendation",
-      actor: "Automation rule (simulated)",
+      actor: "Automation rule",
       title: `${rec.id} proposed by rule "${r.name}" — awaiting human approval`,
       detail: `${a.name}: ${reading}. ${rec.title}. Nothing changes until a person approves it.`,
       severity: "warning",
@@ -67,7 +67,7 @@ function propose(state: FactoryState, r: MaintenanceRule, a: Asset, nowISO: stri
   } catch (e) {
     appendAudit(state, nowISO, {
       category: "action",
-      actor: "Automation rule (simulated)",
+      actor: "Automation rule",
       title: `Rule "${r.name}" fired on ${a.id} but could not propose maintenance`,
       detail: `${a.name}: ${reading}. ${e instanceof Error ? e.message : String(e)}`,
       severity: "warning",

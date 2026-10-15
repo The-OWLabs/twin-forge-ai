@@ -10,32 +10,17 @@ import { runQualityAgent } from "@/domain/agents/quality";
 import { detectAnomalies } from "@/domain/anomaly";
 import { fastForward } from "@/domain/commands";
 import { applyScriptedCrisis, CRISIS_ASSET_ID } from "@/domain/crisis";
-import { isoModelFromState, type IsoModel } from "@/domain/layout";
+import { isoModelFromState } from "@/domain/layout";
 import { buildRecommendation } from "@/domain/recommendations";
 import { buildDemoFactory } from "@/domain/seed";
 import { readingsFor } from "@/domain/telemetry";
-import type { AgentId } from "@/domain/types";
+import type { StoryData } from "@/lib/contracts";
 
 /**
  * Data for the landing-page scroll story. Every figure is produced by running the real
  * engine on the scripted crisis scenario (deterministic), not written by hand.
  */
-export interface StoryData {
-  before: IsoModel;
-  crisis: IsoModel;
-  after: IsoModel;
-  counts: { machines: number; sensors: number; lines: number; materials: number; orders: number; readings: number };
-  focus: { id: string; name: string; baseline: number; vibration: number; step: number; slope: number; hoursToTrip: number; p24: number; failureMode: string };
-  vibration: number[];
-  agents: { id: AgentId; name: string; summary: string }[];
-  scenarios: { id: string; name: string; lateUnits: number; cost: number; failureHour: number | null; downtime: number; score: number }[];
-  recommendedId: string;
-  recommendationTitle: string;
-  highlight: { assetIds: string[]; lineIds: string[]; targetAssetId: string; rerouteLineId: string | null };
-  impact: { downtimeAvoided: number; lateAvoided: number; costAvoided: number; scrapAvoided: number };
-  audit: string[];
-  afterHealth: number;
-}
+export type { StoryData };
 
 const ANCHOR = "2026-10-13T06:00:00.000Z";
 const NOW = "2026-10-13T06:05:00.000Z";

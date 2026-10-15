@@ -20,14 +20,14 @@ export function AdminAccess() {
   if (!loaded) return null;
   if (mode === "open-local")
     return (
-      <Badge tone="warning" title="No admin passcode is set and this is not Cloud Run, so admin is open for local development.">
-        <LockOpen className="h-3 w-3" /> Admin · local dev (no passcode)
+      <Badge tone="warning" title="Admin changes are open on this server.">
+        <LockOpen className="h-3 w-3" /> Admin
       </Badge>
     );
   if (mode === "locked")
     return (
-      <Badge tone="neutral" title="Set TWINFORGE_ADMIN_KEY (Secret Manager) on the server to enable admin changes.">
-        <ShieldAlert className="h-3 w-3" /> Admin disabled on this server
+      <Badge tone="neutral" title="Admin changes are not enabled on this server.">
+        <ShieldAlert className="h-3 w-3" /> Admin unavailable
       </Badge>
     );
   if (admin)

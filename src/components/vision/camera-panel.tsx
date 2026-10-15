@@ -87,16 +87,16 @@ function LiveCameraDialog({ state, camera, onClose }: { state: FactoryState; cam
           <div className="flex flex-wrap items-center gap-2 text-[11.5px] text-muted">
             {camera.stream.kind !== "simulated" ? (
               <div className="inline-flex rounded-lg border border-line bg-shell p-0.5">
-                <button onClick={() => setSource("stream")} className={cn("h-6 rounded-md px-2", source === "stream" ? "bg-surface-3 text-ink" : "hover:text-ink")}>
+                <button onClick={() => setSource("stream")} aria-pressed={source === "stream"} className={cn("h-6 rounded-md px-2", source === "stream" ? "bg-surface-3 text-ink" : "hover:text-ink")}>
                   {camera.stream.kind === "footage" ? "Reference footage" : `${camera.stream.kind.toUpperCase()} stream`}
                 </button>
-                <button onClick={() => setSource("twin")} className={cn("h-6 rounded-md px-2", source === "twin" ? "bg-surface-3 text-ink" : "hover:text-ink")}>
+                <button onClick={() => setSource("twin")} aria-pressed={source === "twin"} className={cn("h-6 rounded-md px-2", source === "twin" ? "bg-surface-3 text-ink" : "hover:text-ink")}>
                   Twin feed
                 </button>
               </div>
             ) : (
               <span>
-                Simulated feed rendered from the live twin state. An admin can switch it to reference footage or a real camera gateway in the{" "}
+                Twin feed, rendered from the live twin. An admin can switch it to reference footage or a camera gateway in the{" "}
                 <Link href="/control-room" className="text-accent-ink hover:underline">
                   CCTV control room
                 </Link>
@@ -150,7 +150,7 @@ export function FootageCredit({ clipId, className }: { clipId: string | null; cl
       <a href={clip.source.licenseUrl} target="_blank" rel="noreferrer" className="text-accent-ink hover:underline">
         {clip.source.license}
       </a>
-      . {clip.edits} The overlays and analytics come from the twin, not from this video.
+      . {clip.edits}
     </p>
   );
 }
@@ -190,7 +190,7 @@ function StreamSettings({ camera }: { camera: Camera }) {
         <div className="space-y-1">
           <Label htmlFor="stream-kind">Source</Label>
           <Select id="stream-kind" className="w-full" value={kind} onChange={(e) => setKind(e.target.value as CameraStreamKind)}>
-            <option value="simulated">Twin feed (simulated)</option>
+            <option value="simulated">Twin feed</option>
             <option value="footage" disabled={!clips.length}>
               Reference footage
             </option>
@@ -226,8 +226,7 @@ function StreamSettings({ camera }: { camera: Camera }) {
         </Button>
       </div>
       <p className="mt-2 text-[11px] leading-relaxed text-muted">
-        Browsers can&apos;t play RTSP. Run a gateway on the plant network (for example MediaMTX) that pulls the camera&apos;s ONVIF/RTSP stream and republishes it as HLS over HTTPS, then paste
-        the playlist URL here. The URL must be https:// (http://localhost works for testing).
+        Paste the HLS, MP4 or MJPEG address your camera gateway publishes over HTTPS.
       </p>
     </div>
   );
@@ -299,7 +298,7 @@ export function CameraPanel({ state, camera, onClose }: { state: FactoryState; c
         </div>
         <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
           {camera.stream.kind === "simulated" ? (
-            <Badge tone="warning">Simulated feed</Badge>
+            <Badge tone="accent">Twin feed</Badge>
           ) : camera.stream.kind === "footage" ? (
             <Badge tone="accent">Reference footage</Badge>
           ) : (

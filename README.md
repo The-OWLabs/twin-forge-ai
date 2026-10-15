@@ -202,7 +202,7 @@ The workflow (`src/domain/agents/pipeline.ts`) runs on a frozen snapshot, so liv
 
 **Where the cameras are.** Every generated factory gets an area CCTV per line, an inspection camera on each AOI / final-inspection station, a radiometric thermal camera on the first robot cell, and cameras on the shipping dock and component stores (9 in the demo). They appear in the Topology (camera chips), Isometric (pole-mounted cameras with field-of-view wedges) and Floor plan views, and in the asset panel of every machine they cover.
 
-**Card first, then live.** Clicking a camera opens a card with its current view and what its analytics report: units counted, lock-out zones, reject rate, hottest target, trailer loading or rack fill. **Watch live stream** opens the full view and logs who opened it. With no real camera connected, the feed is rendered from the live twin state and labelled *Simulated feed*.
+**Card first, then live.** Clicking a camera opens a card with its current view and what its analytics report: units counted, lock-out zones, reject rate, hottest target, trailer loading or rack fill. **Watch live stream** opens the full view and logs who opened it. With no real camera connected, the feed is rendered from the live twin state and labelled *Twin feed*.
 
 **CCTV control room (admin).** **Admin → CCTV Control Room** shows every camera on one wall and switches each one between three sources:
 - **Twin feed**: rendered from the twin (the default).
@@ -269,7 +269,7 @@ Open **Playground** in the sidebar. It starts from a copy of the live twin (the 
 - **AI help.** Describe a change in plain words; the AI proposes the same validated edit operations the canvas uses, and every change can be undone. When AI is off, the panel says so and everything still works by hand.
 - **Checks and preview.** Validation runs on every edit (missing references, overlapping machines, rules that can't fire), and the **3D preview** compiles the draft in the browser with the same deterministic compiler that Apply uses.
 
-Every rule action is written to the audit trail as *Automation rule (simulated)*.
+Every rule action is written to the audit trail as *Automation rule*.
 
 ## Copilot (ADK) and MCP
 

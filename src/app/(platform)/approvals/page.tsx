@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { AlertTriangle, ArrowRight, CheckCircle2, CircleDashed, ClipboardCheck, FastForward, History, Loader2, Network, RotateCcw, ShieldCheck, Undo2, Wrench, XCircle } from "lucide-react";
+import { AlertTriangle, ArrowRight, CheckCircle2, CircleDashed, ClipboardCheck, FastForward, History, Loader2, Network, RotateCcw, Undo2, Wrench, XCircle } from "lucide-react";
 import { useFactory, useUi } from "@/client/store";
 import { KeyValue, PageHeader, SectionLabel } from "@/components/page";
 import { Badge, Button, Card, CardBody, CardHeader, Dialog, EmptyState, Input, Label, Textarea, type Tone } from "@/components/ui/primitives";
@@ -33,12 +33,7 @@ export default function ApprovalsPage() {
     <div className="animate-fade-in">
       <PageHeader
         title="Human Approval & Execution"
-        description="AI recommendations never act on their own. Review the proposed actions, evidence, risks and rollback options; approval applies the plan to the simulated factory state."
-        eyebrow={
-          <Badge tone="healthy">
-            <ShieldCheck className="h-3 w-3" /> Simulated execution — no PLC writes, machine commands or safety-critical actions
-          </Badge>
-        }
+        description="AI recommendations never act on their own. Review the proposed actions, evidence, risks and rollback options; approval applies the plan to the twin."
       />
       {!recs.length ? (
         <Card>
@@ -159,7 +154,7 @@ function RecommendationDetail({ state, rec }: { state: FactoryState; rec: Recomm
 
       <div className="grid gap-4 2xl:grid-cols-2">
         <Card>
-          <CardHeader title="Proposed actions" description="What will change in the simulated factory" icon={<Wrench className="h-4 w-4" />} />
+          <CardHeader title="Proposed actions" description="What will change in the factory" icon={<Wrench className="h-4 w-4" />} />
           <CardBody className="space-y-2.5">
             {rec.actions.map((a) => (
               <div key={a.id} className="rounded-xl border border-line bg-shell/60 p-3">
@@ -215,7 +210,6 @@ function RecommendationDetail({ state, rec }: { state: FactoryState; rec: Recomm
                 })}
               </tbody>
             </table>
-            <p className="mt-2 text-[11px] text-muted">Estimates from the scenario engine using demo data and the run&apos;s stated assumptions.</p>
           </CardBody>
         </Card>
         <Card>
@@ -272,7 +266,7 @@ function RecommendationDetail({ state, rec }: { state: FactoryState; rec: Recomm
         title={dialog === "approve" ? `Approve ${rec.id}?` : dialog === "reject" ? `Reject ${rec.id}?` : `Roll back ${rec.id}?`}
         description={
           dialog === "approve"
-            ? "The plan's actions will be applied to the simulated factory: work orders scheduled, line allocations changed. No real equipment is commanded."
+            ? "The plan's actions will be applied to the twin: work orders scheduled and line allocations changed."
             : dialog === "reject"
               ? "No changes will be applied. The decision and your reason are recorded in the audit trail."
               : "Scheduled actions are cancelled and active re-allocations reverted (one changeover). Maintenance already in progress runs to completion."
@@ -333,7 +327,7 @@ function ExecutionPanel({ state, rec, directives, onAdvance, advancing }: { stat
   return (
     <Card className="border-healthy/30">
       <CardHeader
-        title="Execution status (simulated)"
+        title="Execution status"
         description={
           rec.execution?.status === "rolled-back"
             ? "Plan rolled back"
@@ -341,7 +335,7 @@ function ExecutionPanel({ state, rec, directives, onAdvance, advancing }: { stat
               ? "Some actions could not be applied — see the audit trail"
               : allDone
                 ? "All actions completed in the twin"
-                : "Directives are executed by the plant model as simulated time advances"
+                : "Actions run in the twin as plant time advances"
         }
         icon={<History className="h-4 w-4 text-healthy" />}
         actions={

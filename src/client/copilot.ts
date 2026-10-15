@@ -2,7 +2,8 @@
 
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
-import type { CopilotEvent } from "@/server/copilot/agent";
+import type { CopilotEvent } from "@/lib/contracts";
+import { api } from "./api";
 import { useFactory } from "./store";
 
 export interface TraceStep {
@@ -109,8 +110,7 @@ export const useCopilot = create<CopilotStore>()(
         setOpen: (o) => set({ open: o }),
         loadInfo: async () => {
           try {
-            const r = await fetch("/api/copilot", { cache: "no-store" });
-            set({ info: (await r.json()) as CopilotInfo });
+            set({ info: await api<CopilotInfo>("/api/copilot") });
           } catch {
             /* shown as unavailable */
           }

@@ -16,7 +16,8 @@ import { Tip } from "../ui/primitives";
 import { amrPaths } from "./amr-paths";
 import { useMaterials, type Quality } from "./materials";
 import { usePalette, type Palette } from "./palette";
-import { Amr3D, BayZone, Belt3D, Camera3D, Machine3D, P, Rack3D, Shell, STATUS_COLOR, Truck3D } from "./scene";
+import { Amr3D, BayZone, Belt3D, Camera3D, Machine3D, P, Rack3D, Shell, STATUS_COLOR, Truck3D } from "./scene";import { MISSION } from "../ui/labels";
+
 
 // Post-processing is downloaded only when High quality is on.
 const Effects = lazy(() => import("./effects"));
@@ -248,7 +249,7 @@ export function Twin3D({
             const o = amrObjects.current.get(a.id);
             return o ? o.getWorldPosition(tmp).add(new THREE.Vector3(0, 0.75, 0)) : null;
           },
-          node: <Chip title={a.id} sub={a.status === "parked" ? `parked · ${a.reason}` : `${a.mission === "kitting" ? "kitting" : a.mission === "line-transfer" ? "transfer" : "pallets"} · ${a.tripsPerHour} trips/h`} color={a.status === "parked" ? "#f59e0b" : pal.resolve(path.color)} emphasis={sel || a.status === "parked"} pal={pal} />,
+          node: <Chip title={a.id} sub={a.status === "parked" ? `parked · ${a.reason}` : `${MISSION[a.mission].chip} · ${a.tripsPerHour} trips/h`} color={a.status === "parked" ? "#f59e0b" : pal.resolve(path.color)} emphasis={sel || a.status === "parked"} pal={pal} />,
         });
       }
     return out;
@@ -368,7 +369,7 @@ export function Twin3D({
             <Bot className="h-3.5 w-3.5 text-accent" /> Mobile robots · {fleet.filter((a) => a.status === "active").length} of {fleet.length} active
           </p>
           <p className="mt-0.5 leading-snug text-muted">
-            {fleet[0].configured ? "Fleet from the Twin Builder spec; missions are simulated" : "Demo fleet derived from the plant's material flow"}; trip rates follow line output. Animation runs at real speed, the plant clock 30× faster.
+            Trips follow line output; robots park when their line stops.
           </p>
         </div>
       )}

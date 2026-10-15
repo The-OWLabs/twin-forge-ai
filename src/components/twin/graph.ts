@@ -1,7 +1,8 @@
 import type { Edge, Node } from "@xyflow/react";
 import { cameraView } from "@/domain/quality";
 import type { Asset, Camera, CustomerOrder, FactoryState, InventoryItem, ProductionLine, SensorSpec } from "@/domain/types";
-import type { Highlight } from "@/client/store";
+import type { Highlight } from "@/client/store";import { SERIES } from "../charts/kit";
+
 
 /** Role of a node within a highlighted scenario. */
 export type HighlightRole = "target" | "reroute" | "impacted" | "supply" | "order" | null;
@@ -60,7 +61,6 @@ const LINE_PAD_B = 18;
 const SENSOR_BAND = 46;
 const V_GAP = 22;
 
-const SERIES = ["var(--color-series-1)", "var(--color-series-2)", "var(--color-series-3)", "var(--color-series-4)"];
 
 export interface GraphOptions {
   layers: { sensors: boolean; inventory: boolean; orders: boolean; cameras?: boolean };

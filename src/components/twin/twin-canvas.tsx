@@ -20,7 +20,8 @@ import { consumptionPerHour } from "@/domain/kpis";
 import type { FactoryState } from "@/domain/types";
 import { useFactory, useUi, type Highlight } from "@/client/store";
 import { buildGraph, type MachineData } from "./graph";
-import { nodeTypes } from "./nodes";
+import { nodeTypes } from "./nodes";import { STATUS_COLOR } from "../ui/labels";
+
 
 export interface TwinCanvasProps {
   state: FactoryState;
@@ -141,7 +142,7 @@ function Canvas({ state, highlight, interactive = true, connectMode = false, foc
           nodeColor={(n) => {
             if (n.type === "machine") {
               const s = (n.data as MachineData).asset.status;
-              return s === "critical" ? "#ef4444" : s === "warning" ? "#f59e0b" : s === "offline" ? "#64748b" : s === "maintenance" ? "#818cf8" : "#10b981";
+              return STATUS_COLOR[s];
             }
             return n.type === "line" ? "var(--color-surface-2)" : "var(--color-line-strong)";
           }}

@@ -20,7 +20,7 @@ import type {
 } from "@/domain/types";
 import type { Anomaly } from "@/domain/anomaly";
 import type { InspectionResult } from "@/domain/vision";
-import { api, ApiError, streamNdjson } from "./api";
+import { api, apiForm, ApiError, streamNdjson } from "./api";
 
 /* ───────────────────────────── Factory store ───────────────────────────── */
 
@@ -175,7 +175,7 @@ export const useFactory = create<FactoryStore>((set, get) => ({
     await get().run(
       "advance",
       async () => get().apply(await api<FactoryState>("/api/sim/advance", { body: { hours } })),
-      `Plant model advanced ${hours} h`,
+      `Plant advanced ${hours} h`,
     );
   },
 
@@ -425,10 +425,7 @@ export const useFactory = create<FactoryStore>((set, get) => ({
           form.append("engine", engine);
           form.append("sheet", sheet.blob, "frames.jpg");
           form.append("frames", sheet.times.join(","));
-          const r = await fetch(`/api/cameras/${cameraId}/analyze`, { method: "POST", body: form, cache: "no-store" });
-          const data = (await r.json().catch(() => null)) as { review?: VisionReview; state?: FactoryState; error?: string } | null;
-          if (!r.ok || !data?.review || !data.state) throw new ApiError(data?.error ?? `Analysis failed (${r.status})`, r.status);
-          res = { review: data.review, state: data.state };
+          res = await apiForm<{ review: VisionReview; state: FactoryState }>(`/api/cameras/${cameraId}/analyze`, form);
         } else res = await api<{ review: VisionReview; state: FactoryState }>(`/api/cameras/${cameraId}/analyze`, { body: { engine } });
         get().apply(res.state);
         return res.review;
@@ -457,9 +454,7 @@ export const useFactory = create<FactoryStore>((set, get) => ({
         form.append("file", file, fileName ?? (file instanceof File ? file.name : "frames.jpg"));
         if (cameraId) form.append("cameraId", cameraId);
         if (frames?.length) form.append("frames", frames.join(","));
-        const res = await fetch("/api/vision/analyze", { method: "POST", body: form, cache: "no-store" });
-        const data = (await res.json().catch(() => null)) as { review?: VisionReview; state?: FactoryState; error?: string } | null;
-        if (!res.ok || !data?.review || !data.state) throw new ApiError(data?.error ?? `Analysis failed (${res.status})`, res.status);
+        const data = await apiForm<{ review: VisionReview; state: FactoryState }>("/api/vision/analyze", form);
         get().apply(data.state);
         return data.review;
       },
@@ -475,9 +470,7 @@ export const useFactory = create<FactoryStore>((set, get) => ({
         form.append("file", file);
         if (reference) form.append("reference", reference);
         if (cameraId) form.append("cameraId", cameraId);
-        const res = await fetch("/api/vision/inspect", { method: "POST", body: form, cache: "no-store" });
-        const data = (await res.json().catch(() => null)) as { review?: VisionReview; result?: InspectionResult; state?: FactoryState; error?: string } | null;
-        if (!res.ok || !data?.review || !data.result || !data.state) throw new ApiError(data?.error ?? `Inspection failed (${res.status})`, res.status);
+        const data = await apiForm<{ review: VisionReview; result: InspectionResult; state: FactoryState }>("/api/vision/inspect", form);
         get().apply(data.state);
         return { review: data.review, result: data.result };
       },
@@ -536,6 +529,22 @@ export interface Highlight {
   orderIds: string[];
   rerouteLineId: string | null;
   targetAssetId: string;
+}
+
+/** The twin highlight for one simulated plan: what it touches, and where work is rerouted. */
+export function highlightFor(runId: string, r: ScenarioResult): Highlight {
+  return {
+    runId,
+    scenarioId: r.definition.id,
+    scenarioName: r.definition.name,
+    kind: r.definition.kind,
+    assetIds: r.affectedAssetIds,
+    lineIds: r.affectedLineIds,
+    itemIds: r.affectedItemIds,
+    orderIds: r.affectedOrderIds,
+    rerouteLineId: r.definition.params.reroute.enabled ? r.definition.params.reroute.toLineId : null,
+    targetAssetId: r.definition.params.targetAssetId,
+  };
 }
 
 interface UiStore {

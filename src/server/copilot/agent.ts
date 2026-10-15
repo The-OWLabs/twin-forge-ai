@@ -7,7 +7,8 @@ import { aiConfig, modelLabel } from "@/server/ai/config";
 import { setting } from "@/server/settings";
 import { serverToolStore } from "@/server/tools/store";
 import { ProviderLlm } from "./provider-llm";
-import { objectSchema } from "./schema";
+import { objectSchema } from "./schema";import type { CopilotEvent } from "@/lib/contracts";
+
 
 /**
  * TwinForge Copilot: a multi-agent system on Google's Agent Development Kit (ADK, TypeScript).
@@ -26,15 +27,7 @@ export const ACTOR = "TwinForge Copilot (ADK)";
 const APP = "twinforge";
 const USER = "operator";
 
-export type CopilotEvent =
-  | { type: "start"; sessionId: string }
-  | { type: "agent"; agent: string; text: string }
-  | { type: "tool_call"; agent: string; tool: string; args: Record<string, unknown> }
-  | { type: "tool_result"; agent: string; tool: string; ok: boolean; preview: string }
-  | { type: "confirm"; callId: string; tool: string; args: Record<string, unknown>; hint: string }
-  | { type: "answer"; text: string; grounding: { figures: number; unverified: string[]; derived: string[] } }
-  | { type: "error"; message: string }
-  | { type: "done" };
+export type { CopilotEvent };
 
 /** Per-request sink so sub-agent tool calls (which run in their own runner) reach the stream. */
 const sink = new AsyncLocalStorage<{ emit: (e: CopilotEvent) => void; results: unknown[] }>();

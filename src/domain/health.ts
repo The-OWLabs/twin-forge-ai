@@ -26,8 +26,8 @@ export function classifyStatus(
 ): AssetStatus {
   if (mode === "down") return "offline";
   if (mode === "maintenance") return "maintenance";
-  if (vibration >= thresholds.vibrationAlarm || temperature >= thresholds.temperatureAlarm || healthScore < 45) return "critical";
-  if (healthScore < 75 || vibration >= thresholds.vibrationAlarm * 0.8 || temperature >= thresholds.temperatureAlarm * 0.92)
+  if (vibration >= thresholds.vibrationAlarm || temperature >= thresholds.temperatureAlarm || healthScore < HEALTH_BANDS.critical) return "critical";
+  if (healthScore < HEALTH_BANDS.warning || vibration >= thresholds.vibrationAlarm * 0.8 || temperature >= thresholds.temperatureAlarm * 0.92)
     return "warning";
   return "healthy";
 }
@@ -44,4 +44,11 @@ export function riskFromStatus(asset: Pick<Asset, "status" | "healthScore" | "cr
 export function scrapContribution(vibration: number, thresholds: Thresholds) {
   const onset = thresholds.vibrationAlarm * 0.6;
   return Math.max(0, vibration - onset) * 0.012;
+}
+
+/** Health score bands: below `warning` a machine needs attention, below `critical` it needs action. */
+export const HEALTH_BANDS = { warning: 75, critical: 45 } as const;
+
+export function healthBand(score: number): "healthy" | "warning" | "critical" {
+  return score >= HEALTH_BANDS.warning ? "healthy" : score >= HEALTH_BANDS.critical ? "warning" : "critical";
 }

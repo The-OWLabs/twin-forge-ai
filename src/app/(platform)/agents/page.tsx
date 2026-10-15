@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { AlertTriangle, ArrowRight, BrainCircuit, ClipboardCheck, FlaskConical, Network, Play, Radar, Terminal } from "lucide-react";
-import { useFactory, useUi, type LiveAnalysis } from "@/client/store";
+import { highlightFor, useFactory, useUi, type LiveAnalysis } from "@/client/store";
 import { AgentCard, AgentDetail, NarrativeCard, WorkflowPipeline } from "@/components/agents/agent-views";
 import { KeyValue, PageHeader } from "@/components/page";
 import { Badge, Button, Card, CardBody, CardHeader, EmptyState } from "@/components/ui/primitives";
@@ -81,18 +81,7 @@ export default function AgentsPage() {
 
   const showInTwin = () => {
     if (!view?.run || !best) return;
-    setHighlight({
-      runId: view.run.id,
-      scenarioId: best.definition.id,
-      scenarioName: best.definition.name,
-      kind: best.definition.kind,
-      assetIds: best.affectedAssetIds,
-      lineIds: best.affectedLineIds,
-      itemIds: best.affectedItemIds,
-      orderIds: best.affectedOrderIds,
-      rerouteLineId: best.definition.params.reroute.enabled ? best.definition.params.reroute.toLineId : null,
-      targetAssetId: best.definition.params.targetAssetId,
-    });
+    setHighlight(highlightFor(view.run.id, best));
     router.push("/twin");
   };
 
@@ -100,7 +89,7 @@ export default function AgentsPage() {
     <div className="animate-fade-in">
       <PageHeader
         title="AI Operations Command Center"
-        description="Six specialised agents investigate the factory on a snapshot of the shared twin. Every finding lists its inputs, method and evidence; every number comes from the plant model, not from a language model."
+        description="Six specialised agents investigate the factory on a snapshot of the shared twin. Every finding lists its inputs, method and evidence."
         eyebrow={
           <Badge tone="agent">
             <BrainCircuit className="h-3 w-3" /> Agentic workflow · OBSERVE → INVESTIGATE → PREDICT → SIMULATE → RECOMMEND → HUMAN APPROVAL
@@ -143,7 +132,7 @@ export default function AgentsPage() {
                 </span>
               </>
             )}
-            {view.persisted && <Badge tone="neutral">Last completed analysis (persisted)</Badge>}
+            {view.persisted && <Badge tone="neutral">Last completed analysis</Badge>}
             {view.error && (
               <Badge tone="critical">
                 <AlertTriangle className="h-3 w-3" /> {view.error}
@@ -197,7 +186,7 @@ export default function AgentsPage() {
 
               {view.forecast && (
                 <Card className="border-critical/30">
-                  <CardHeader title="Prediction: no intervention" description="Current plan simulated on the plant model (estimate)" icon={<AlertTriangle className="h-4 w-4 text-critical" />} />
+                  <CardHeader title="Prediction: no intervention" description="If the current plan continues" icon={<AlertTriangle className="h-4 w-4 text-critical" />} />
                   <CardBody>
                     <KeyValue k="Predicted trip" v={view.forecast.metrics.failureOccurs ? `h+${view.forecast.metrics.failureHour?.toFixed(1)}` : "None in horizon"} />
                     <KeyValue k="Unplanned downtime" v={`${view.forecast.metrics.targetUnplannedDowntimeHours.toFixed(0)} h`} />
@@ -260,7 +249,7 @@ export default function AgentsPage() {
                   </div>
                 </Card>
               )}
-              <p className="px-1 text-[10.5px] text-muted">Plant clock {fmtSimTime(state, state.clock.hour)} · analyses run on a frozen snapshot so live telemetry cannot change results mid-run.</p>
+              <p className="px-1 text-[10.5px] text-muted">Plant clock {fmtSimTime(state, state.clock.hour)}</p>
             </div>
           </div>
         </>

@@ -37,12 +37,7 @@ export default function DashboardPage() {
     <div className="animate-fade-in">
       <PageHeader
         title="Factory Command Center"
-        description={
-          <>
-            Live overview of {state.profile.name}. Every figure is derived from the same factory state the twin, agents and simulator use.{" "}
-            <span className="text-ink-2">Telemetry is simulated by the plant model.</span>
-          </>
-        }
+        description={`Live overview of ${state.profile.name}: production, machine health, energy, quality, materials and deliveries in one place.`}
         actions={
           <>
             <Button variant="secondary" size="sm" asChild>
@@ -131,8 +126,8 @@ export default function DashboardPage() {
           }
           sub={
             atRisk.length
-              ? `${atRisk.map((o) => `${o.orderId} ${fmtInt(o.lateUnits)} short`).join(" · ")} — current plan, model estimate`
-              : `Orders due in 48 h on track (current plan, model estimate)`
+              ? `${atRisk.map((o) => `${o.orderId} ${fmtInt(o.lateUnits)} short`).join(" · ")} at current plan`
+              : `Orders due in 48 h are on track`
           }
         />
       </div>
@@ -141,7 +136,7 @@ export default function DashboardPage() {
         <Card className="xl:col-span-2">
           <CardHeader
             title="Production: target vs actual"
-            description="Hourly packaged output against the planned rate. The latest hour is extrapolated from the elapsed fraction."
+            description="Hourly packaged output against the planned rate."
             icon={<Activity className="h-4 w-4" />}
           />
           <CardBody>
@@ -202,7 +197,7 @@ export default function DashboardPage() {
         <Card className="xl:col-span-2">
           <CardHeader
             title="Delivery commitments"
-            description="Projected completion uses the current plan with no further intervention, simulated on the shared plant model (estimate)."
+            description="Projected completion of each order if nothing changes."
             icon={<Truck className="h-4 w-4" />}
             actions={forecast?.result.metrics.failureOccurs ? <Badge tone="critical">Trip predicted at h+{forecast.result.metrics.failureHour?.toFixed(1)}</Badge> : null}
           />

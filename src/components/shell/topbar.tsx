@@ -1,9 +1,11 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Bot, ChevronDown, FastForward, Menu, MapPin, Pause, Play, RotateCcw, Siren, Sparkles, Database, Cpu } from "lucide-react";
 import { useCopilot } from "@/client/copilot";
+import { INTEGRATION_STATE, useIntegrations } from "@/client/integrations";
 import { useFactory, useUi } from "@/client/store";
 import { fmtSimTime } from "@/lib/format";
 import { cn } from "@/lib/cn";
@@ -97,18 +99,7 @@ export function DemoControls({ compact = false }: { compact?: boolean }) {
 
 function SystemStatus() {
   const { open, setOpen, ref } = usePopover();
-  const [data, setData] = useState<{ integrations: { id: string; name: string; state: string; detail: string }[] } | null>(null);
-  useEffect(() => {
-    if (!open) return;
-    fetch("/api/integrations", { cache: "no-store" })
-      .then((r) => r.json())
-      .then(setData)
-      .catch(() => setData(null));
-  }, [open]);
-  const tone = (s: string) =>
-    s === "connected" ? "healthy" : s === "error" ? "critical" : s === "active-simulated" ? "accent" : s === "configured-untested" ? "warning" : "neutral";
-  const label = (s: string) =>
-    ({ connected: "Connected", error: "Error", "active-simulated": "Simulated", "configured-untested": "Configured", "not-configured": "Not configured" })[s] ?? s;
+  const { data } = useIntegrations({ enabled: open });
   return (
     <div className="relative hidden md:block" ref={ref}>
       <button
@@ -124,19 +115,18 @@ function SystemStatus() {
       {open && (
         <div className="absolute right-0 z-50 mt-2 w-96 rounded-xl border border-line-strong bg-shell p-3 shadow-2xl animate-fade-in">
           <p className="text-xs font-semibold text-ink">System status</p>
-          <p className="mt-0.5 text-[11px] text-muted">Integrations report only what has actually been verified.</p>
           <div className="mt-2.5 space-y-1.5">
             {!data && <p className="text-xs text-muted">Loading…</p>}
             {data?.integrations.map((i) => (
               <div key={i.id} className="flex items-center justify-between gap-2 rounded-lg bg-surface/60 px-2.5 py-1.5">
                 <span className="truncate text-[12px] text-ink-2">{i.name}</span>
-                <Badge tone={tone(i.state)}>{label(i.state)}</Badge>
+                <Badge tone={INTEGRATION_STATE[i.state].tone}>{INTEGRATION_STATE[i.state].short}</Badge>
               </div>
             ))}
           </div>
-          <a href="/integrations" className="mt-2.5 block text-center text-[12px] text-accent hover:underline">
+          <Link href="/integrations" onClick={() => setOpen(false)} className="mt-2.5 block text-center text-[12px] text-accent hover:underline">
             Open integrations
-          </a>
+          </Link>
         </div>
       )}
     </div>
@@ -167,7 +157,7 @@ export function Topbar({ onMenu }: { onMenu: () => void }) {
       </div>
       {state && (
         <div className="hidden items-center gap-2 sm:flex">
-          <Tip content={`Simulated plant clock. ${live ? "Advancing 2 min of plant time every 4 s." : "Paused."} h+${state.clock.hour.toFixed(2)} since demo start.`}>
+          <Tip content={`Plant clock${live ? "" : " (paused)"} · h+${state.clock.hour.toFixed(2)} since start`}>
             <div className="flex h-8 items-center gap-2 rounded-lg border border-line bg-surface px-2.5">
               <span className="relative flex h-2 w-2">
                 {live && <span className="absolute inset-0 animate-ping rounded-full bg-healthy/60" />}
@@ -177,7 +167,7 @@ export function Topbar({ onMenu }: { onMenu: () => void }) {
               <span className="tabular text-[11px] text-muted">h+{state.clock.hour.toFixed(1)}</span>
             </div>
           </Tip>
-          <Tip content={live ? "Pause simulated telemetry" : "Resume simulated telemetry"}>
+          <Tip content={live ? "Pause the plant clock" : "Resume the plant clock"}>
             <Button variant="secondary" size="icon" onClick={() => setLive(!live)} loading={busy} aria-label={live ? "Pause live telemetry" : "Resume live telemetry"}>
               {!busy && (live ? <Pause className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />)}
             </Button>

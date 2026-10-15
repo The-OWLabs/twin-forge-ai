@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { Check, FileVideo, Image as ImageIcon, ScanEye, ScanSearch, Sparkles, Upload, X } from "lucide-react";
 import { aiShortName, useAiInfo } from "@/client/ai";
 import { contactSheet } from "@/client/frames";
+import { useIntegrations } from "@/client/integrations";
 import { useFactory } from "@/client/store";
 import type { FactoryState, VisionFinding, VisionReview } from "@/domain/types";
 import type { InspectionResult } from "@/domain/vision";
@@ -18,25 +19,15 @@ type Status = { state: string; detail: string } | null;
 
 /** Reads the honest integration status so an uploader never pretends a service is available. */
 function useIntegrationStatus(ids: string[], refresh = 0): Record<string, Status> {
-  const [s, setS] = useState<Record<string, Status>>({});
-  const key = ids.join(",");
-  useEffect(() => {
-    let alive = true;
-    fetch("/api/integrations", { cache: "no-store" })
-      .then((r) => r.json())
-      .then((d: { integrations: { id: string; state: string; detail: string }[] }) => {
-        if (!alive) return;
-        setS(Object.fromEntries(key.split(",").map((id) => {
-          const v = d.integrations.find((i) => i.id === id);
-          return [id, v ? { state: v.state, detail: v.detail } : { state: "not-configured", detail: "" }];
-        })));
-      })
-      .catch(() => alive && setS(Object.fromEntries(key.split(",").map((id) => [id, { state: "error", detail: "Could not read integration status." }]))));
-    return () => {
-      alive = false;
-    };
-  }, [key, refresh]);
-  return s;
+  const { data, error } = useIntegrations({ refresh });
+  if (error) return Object.fromEntries(ids.map((id) => [id, { state: "error", detail: "Could not read integration status." }]));
+  if (!data) return {};
+  return Object.fromEntries(
+    ids.map((id) => {
+      const v = data.integrations.find((i) => i.id === id);
+      return [id, v ? { state: v.state, detail: v.detail } : { state: "not-configured", detail: "" }];
+    }),
+  );
 }
 
 function StatusBadge({ status }: { status: Status | undefined }) {
@@ -72,7 +63,7 @@ export function ReviewTools({ state }: { state: FactoryState }) {
           <ScanSearch className="h-4 w-4 text-accent" /> Review an inspection station&apos;s log
         </p>
         <p className="mt-1 text-[12px] leading-relaxed text-muted">
-          Replays the last 60 units the selected station inspected and lists every reject with its acceptance criterion. Results are deterministic and come from the plant model.
+          Replays the last 60 units the selected station inspected and lists every reject with its acceptance criterion.
         </p>
         <div className="mt-3 flex flex-wrap items-end gap-2">
           <div className="min-w-0 flex-1 space-y-1">
@@ -145,7 +136,7 @@ export function ReviewTools({ state }: { state: FactoryState }) {
         )}
         {gemini?.state === "not-configured" && (
           <p className="mt-2 text-[11.5px] leading-relaxed text-warning-ink">
-            {ai?.disabled ? "AI is turned off on this deployment" : "No AI provider is configured on this deployment"}, so uploads are off. Choose one in Integrations → AI model provider (Gemini, Claude, OpenAI or a compatible endpoint). The station-log review and the OpenCV check still work.
+            {ai?.disabled ? "AI review is turned off" : "AI review isn't set up"}. An admin can turn it on in Integrations. The station-log review and the machine-vision check still work.
           </p>
         )}
       </div>
@@ -176,11 +167,11 @@ function MachineVisionCard({ state, status, defaultCameraId, onDone }: { state: 
   return (
     <div className="rounded-xl border border-line bg-shell p-3.5 lg:col-span-2" data-testid="machine-vision">
       <p className="flex items-center gap-1.5 text-[13px] font-semibold text-ink">
-        <ScanEye className="h-4 w-4 text-accent" /> Machine-vision check (Python service · OpenCV)
+        <ScanEye className="h-4 w-4 text-accent" /> Machine-vision check
         <StatusBadge status={status} />
       </p>
       <p className="mt-1 text-[12px] leading-relaxed text-muted">
-        Deterministic checks, same input → same result. For an <strong className="font-medium text-ink-2">image</strong>: is it sharp and well lit enough to judge, which barcodes and QR codes are on it, and, with a
+        Repeatable checks: the same input always gives the same result. For an <strong className="font-medium text-ink-2">image</strong>: is it sharp and well lit enough to judge, which barcodes and QR codes are on it, and, with a
         photo of a known-good part as the golden reference, which regions differ from it. For a <strong className="font-medium text-ink-2">video</strong>: when the scene stops moving (possible line stoppage). Findings
         are measurements for you to judge, not verdicts.
       </p>
@@ -234,7 +225,7 @@ function MachineVisionCard({ state, status, defaultCameraId, onDone }: { state: 
       )}
       {status?.state === "not-configured" && (
         <p className="mt-2 text-[11.5px] leading-relaxed text-warning-ink">
-          The Python vision service isn&apos;t connected to this deployment. Run <code className="font-mono">services/vision</code> and set VISION_SERVICE_URL; see docs/python-services-plan.md.
+          The vision service isn&apos;t connected yet. An admin can connect it in Integrations.
         </p>
       )}
       {last && <InspectionPreview result={last.result} url={last.url} reviewId={last.reviewId} />}
@@ -350,7 +341,7 @@ function ReviewCard({ state, review }: { state: FactoryState; review: VisionRevi
       <div className="flex flex-wrap items-center gap-2">
         <span className="font-mono text-[12px] text-ink">{review.id}</span>
         <Badge tone={review.source === "gemini" ? "agent" : review.source === "opencv" ? "accent" : "neutral"}>
-          {review.source === "gemini" ? `AI · ${review.model ?? "model"}` : review.source === "opencv" ? (review.model ?? "OpenCV · vision service") : "Simulated inspection log"}
+          {review.source === "gemini" ? `AI · ${review.model ?? "model"}` : review.source === "opencv" ? (review.model ?? "OpenCV · vision service") : "Station inspection log"}
         </Badge>
         {review.cameraId && <Badge tone="accent">{review.cameraId}</Badge>}
         <span className="text-[11.5px] text-muted">{fmtSimTime(state, review.hour)}</span>

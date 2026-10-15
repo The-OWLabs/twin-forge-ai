@@ -188,7 +188,7 @@ function handleEvents(state: FactoryState, world: SimWorld, events: WorldEvent[]
         if (wo) wo.status = "in-progress";
         appendAudit(state, nowISO, {
           category: "action",
-          actor: "Maintenance crew (simulated)",
+          actor: "Maintenance crew",
           title: `${wo?.id ?? "Work order"} started on ${asset.id}`,
           detail: `${asset.name} locked out for preventive maintenance.`,
           severity: "info",
@@ -205,7 +205,7 @@ function handleEvents(state: FactoryState, world: SimWorld, events: WorldEvent[]
           hour: e.hour,
           durationHours: active?.durationHours ?? 0,
           technician: "Shift B maintenance crew",
-          notes: `${active?.reason ?? "Preventive maintenance"} — condition restored (simulated).`,
+          notes: `${active?.reason ?? "Preventive maintenance"} — condition restored.`,
           cost: active?.cost ?? 0,
         });
         asset.lastMaintenanceHour = e.hour;
@@ -238,7 +238,7 @@ function handleEvents(state: FactoryState, world: SimWorld, events: WorldEvent[]
         hour: e.hour,
         durationHours: world.params.unplannedRepairHours,
         technician: "Emergency response crew",
-        notes: "Corrective repair after protective trip (simulated).",
+        notes: "Corrective repair after a protective trip.",
         cost: state.costModel.unplannedRepairCost,
       });
       appendAudit(state, nowISO, {
@@ -262,7 +262,7 @@ function handleEvents(state: FactoryState, world: SimWorld, events: WorldEvent[]
     } else if (e.kind === "rule") {
       appendAudit(state, nowISO, {
         category: "action",
-        actor: "Automation rule (simulated)",
+        actor: "Automation rule",
         title: e.label,
         detail: "A playground rule acted on the simulated plant. No command was sent to real equipment.",
         severity: e.severity,

@@ -59,7 +59,7 @@ export function actionsFromScenario(state: FactoryState, result: ScenarioResult)
       assetIds: [],
       params: { itemId, etaInHours: item.expediteEtaHours, cost: item.expediteCost },
       reversible: false,
-      rollback: "Expedite fees are committed once the supplier confirms (simulated).",
+      rollback: "Expedite fees are committed once the supplier confirms.",
     });
   }
   return actions;

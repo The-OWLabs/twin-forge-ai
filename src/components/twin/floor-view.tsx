@@ -4,9 +4,9 @@ import { useMemo } from "react";
 import { cameraView } from "@/domain/quality";
 import type { Asset, Camera, FactoryState } from "@/domain/types";
 import type { Highlight } from "@/client/store";
-import { STATUS_META } from "../ui/status";
+import { STATUS_META } from "../ui/status";import { SERIES } from "../charts/kit";
 
-const SERIES = ["var(--color-series-1)", "var(--color-series-2)", "var(--color-series-3)", "var(--color-series-4)"];
+
 
 /** Simplified 2D floor plan: bays, machine footprints and conveyor flow, coloured by live status. */
 export function FloorView({ state, highlight, selectedId, onSelect }: { state: FactoryState; highlight: Highlight | null; selectedId: string | null; onSelect: (id: string) => void }) {

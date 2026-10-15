@@ -85,7 +85,7 @@ describe("automation rules in the plant model", () => {
     // One order covers the gap, so the next steps don't order again.
     advanceFactory(s, 1, { nowISO: NOW });
     expect(s.inventory.find((i) => i.id === item.id)!.inbound.filter((x) => x.poId.startsWith("PO-R"))).toHaveLength(1);
-    expect(s.audit.some((a) => a.actor === "Automation rule (simulated)" && /ordered .* PCB blank \(PO-R1/.test(a.title))).toBe(true);
+    expect(s.audit.some((a) => a.actor === "Automation rule" && /ordered .* PCB blank \(PO-R1/.test(a.title))).toBe(true);
   });
 
   it("connector: when a line stops, the other line takes over its work and hands it back after the repair", () => {

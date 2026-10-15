@@ -33,7 +33,7 @@ export function AgentPanel() {
         <div className="max-h-72 space-y-2 overflow-y-auto">
           {chat.length === 0 && (
             <p className="text-[12px] leading-relaxed text-muted">
-              {ai ? "For example: “Add a second filler on Filling Line 1 at 6,000 bottles/h”, “Connect all fillers over OPC UA”, or “Remove the palletizer”." : "Chat edits need an AI model, which is off or not configured here (Integrations → AI model provider). Edit lines, products, robots and connections directly."}
+              {ai ? "For example: “Add a second filler on Filling Line 1 at 6,000 bottles/h”, “Connect all fillers over OPC UA”, or “Remove the palletizer”." : "AI edits are turned off. Edit lines, products, robots and connections directly."}
             </p>
           )}
           {chat.map((c, i) => (
@@ -297,13 +297,13 @@ export function ProductsPanel() {
 /* ───────────────────────────── data connections ───────────────────────────── */
 
 export const CONNECTION_META: Record<IntegrationKind, { label: string; status: "active" | "ready" | "planned"; detail: string; placeholder: string }> = {
-  simulated: { label: "Simulated telemetry", status: "active", detail: "The plant model generates readings. Works today.", placeholder: "" },
-  pubsub: { label: "Pub/Sub telemetry", status: "ready", detail: "Implemented: readings published as {assetId, vibration, temperature, powerKw} override the simulation (set PUBSUB_TELEMETRY_SUBSCRIPTION).", placeholder: "projects/…/subscriptions/telemetry" },
-  "camera-rtsp": { label: "Camera (RTSP/ONVIF)", status: "ready", detail: "Implemented for viewing: point the camera at an HLS gateway URL (e.g. MediaMTX) in the twin.", placeholder: "rtsp://10.0.0.21/stream1" },
-  mqtt: { label: "MQTT", status: "planned", detail: "Planned: edge gateway (Python plan, Phase 4). Today: broker reachability check only.", placeholder: "plant/line1/filler/#" },
-  opcua: { label: "OPC UA", status: "planned", detail: "Planned: read-only edge gateway (Python plan, Phase 4).", placeholder: "ns=2;s=Filler.Speed" },
-  modbus: { label: "Modbus TCP", status: "planned", detail: "Planned: read-only edge gateway (Python plan, Phase 4).", placeholder: "10.0.0.40:502 HR 40001–40010" },
-  historian: { label: "Historian", status: "planned", detail: "Planned: backfill telemetry history (BigQuery schema exists).", placeholder: "PI tag prefix or table" },
+  simulated: { label: "Built-in telemetry", status: "active", detail: "The twin generates readings. Works today.", placeholder: "" },
+  pubsub: { label: "Pub/Sub telemetry", status: "ready", detail: "Ready: machine readings published to a subscription drive the twin.", placeholder: "projects/…/subscriptions/telemetry" },
+  "camera-rtsp": { label: "Camera (RTSP/ONVIF)", status: "ready", detail: "Ready for viewing through a camera gateway.", placeholder: "rtsp://10.0.0.21/stream1" },
+  mqtt: { label: "MQTT", status: "planned", detail: "Planned: through the edge gateway.", placeholder: "plant/line1/filler/#" },
+  opcua: { label: "OPC UA", status: "planned", detail: "Planned: read-only, through the edge gateway.", placeholder: "ns=2;s=Filler.Speed" },
+  modbus: { label: "Modbus TCP", status: "planned", detail: "Planned: read-only, through the edge gateway.", placeholder: "10.0.0.40:502 HR 40001–40010" },
+  historian: { label: "Historian", status: "planned", detail: "Planned: backfill telemetry history.", placeholder: "PI tag prefix or table" },
   erp: { label: "ERP orders & stock", status: "planned", detail: "Planned: replace sample orders and stock with ERP data.", placeholder: "SAP / Odoo endpoint" },
 };
 
@@ -318,7 +318,7 @@ export function ConnectionsPanel() {
   return (
     <div className="space-y-4">
       <p className="text-[12px] leading-relaxed text-muted">
-        Plan how each line or machine gets real data. Connections are saved with the twin as <span className="text-ink-2">planned</span>; the Integrations page reports them honestly until a connector is configured and verified. Never enter passwords here.
+        Plan how each line or machine gets real data. Connections are saved with the twin as <span className="text-ink-2">planned</span> until a connector is set up and verified. Never enter passwords here.
       </p>
       {spec.integrations.length ? (
         <ul className="space-y-1.5">
@@ -338,7 +338,7 @@ export function ConnectionsPanel() {
           })}
         </ul>
       ) : (
-        <EmptyState title="No data connections yet" description="Everything runs on simulated telemetry until you plan connections." />
+        <EmptyState title="No data connections yet" description="Plan how each line or machine will send its data." />
       )}
       <div className="space-y-2 rounded-lg border border-line p-2.5">
         <div className="grid gap-2 sm:grid-cols-2">

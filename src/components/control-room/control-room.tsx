@@ -6,6 +6,7 @@ import { Clapperboard, Columns2, Film, LayoutGrid, Lock, MonitorPlay, Radio, Sca
 import { useAdmin } from "@/client/admin";
 import { aiShortName, useAiInfo } from "@/client/ai";
 import { contactSheet } from "@/client/frames";
+import { integrationState, useIntegrations } from "@/client/integrations";
 import { useFactory } from "@/client/store";
 import { AdminAccess } from "@/components/admin/admin-access";
 import { PageHeader, SectionLabel } from "@/components/page";
@@ -29,20 +30,12 @@ const SOURCE: Record<CameraStreamKind, { label: string; tone: Tone }> = {
 
 /** Which visual-QA engines this server can run, from the honest integration status. */
 function useAvailability(): Availability | null {
-  const [a, setA] = useState<Availability | null>(null);
-  useEffect(() => {
-    fetch("/api/integrations", { cache: "no-store" })
-      .then((r) => r.json())
-      .then((d: { integrations: { id: string; state: string }[] }) => {
-        const st = (id: string) => d.integrations.find((i) => i.id === id)?.state ?? "not-configured";
-        setA({
-          gemini: st("vertex-ai") === "not-configured" ? { ok: false, why: "AI is off or no provider is configured (Integrations → AI model provider)." } : { ok: true, why: "" },
-          opencv: st("vision-service") === "not-configured" ? { ok: false, why: "The vision service is not configured (Integrations → Vision service)." } : { ok: true, why: "" },
-        });
-      })
-      .catch(() => setA(null));
-  }, []);
-  return a;
+  const { data } = useIntegrations();
+  if (!data) return null;
+  return {
+    gemini: integrationState(data, "vertex-ai") === "not-configured" ? { ok: false, why: "AI review is turned off. An admin can turn it on in Integrations." } : { ok: true, why: "" },
+    opencv: integrationState(data, "vision-service") === "not-configured" ? { ok: false, why: "The vision service isn't connected yet. An admin can connect it in Integrations." } : { ok: true, why: "" },
+  };
 }
 
 export function ControlRoom() {
@@ -86,7 +79,7 @@ export function ControlRoom() {
             <Badge tone="healthy">{counts.gateway} gateway</Badge>
           </span>
         }
-        description="Every camera in the plant on one wall. Switch each camera between the feed rendered from the twin, looped reference footage of real factories, or a live gateway stream from the plant network. Reference footage is real video from other facilities and is always labelled as such."
+        description="Every camera in the plant on one wall. Switch each camera between the twin feed, reference footage of real factories, or a live stream from the plant network."
         actions={<AdminAccess />}
       />
 
@@ -285,7 +278,7 @@ function Inspector({ state, camera }: { state: FactoryState; camera: Camera }) {
             <Input id="cr-url" placeholder="https://gateway.plant.example/cam/index.m3u8" value={url} disabled={!admin} onChange={(e) => setUrl(e.target.value)} />
           </div>
           <p className="col-span-2 text-[11px] leading-relaxed text-muted">
-            Browsers can&apos;t play RTSP. A gateway on the plant network (for example MediaMTX) pulls the camera&apos;s ONVIF/RTSP stream and republishes it as HLS over HTTPS.
+            Paste the HLS, MP4 or MJPEG address your camera gateway publishes over HTTPS.
           </p>
         </div>
       )}
@@ -366,7 +359,6 @@ function Inspector({ state, camera }: { state: FactoryState; camera: Camera }) {
 
       <SectionLabel className="mt-5 mb-1">What the twin says</SectionLabel>
       <p className="text-[12px] text-ink-2">{view.headline}</p>
-      {onFootage && <p className="mt-1 text-[11px] text-muted">From the plant model, not from the footage.</p>}
     </aside>
   );
 }
@@ -378,7 +370,7 @@ function FootageLibrary({ selected }: { selected: Camera | null }) {
     <Card>
       <CardHeader
         title="Reference footage library"
-        description="Openly licensed clips of real factories, re-encoded for looping (trimmed, scaled, audio removed). None of it is footage of this plant."
+        description="Openly licensed clips of real factories, credited to their authors."
         icon={<Film className="h-4 w-4" />}
       />
       <CardBody>

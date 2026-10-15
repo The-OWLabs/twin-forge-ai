@@ -1,6 +1,7 @@
 "use client";
 
 import { create } from "zustand";
+import { api } from "./api";
 
 export type AdminMode = "passcode" | "open-local" | "locked";
 
@@ -20,23 +21,27 @@ export const useAdmin = create<AdminStore>((set) => ({
   loaded: false,
   load: async () => {
     try {
-      const r = await fetch("/api/admin/session", { cache: "no-store" });
-      const d = (await r.json()) as { admin: boolean; mode: AdminMode };
+      const d = await api<{ admin: boolean; mode: AdminMode }>("/api/admin/session");
       set({ admin: d.admin, mode: d.mode, loaded: true });
     } catch {
       set({ loaded: true });
     }
   },
   signIn: async (passcode) => {
-    const r = await fetch("/api/admin/session", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ passcode }), cache: "no-store" });
-    const d = (await r.json().catch(() => ({}))) as { admin?: boolean; mode?: AdminMode; error?: string };
-    if (!r.ok) return d.error ?? `Sign-in failed (${r.status})`;
-    set({ admin: !!d.admin, mode: d.mode ?? null, loaded: true });
-    return null;
+    try {
+      const d = await api<{ admin?: boolean; mode?: AdminMode }>("/api/admin/session", { body: { passcode } });
+      set({ admin: !!d.admin, mode: d.mode ?? null, loaded: true });
+      return null;
+    } catch (e) {
+      return e instanceof Error ? e.message : "Sign-in failed";
+    }
   },
   signOut: async () => {
-    const r = await fetch("/api/admin/session", { method: "DELETE", cache: "no-store" });
-    const d = (await r.json().catch(() => ({}))) as { admin?: boolean; mode?: AdminMode };
-    set({ admin: !!d.admin, mode: d.mode ?? null });
+    try {
+      const d = await api<{ admin?: boolean; mode?: AdminMode }>("/api/admin/session", { method: "DELETE" });
+      set({ admin: !!d.admin, mode: d.mode ?? null });
+    } catch {
+      set({ admin: false });
+    }
   },
 }));

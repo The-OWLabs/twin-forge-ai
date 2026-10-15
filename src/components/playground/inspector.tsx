@@ -9,14 +9,8 @@ import type { PlaygroundSelection } from "@/client/playground";
 import { KeyValue, SectionLabel } from "@/components/page";
 import { Badge, Button } from "@/components/ui/primitives";
 import { NumField, SelectField, TextField } from "./fields";
-import { KIND_SHORT } from "./model";
+import { KIND_SHORT } from "./model";import { MISSION, ROBOT_TYPE } from "../ui/labels";
 
-export const MISSION_TEXT: Record<(typeof ROBOT_MISSIONS)[number], string> = {
-  kitting: "Kitting: stores → line",
-  "line-transfer": "Transfer: line → packing",
-  "finished-goods": "Finished goods: packing → dock",
-};
-export const ROBOT_TEXT: Record<(typeof ROBOT_TYPES)[number], string> = { amr: "AMR", agv: "AGV", "forklift-agv": "Forklift AGV", tugger: "Tugger" };
 
 export function Inspector({
   spec,
@@ -198,13 +192,13 @@ export function Inspector({
     const drawing = routeFleet === f.id;
     return (
       <div className="space-y-3" data-testid="pg-inspector">
-        <Head title={f.name} sub={`${f.count} × ${ROBOT_TEXT[f.robotType]} · ${MISSION_TEXT[f.mission]}`} />
+        <Head title={f.name} sub={`${f.count} × ${ROBOT_TYPE[f.robotType].short} · ${MISSION[f.mission].route}`} />
         <TextField label="Name" value={f.name} onCommit={(name) => edit([{ op: "update_robot_fleet", fleetId: f.id, name }])} />
         <div className="grid grid-cols-2 gap-2">
           <SelectField label="Robot" value={f.robotType} onChange={(robotType) => edit([{ op: "update_robot_fleet", fleetId: f.id, robotType }])}>
             {ROBOT_TYPES.map((t) => (
               <option key={t} value={t}>
-                {ROBOT_TEXT[t]}
+                {ROBOT_TYPE[t].short}
               </option>
             ))}
           </SelectField>
@@ -213,7 +207,7 @@ export function Inspector({
         <SelectField label="Move" value={f.mission} onChange={(mission) => edit([{ op: "update_robot_fleet", fleetId: f.id, mission }])}>
           {ROBOT_MISSIONS.map((m) => (
             <option key={m} value={m}>
-              {MISSION_TEXT[m]}
+              {MISSION[m].route}
             </option>
           ))}
         </SelectField>

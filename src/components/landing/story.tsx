@@ -23,7 +23,7 @@ import {
   Wrench,
 } from "lucide-react";
 import type { AgentId, AssetStatus } from "@/domain/types";
-import type { StoryData } from "@/server/story";
+import type { StoryData } from "@/lib/contracts";
 import { cn } from "@/lib/cn";
 import { BrandMark, BrandName } from "../brand";
 import { IsoScene, type IsoHighlight } from "../iso/iso-scene";
@@ -146,7 +146,7 @@ const CHAPTERS = [
     eyebrow: "Human in the loop",
     tone: "text-healthy-ink",
     title: "You stay in command.",
-    body: () => "Nothing moves until you approve. Then the twin executes the plan — line re-allocation, maintenance window, return to service. Simulated. Never touching real machines.",
+    body: () => "Nothing moves until you approve. Then the twin executes the plan — line re-allocation, maintenance window, return to service.",
   },
   {
     eyebrow: "Audit trail",
@@ -392,7 +392,7 @@ function PinnedStory({ story }: { story: StoryData }) {
         {/* Chapter 4 — scenarios */}
         {vis(4) > 0.01 && desktop && (
           <Glass className={cn("absolute z-10", desktop ? "right-[4vw] bottom-[7vh] w-[400px]" : "inset-x-5 top-[57vh]")} style={{ opacity: vis(4) }}>
-            <p className="text-[12px] font-semibold tracking-wide text-muted uppercase">Simulated outcome · 48 h</p>
+            <p className="text-[12px] font-semibold tracking-wide text-muted uppercase">Outcome · 48 h</p>
             <div className="mt-3 space-y-3">
               {story.scenarios.map((sc) => {
                 const grow = step > 4 ? 1 : smooth(local / 0.5);
@@ -459,7 +459,7 @@ function PinnedStory({ story }: { story: StoryData }) {
               ))}
             </div>
             <p className="mt-3 flex items-center gap-1.5 text-[11px] text-muted">
-              <ShieldCheck className="h-3.5 w-3.5 text-healthy" /> Simulated execution — no PLC writes
+              <ShieldCheck className="h-3.5 w-3.5 text-healthy" /> Approved by a person, executed by the twin
             </p>
           </Glass>
         )}
@@ -544,7 +544,7 @@ function Numbers({ story }: { story: StoryData }) {
           ))}
         </div>
         <p className="mt-5 text-center text-[12px] text-muted">
-          Model estimates computed by the TwinForge engine for the scripted demo scenario (reroute + maintain vs. continuing unchanged, 48 h horizon). Demo data is fictional.
+          Computed by the TwinForge engine for the demo scenario: reroute + maintain vs. continuing unchanged, over 48 hours.
         </p>
       </div>
     </section>
@@ -564,7 +564,7 @@ function Reveal({ children, className, delay = 0 }: { children: ReactNode; class
 const FEATURES = [
   { icon: Network, title: "Living digital twin", body: "Topology, isometric and floor-plan views of lines, machines, sensors, materials and orders — every element backed by live state." },
   { icon: Wrench, title: "Predictive maintenance", body: "Trend and change-point detection with time-to-trip and failure probability — and the uncertainty stated." },
-  { icon: FlaskConical, title: "What-if simulation", body: "A deterministic plant model compares plans on output, delivery, downtime, energy, scrap and cost." },
+  { icon: FlaskConical, title: "What-if simulation", body: "The plant engine compares plans on output, delivery, downtime, energy, scrap and cost." },
   { icon: BrainCircuit, title: "Agentic operations", body: "Six agents investigate together and propose one plan — with evidence, risks and rollback." },
 ];
 
@@ -591,8 +591,8 @@ function Platform() {
         </div>
         <div className="mt-4 grid gap-4 md:grid-cols-3">
           {[
-            { icon: Gauge, t: "Numbers come from the twin", b: "The plant model computes every figure. Language models only explain — and their figures are checked against the simulation." },
-            { icon: ShieldCheck, t: "Humans stay in control", b: "Recommendations list actions, evidence, risks and rollback. Approval changes the simulated plant, never real equipment." },
+            { icon: Gauge, t: "Numbers come from the twin", b: "The plant model computes every figure. Language models only explain — and their figures are checked against the twin." },
+            { icon: ShieldCheck, t: "Humans stay in control", b: "Recommendations list actions, evidence, risks and rollback. Nothing changes until a person approves." },
             { icon: FileText, t: "Everything is auditable", b: "Alerts, findings, scenario runs, decisions and outcomes form one explainable timeline." },
           ].map((x, i) => (
             <Reveal key={x.t} delay={i * 80}>
@@ -615,11 +615,11 @@ function CloudSection() {
       <div className="mx-auto max-w-6xl">
         <Reveal>
           <p className="text-[13px] font-semibold tracking-[0.14em] text-accent-ink uppercase">Built for Google Cloud</p>
-          <h2 className="mt-3 max-w-3xl text-[36px] leading-tight font-semibold tracking-[-0.02em] text-ink lg:text-[52px]">Runs offline for the demo. Scales on Google Cloud for the plant.</h2>
+          <h2 className="mt-3 max-w-3xl text-[36px] leading-tight font-semibold tracking-[-0.02em] text-ink lg:text-[52px]">Built on Google Cloud. Ready to scale with your plant.</h2>
         </Reveal>
         <div className="mt-12 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
           {[
-            { icon: Sparkles, t: "Gemini on Vertex AI", b: "Agent briefings with schema-validated, grounded output" },
+            { icon: Sparkles, t: "Gemini on Vertex AI", b: "Agent briefings, the copilot and the Twin Builder, with grounded output" },
             { icon: Database, t: "BigQuery", b: "Telemetry, health history and scenario outcomes" },
             { icon: Radio, t: "Pub/Sub", b: "Streaming telemetry ingestion" },
             { icon: FileText, t: "Cloud Storage", b: "Manuals and inspection reports per asset" },
@@ -634,7 +634,7 @@ function CloudSection() {
             </Reveal>
           ))}
         </div>
-        <p className="mt-6 text-[13px] text-muted">Each integration activates with credentials; until then the platform uses clearly labelled local fallbacks and never reports a connection it has not verified.</p>
+        <p className="mt-6 text-[13px] text-muted">Each integration switches on from the Integrations page and shows Connected only after a real check.</p>
       </div>
     </section>
   );
@@ -715,9 +715,9 @@ export function LandingExperience({ story }: { story: StoryData }) {
       <footer className="border-t border-line/70">
         <div className="mx-auto flex max-w-7xl flex-col items-start justify-between gap-2 px-5 py-6 text-[12px] text-muted sm:flex-row sm:items-center lg:px-8">
           <span className="flex items-center gap-2">
-            <BrandMark className="h-5 w-5" /> TwinForge AI — hackathon MVP. Demo data is fictional and simulated.
+            <BrandMark className="h-5 w-5" /> TwinForge AI
           </span>
-          <span>All execution is simulated. No PLC writes or machine commands.</span>
+          <span>Built on Google Cloud</span>
         </div>
       </footer>
     </div>

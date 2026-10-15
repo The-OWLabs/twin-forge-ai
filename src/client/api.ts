@@ -32,6 +32,14 @@ export async function api<T>(path: string, init?: { method?: string; body?: unkn
   return data as T;
 }
 
+/** POST multipart form data (file uploads) with the same error handling as `api`. */
+export async function apiForm<T>(path: string, form: FormData): Promise<T> {
+  const res = await fetch(path, { method: "POST", body: form, cache: "no-store" });
+  const data = (await res.json().catch(() => null)) as (T & { error?: string; issues?: string[] }) | null;
+  if (!res.ok || data === null) throw new ApiError(data?.error ?? `Request failed (${res.status})`, res.status, data?.issues);
+  return data;
+}
+
 /** Stream NDJSON events from a POST endpoint. */
 export async function streamNdjson<E>(path: string, onEvent: (e: E) => void, signal?: AbortSignal) {
   const res = await fetch(path, { method: "POST", signal, cache: "no-store" });

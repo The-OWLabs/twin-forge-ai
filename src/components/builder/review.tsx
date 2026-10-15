@@ -5,18 +5,20 @@ import { useRouter } from "next/navigation";
 import { AlertTriangle, ArrowDown, ArrowUp, Bot, Factory, Hammer, Info, Minus, Plus, RotateCcw, Trash2 } from "lucide-react";
 import { useBuilder } from "@/client/builder";
 import { provenanceCounts } from "@/domain/builder/compile";
-import { ROBOT_MISSIONS, ROBOT_TYPES, type SpecLine, type SpecRobotFleet, type TwinSpec } from "@/domain/builder/spec";
+import { ROBOT_MISSIONS, ROBOT_TYPES, type SpecLine, type TwinSpec } from "@/domain/builder/spec";
 import type { LineSummary } from "@/domain/builder/validate";
 import type { AssetKind } from "@/domain/types";
 import { cn } from "@/lib/cn";
 import { fmtInt } from "@/lib/format";
 import { IsoScene } from "../iso/iso-scene";
 import { isoModelFromSpec, type IsoMachine } from "../iso/model";
-import { KIND_ICON } from "../twin/nodes";
+import { KIND_ICON } from "../ui/asset-kind";
 import { Badge, Button, Card, CardBody, CardHeader, Input, Select, Switch, Tabs, TabsContent, TabsList, TabsTrigger } from "../ui/primitives";
 import { AgentPanel, BlueprintPanel, ChecksPanel, ConnectionsPanel, ProductsPanel, SourcesPanel } from "./panels";
 import { AgentStages } from "./progress";
-import { ProvBadge, ProvLegend } from "./prov";
+import { ProvBadge, ProvLegend } from "./prov";import { SERIES } from "../charts/kit";
+import { MISSION, ROBOT_TYPE } from "../ui/labels";
+
 
 export function ReviewWorkspace() {
   const router = useRouter();
@@ -160,8 +162,6 @@ export function ReviewWorkspace() {
 
 const previewLabel = (m: IsoMachine) => ({ title: m.name.length > 20 ? `${m.name.slice(0, 19)}…` : m.name, sub: m.throughput ? `${fmtInt(m.throughput)}/h` : "rate from line" });
 
-const ROBOT_TYPE_LABEL: Record<SpecRobotFleet["robotType"], string> = { amr: "AMR", agv: "AGV", "forklift-agv": "Automated forklift", tugger: "Tugger train" };
-const MISSION_LABEL: Record<SpecRobotFleet["mission"], string> = { kitting: "Kitting: stores → line", "line-transfer": "Transfer: line → packing", "finished-goods": "Finished goods: packing → dock" };
 
 /** Mobile robot fleets in the spec: added from the requirements or the blueprint, editable here or by chat. */
 function RobotsEditor({ spec }: { spec: TwinSpec }) {
@@ -213,14 +213,14 @@ function RobotsEditor({ spec }: { spec: TwinSpec }) {
               <Select aria-label="Robot type" className="w-full" value={f.robotType} onChange={(e) => edit([{ op: "update_robot_fleet", fleetId: f.id, robotType: e.target.value }])}>
                 {ROBOT_TYPES.map((t) => (
                   <option key={t} value={t}>
-                    {ROBOT_TYPE_LABEL[t]}
+                    {ROBOT_TYPE[t].short}
                   </option>
                 ))}
               </Select>
               <Select aria-label="Material move" className="w-full" value={f.mission} onChange={(e) => edit([{ op: "update_robot_fleet", fleetId: f.id, mission: e.target.value }])}>
                 {ROBOT_MISSIONS.map((m) => (
                   <option key={m} value={m} disabled={m === "line-transfer" && !packing}>
-                    {MISSION_LABEL[m]}
+                    {MISSION[m].route}
                   </option>
                 ))}
               </Select>
@@ -284,7 +284,7 @@ function LineEditor({
 }) {
   const edit = useBuilder((s) => s.edit);
   const [newKind, setNewKind] = useState("conveyor");
-  const series = ["var(--color-series-1)", "var(--color-series-2)", "var(--color-series-3)", "var(--color-series-4)"];
+  const series = SERIES;
   return (
     <Card data-testid="line-editor">
       <div className="flex flex-wrap items-center gap-2 border-b border-line px-4 py-3">

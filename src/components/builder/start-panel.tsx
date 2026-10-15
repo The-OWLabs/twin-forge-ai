@@ -177,7 +177,7 @@ export function StartPanel({ file, setFile }: { file: File | null; setFile: (f: 
               ) : (
                 <>
                   <Badge tone="warning" className="mr-1">AI off</Badge>
-                  AI is off or not configured on this server (Integrations → AI model provider), so drawings can&apos;t be read and free text is matched to a template by keywords (robots included). You can still edit everything before building.
+                  AI is turned off, so drawings can&apos;t be read and your description is matched to the closest template (robots included). You can still edit everything before building.
                 </>
               )}
             </p>

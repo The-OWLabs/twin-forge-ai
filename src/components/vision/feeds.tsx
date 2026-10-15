@@ -331,7 +331,7 @@ export function RealStream({ kind, url }: { kind: GatewayKind; url: string }) {
         // eslint-disable-next-line @next/next/no-img-element
         <img src={url} alt="Live camera stream" className="h-full w-full object-contain" onError={() => setError("Could not load the MJPEG stream.")} />
       ) : (
-        <video ref={ref} className="h-full w-full object-contain" autoPlay muted playsInline controls onError={() => setError("Could not play this stream. Check the gateway URL and CORS settings.")} />
+        <video ref={ref} className="h-full w-full object-contain" autoPlay muted playsInline controls onError={() => setError("Could not play this stream. Check the gateway address.")} />
       )}
       {error && (
         <div className="absolute inset-0 flex items-center justify-center bg-black/70 p-6 text-center text-[13px] text-white">
@@ -380,8 +380,8 @@ function FeedChrome({
         <span className="flex shrink-0 items-center gap-1.5">
           {source === "twin" && (
             <span className="rounded bg-amber-500/90 px-1.5 py-0.5 font-semibold text-black">
-              <span className="@max-lg:hidden">SIMULATED FEED</span>
-              <span className="@lg:hidden">SIM</span>
+              <span className="@max-lg:hidden">TWIN FEED</span>
+              <span className="@lg:hidden">TWIN</span>
             </span>
           )}
           {source === "footage" && (

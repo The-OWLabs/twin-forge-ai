@@ -44,7 +44,7 @@ export async function listDocuments(asset?: { id: string; kind: string; document
   }
   return {
     documents: [...local, ...remote],
-    store: cloudStorage.configured() ? `Cloud Storage gs://${cloudStorage.bucket()} + local demo docs` : "Local demo document store (Cloud Storage not configured)",
+    store: cloudStorage.configured() ? "Cloud Storage and built-in documents" : "Built-in documents",
     remoteError,
   };
 }

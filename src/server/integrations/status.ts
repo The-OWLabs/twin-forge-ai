@@ -58,8 +58,8 @@ export function integrationStatuses(): IntegrationStatus[] {
   let aiDetail =
     ai.provider === "none"
       ? ai.disabled
-        ? "Turned off in Integrations: no AI calls are made (no AI cost). Agents use deterministic narratives generated from simulation outputs; the copilot is unavailable and the Twin Builder starts from templates."
-        : `${PROVIDER_NAME[ai.wanted ?? "vertex"]} is selected but missing: ${ai.missing.join(", ")}. Agents use deterministic narratives.`
+        ? "Turned off: no AI calls are made. Agents write their summaries from the analysis, the copilot is off and the Twin Builder starts from templates."
+        : `${PROVIDER_NAME[ai.wanted ?? "vertex"]} is selected but missing: ${ai.missing.join(", ")}. Agents write their summaries from the analysis.`
       : `${modelLabel(ai)}${ai.provider === "vertex" ? ` · project ${ai.project}` : ""}.${lacks.length ? ` Not available with this provider: ${lacks.join(", ")}.` : ""}`;
   if (ai.provider !== "none") {
     const c = checks["vertex-ai"];
@@ -76,7 +76,7 @@ export function integrationStatuses(): IntegrationStatus[] {
       aiDetail += ` ${c.detail}`;
     }
   }
-  const telemetrySource = pubSub.ingestionEnabled() ? "Pub/Sub" : "Simulated plant model";
+  const telemetrySource = pubSub.ingestionEnabled() ? "Pub/Sub" : "Built-in plant model";
   const bq = stateFor("bigquery", bigQuery.configured());
   const ps = stateFor("pubsub", pubSub.configured());
   const gcs = stateFor("gcs", cloudStorage.configured());
@@ -94,8 +94,8 @@ export function integrationStatuses(): IntegrationStatus[] {
       purpose: "Machine readings that drive the twin.",
       state: "active-simulated",
       detail: pubSub.ingestionEnabled()
-        ? "Pub/Sub messages override simulated measurements for matching assets; the plant model still drives production."
-        : "Deterministic plant model with seeded noise (2 min of plant time per 4 s tick). This is simulated data, not a live plant.",
+        ? "Pub/Sub messages provide the readings for matching machines; the plant model still drives production."
+        : "The built-in plant model generates live readings (2 min of plant time every 4 s).",
       settings: settingsFor("telemetry"),
       fallback: "Always available.",
       lastCheckedAt: null,
@@ -105,11 +105,11 @@ export function integrationStatuses(): IntegrationStatus[] {
       id: "vertex-ai",
       name: "AI model provider",
       service: ai.provider === "none" ? PROVIDER_NAME[ai.wanted ?? "vertex"] : PROVIDER_NAME[ai.provider],
-      purpose: "Agent narratives, the copilot, the Twin Builder and footage review (never the numbers). Gemini, Claude, OpenAI or a compatible endpoint.",
+      purpose: "Agent briefings, the copilot, the Twin Builder and footage review. Gemini, Claude, OpenAI or a compatible endpoint.",
       state: aiState,
       detail: aiDetail,
       settings: settingsFor("vertex-ai"),
-      fallback: "Deterministic template narrative from simulation outputs.",
+      fallback: "Summaries written from the analysis.",
       lastCheckedAt: checks["vertex-ai"]?.at ?? rt.lastSuccessAt,
       testable: ai.provider !== "none",
     },
@@ -117,11 +117,11 @@ export function integrationStatuses(): IntegrationStatus[] {
       id: "vision-service",
       name: "Vision service (FastAPI + OpenCV)",
       service: "Cloud Run · Python",
-      purpose: "Deterministic machine-vision checks: golden-board comparison, barcode/QR reading, image quality and video stoppages.",
+      purpose: "Machine-vision checks: golden-board comparison, barcode/QR reading, image quality and video stoppages.",
       state: vs.state,
       detail: vs.detail ?? (visionService.configured() ? `${visionService.url()} — run a connectivity test or an inspection to verify.` : "Machine-vision checks are off. Station-log reviews (and Gemini, if configured) still work."),
       settings: settingsFor("vision-service"),
-      fallback: "Station-log review from the plant model.",
+      fallback: "Station-log review.",
       lastCheckedAt: vs.at,
       testable: visionService.configured(),
     },
@@ -144,9 +144,9 @@ export function integrationStatuses(): IntegrationStatus[] {
       service: "Pub/Sub",
       purpose: "Streaming ingestion of sensor messages.",
       state: ps.state,
-      detail: ps.detail ?? (pubSub.configured() ? `Subscription ${pubSub.subscription()} (ingestion ${pubSub.ingestionEnabled() ? "enabled" : "disabled — set TELEMETRY_SOURCE=pubsub"}).` : "Simulated telemetry is used."),
+      detail: ps.detail ?? (pubSub.configured() ? `Subscription ${pubSub.subscription()} (ingestion ${pubSub.ingestionEnabled() ? "enabled" : "disabled — set TELEMETRY_SOURCE=pubsub"}).` : "Built-in telemetry is used."),
       settings: settingsFor("pubsub"),
-      fallback: "Simulated telemetry.",
+      fallback: "Built-in telemetry.",
       lastCheckedAt: ps.at,
       testable: pubSub.configured(),
     },
@@ -158,7 +158,7 @@ export function integrationStatuses(): IntegrationStatus[] {
       state: gcs.state,
       detail: gcs.detail ?? (cloudStorage.configured() ? `Bucket gs://${cloudStorage.bucket()} (objects under assets/<assetId>/).` : "Bundled local demo documents are served."),
       settings: settingsFor("gcs"),
-      fallback: "Local demo document store (content/docs).",
+      fallback: "Built-in documents.",
       lastCheckedAt: gcs.at,
       testable: cloudStorage.configured(),
     },
@@ -170,7 +170,7 @@ export function integrationStatuses(): IntegrationStatus[] {
       state: mq.state,
       detail: mq.detail ?? (mqtt.configured() ? `${mqtt.url()} — reachability probe only; subscription not implemented in this MVP.` : "Not configured."),
       settings: settingsFor("mqtt"),
-      fallback: "Simulated telemetry.",
+      fallback: "Built-in telemetry.",
       lastCheckedAt: mq.at,
       testable: mqtt.configured(),
     },
@@ -210,7 +210,7 @@ function mcpStatus(): IntegrationStatus {
     id: "mcp",
     name: "MCP server (agent tools)",
     service: "Model Context Protocol · /api/mcp",
-    purpose: "Lets external agents (ADK, Gemini CLI, IDEs) use the twin's deterministic tools; plans they propose still need a person's approval.",
+    purpose: "Lets external agents (ADK, Gemini CLI, IDEs) use the twin's tools; plans they propose still need a person's approval.",
     state: on ? "active" : "not-configured",
     detail: on
       ? `Streamable HTTP endpoint at /api/mcp with ${token ? "a bearer token required" : "no token — anyone with the URL can read the twin and propose plans for approval"}.`

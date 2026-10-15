@@ -94,7 +94,7 @@ function Grounding({ g }: { g: NonNullable<CopilotTurn["grounding"]> }) {
     <Tip
       content={
         ok
-          ? `Every figure in this answer was found in a deterministic tool result${g.derived.length ? `; ${g.derived.join(", ")} ${g.derived.length === 1 ? "is a difference" : "are differences"} between two tool figures` : ""}.`
+          ? `Every figure in this answer was found in a tool result${g.derived.length ? `; ${g.derived.join(", ")} ${g.derived.length === 1 ? "is a difference" : "are differences"} between two tool figures` : ""}.`
           : `Not found in any tool result: ${g.unverified.join(", ")}. Treat ${g.unverified.length === 1 ? "it" : "them"} as the model's own calculation.`
       }
     >
@@ -193,7 +193,7 @@ export function CopilotPanel() {
           {turns.length === 0 && (
             <div className="space-y-3">
               <p className="text-[13px] leading-relaxed text-ink-2">
-                Ask about machines, quality, orders, inventory or what-if plans. Specialist agents answer with figures from TwinForge&apos;s deterministic tools, and each answer is checked against them. The copilot can
+                Ask about machines, quality, orders, inventory or what-if plans. Specialist agents answer with figures from TwinForge&apos;s tools, and each answer is checked against them. The copilot can
                 propose a plan for approval but can&apos;t approve or run anything.
               </p>
               <div className="grid gap-1.5">
@@ -237,7 +237,7 @@ export function CopilotPanel() {
 
         <div className="border-t border-line px-5 py-3">
           {!available ? (
-            <p className="text-[12px] text-warning-ink">The copilot needs an AI model. AI is turned off or no provider is configured on this server (Integrations → AI model provider: Gemini, Claude, OpenAI or a compatible endpoint). The MCP tools at /api/mcp still work.</p>
+            <p className="text-[12px] text-warning-ink">The copilot is turned off. An admin can turn on AI in Integrations.</p>
           ) : (
             <div className="flex gap-2">
               <Textarea
@@ -259,7 +259,7 @@ export function CopilotPanel() {
               </Button>
             </div>
           )}
-          <p className="mt-1.5 text-[10.5px] text-muted">Answers come from a simulated plant model and are estimates. Every tool call is shown above each answer.</p>
+          <p className="mt-1.5 text-[10.5px] text-muted">Every tool call is shown above each answer.</p>
         </div>
       </div>
     </Sheet>

@@ -9,7 +9,7 @@ import type { PlaygroundSelection } from "@/client/playground";
 import { SectionLabel } from "@/components/page";
 import { Badge, Button, Switch } from "@/components/ui/primitives";
 import { NumField, SelectField } from "./fields";
-import { MISSION_TEXT, ROBOT_TEXT } from "./inspector";
+import { MISSION, ROBOT_TYPE } from "../ui/labels";
 
 type Kind = SpecRule["kind"];
 
@@ -39,7 +39,7 @@ export function RulesPanel({ spec, edit, onSelect, runtime }: { spec: TwinSpec; 
   const [adding, setAdding] = useState<Kind | null>(null);
   return (
     <div className="space-y-5" data-testid="pg-rules">
-      <p className="text-[12px] leading-relaxed text-muted">Rules run on the simulated plant every step, in the live twin and in What-If runs. They never send commands to real equipment.</p>
+      <p className="text-[12px] leading-relaxed text-muted">Rules run every step, in the live twin and in What-If runs.</p>
 
       <section>
         <div className="flex items-center gap-1.5">
@@ -52,10 +52,10 @@ export function RulesPanel({ spec, edit, onSelect, runtime }: { spec: TwinSpec; 
               <li key={f.id}>
                 <button onClick={() => onSelect({ kind: "fleet", id: f.id })} className="w-full rounded-lg border border-line bg-surface px-2.5 py-2 text-left hover:border-agent/50">
                   <span className="block text-[12.5px] font-medium text-ink">
-                    {f.count} × {ROBOT_TEXT[f.robotType]} · {f.name}
+                    {f.count} × {ROBOT_TYPE[f.robotType].short} · {f.name}
                   </span>
                   <span className="block text-[11.5px] text-muted">
-                    {MISSION_TEXT[f.mission]} · {f.trigger.kind === "schedule" ? `a trip every ${f.trigger.everyMinutes} min` : "a trip per load of output"} · {f.route.length ? `${f.route.length} waypoints` : "standard route"}
+                    {MISSION[f.mission].route} · {f.trigger.kind === "schedule" ? `a trip every ${f.trigger.everyMinutes} min` : "a trip per load of output"} · {f.route.length ? `${f.route.length} waypoints` : "standard route"}
                   </span>
                 </button>
               </li>

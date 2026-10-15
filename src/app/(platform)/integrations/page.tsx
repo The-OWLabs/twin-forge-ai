@@ -24,6 +24,8 @@ import {
   XCircle,
 } from "lucide-react";
 import { useAdmin } from "@/client/admin";
+import type { ApiError } from "@/client/api";
+import { INTEGRATION_STATE, saveIntegrationSettings, testIntegration, useIntegrations, type Integration, type IntegrationsPayload, type SettingsStorage, type SettingView } from "@/client/integrations";
 import { useFactory } from "@/client/store";
 import { AdminAccess } from "@/components/admin/admin-access";
 import { CONNECTION_META } from "@/components/builder/panels";
@@ -31,57 +33,15 @@ import { PageHeader } from "@/components/page";
 import { Badge, Button, Card, CardBody, CardHeader, Input, Label, Select, type Tone } from "@/components/ui/primitives";
 import { cn } from "@/lib/cn";
 
-interface SettingView {
-  key: string;
-  label: string;
-  help: string;
-  secret: boolean;
-  /** Only relevant for these AI providers. */
-  providers: string[] | null;
-  options: { value: string; label: string }[] | null;
-  defaultValue: string | null;
-  placeholder: string | null;
-  source: "ui" | "environment" | "unset";
-  isSet: boolean;
-  value: string | null;
-}
-
-interface Integration {
-  id: string;
-  name: string;
-  service: string;
-  purpose: string;
-  state: "active" | "active-simulated" | "not-configured" | "configured-untested" | "connected" | "error";
-  detail: string;
-  settings: SettingView[];
-  fallback: string;
-  lastCheckedAt: string | null;
-  testable: boolean;
-}
-
-interface Storage {
-  kind: "cloud-storage" | "local-file";
-  where: string;
-  ok: boolean;
-  detail: string | null;
-  updatedAt: string | null;
-  updatedBy: string | null;
-}
-
-interface Payload {
-  project: SettingView;
-  storage: Storage;
-  integrations: Integration[];
-}
-
-const STATE: Record<Integration["state"], { label: string; tone: Tone; Icon: typeof CheckCircle2 }> = {
-  connected: { label: "Connected (verified)", tone: "healthy", Icon: CheckCircle2 },
-  active: { label: "Active", tone: "healthy", Icon: Power },
-  "active-simulated": { label: "Active · simulated/local", tone: "accent", Icon: Cpu },
-  "configured-untested": { label: "Configured · not yet verified", tone: "warning", Icon: KeyRound },
-  "not-configured": { label: "Not configured", tone: "neutral", Icon: CircleSlash },
-  error: { label: "Connection failed", tone: "critical", Icon: XCircle },
+const STATE_ICON: Record<Integration["state"], typeof CheckCircle2> = {
+  connected: CheckCircle2,
+  active: Power,
+  "active-simulated": Cpu,
+  "configured-untested": KeyRound,
+  "not-configured": CircleSlash,
+  error: XCircle,
 };
+const STATE = (s: Integration["state"]) => ({ ...INTEGRATION_STATE[s], Icon: STATE_ICON[s] });
 
 const ICON: Record<string, typeof Cloud> = {
   telemetry: Radio,
@@ -116,25 +76,14 @@ type Edits = Record<string, string | null>;
 export default function IntegrationsPage() {
   const toast = useFactory((s) => s.toast);
   const admin = useAdmin((s) => s.admin);
-  const [data, setData] = useState<Payload | null>(null);
+  const { data, error, reload: load, setData } = useIntegrations();
   const [testing, setTesting] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  const load = () =>
-    fetch("/api/integrations", { cache: "no-store" })
-      .then((r) => r.json())
-      .then((d: Payload) => setData(d))
-      .catch((e) => setError(String(e)));
-  useEffect(() => {
-    void load();
-  }, []);
 
   const test = async (id: string) => {
     setTesting(id);
     try {
-      const r = await fetch("/api/integrations/test", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id }) });
-      const d = await r.json();
-      setData((cur) => (cur ? { ...cur, integrations: d.integrations } : cur));
+      const d = await testIntegration(id);
+      setData((cur: IntegrationsPayload | null) => (cur ? { ...cur, integrations: d.integrations } : cur));
       toast({ tone: d.result.ok ? "success" : "error", title: d.result.ok ? "Connection verified" : "Connection test failed", detail: d.result.detail });
     } catch (e) {
       toast({ tone: "error", title: "Test request failed", detail: String(e) });
@@ -145,10 +94,12 @@ export default function IntegrationsPage() {
 
   /** Save edits; returns true on success. */
   const save = async (values: Edits) => {
-    const r = await fetch("/api/integrations/settings", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ values }), cache: "no-store" });
-    const d = (await r.json().catch(() => ({}))) as Partial<Payload> & { error?: string; issues?: string[]; changed?: string[] };
-    if (!r.ok) {
-      toast({ tone: "error", title: d.error ?? `Save failed (${r.status})`, detail: d.issues?.join("; ") });
+    let d: Awaited<ReturnType<typeof saveIntegrationSettings>>;
+    try {
+      d = await saveIntegrationSettings(values);
+    } catch (e) {
+      const err = e as ApiError;
+      toast({ tone: "error", title: err.message || "Save failed", detail: err.issues?.join("; ") });
       return false;
     }
     await load();
@@ -160,7 +111,7 @@ export default function IntegrationsPage() {
     <div className="animate-fade-in">
       <PageHeader
         title="Integrations & Data Sources"
-        description="Turn integrations on, point them at your services and test them, all from here. Settings saved here override the deployment's environment variables; secrets are stored on the server and never shown again. Status is reported honestly: an integration shows Connected only after a real call succeeds."
+        description="Turn integrations on, point them at your services and test them, all from here. Secrets are stored on the server and never shown again; an integration shows Connected only after a real call succeeds."
         actions={
           <>
             <AdminAccess />
@@ -180,17 +131,17 @@ export default function IntegrationsPage() {
       <PlannedConnections />
 
       <Card className="mt-4">
-        <CardHeader title="Google Cloud architecture" description="How each service maps onto the platform (see docs/architecture.md)" icon={<Cloud className="h-4 w-4" />} />
+        <CardHeader title="Google Cloud architecture" description="How each service maps onto the platform" icon={<Cloud className="h-4 w-4" />} />
         <CardBody>
           <div className="grid gap-3 text-[12.5px] md:grid-cols-2 xl:grid-cols-3">
             {[
               ["Cloud Run", "Hosts the Next.js app (UI + API) through Firebase App Hosting, and the Python vision service."],
-              ["Vertex AI · Gemini", "Agent narratives, the ADK copilot, Twin Builder research and footage review. JSON-schema output, zod validation, numeric grounding check. Never computes metrics."],
-              ["BigQuery", "Dataset for telemetry, production events, health history, scenario outcomes and decisions (infra/bigquery/schema.sql). Scenario runs and decisions are mirrored when configured."],
-              ["Pub/Sub", "Telemetry ingestion subscription. With the Pub/Sub telemetry source, messages {assetId, vibration, temperature, powerKw} override simulated measurements."],
-              ["Cloud Storage", "Per-asset manuals and inspection reports under assets/<assetId>/, and the integration settings saved from this page."],
+              ["Vertex AI · Gemini", "Agent briefings, the ADK copilot, Twin Builder research and footage review. Every answer is schema-checked and its figures are checked against the twin."],
+              ["BigQuery", "Telemetry, production events, health history, scenario outcomes and decisions."],
+              ["Pub/Sub", "Live telemetry ingestion: published machine readings drive the twin."],
+              ["Cloud Storage", "Asset manuals and inspection reports, and the settings saved on this page."],
               ["Secret Manager", "Holds the admin passcode for this deployment."],
-              ["Plant model (local)", "Deterministic simulation that always works offline — the source of every number in the demo."],
+              ["Plant model", "The engine behind every number in the twin; always available."],
             ].map(([t, d]) => (
               <div key={t} className="rounded-xl border border-line bg-shell/60 p-3">
                 <p className="font-semibold text-ink">{t}</p>
@@ -204,7 +155,7 @@ export default function IntegrationsPage() {
   );
 }
 
-function PlatformStrip({ project, storage, admin, onSave }: { project: SettingView; storage: Storage; admin: boolean; onSave: (v: Edits) => Promise<boolean> }) {
+function PlatformStrip({ project, storage, admin, onSave }: { project: SettingView; storage: SettingsStorage; admin: boolean; onSave: (v: Edits) => Promise<boolean> }) {
   const [editing, setEditing] = useState(false);
   const [value, setValue] = useState(project.value ?? "");
   const [busy, setBusy] = useState(false);
@@ -259,9 +210,8 @@ function PlatformStrip({ project, storage, admin, onSave }: { project: SettingVi
           )}
         </div>
         <div className="flex min-w-0 flex-wrap items-center gap-2">
-          <span className="text-muted">Settings saved to</span>
-          <span className="font-mono text-[11.5px] break-all text-ink">{storage.where}</span>
-          <Badge tone={!storage.ok ? "critical" : storage.kind === "cloud-storage" ? "healthy" : "neutral"}>{storage.kind === "cloud-storage" ? "durable" : "this instance"}</Badge>
+          <span className="text-muted">Settings</span>
+          <Badge tone={!storage.ok ? "critical" : storage.kind === "cloud-storage" ? "healthy" : "neutral"}>{!storage.ok ? "not saved" : storage.kind === "cloud-storage" ? "saved to Cloud Storage" : "saved on this server"}</Badge>
           {storage.updatedAt && (
             <span className="text-[11.5px] text-muted">
               last change {new Date(storage.updatedAt).toLocaleString()}
@@ -284,7 +234,7 @@ function SourceChip({ source }: { source: SettingView["source"] }) {
 }
 
 function IntegrationCard({ item: i, admin, testing, onTest, onSave }: { item: Integration; admin: boolean; testing: string | null; onTest: (id: string) => void; onSave: (v: Edits) => Promise<boolean> }) {
-  const S = STATE[i.state];
+  const S = STATE(i.state);
   const Icon = ICON[i.id] ?? PlugZap;
   const [open, setOpen] = useState(false);
   return (
@@ -500,7 +450,7 @@ function PlannedConnections() {
   if (!plan?.length) return null;
   return (
     <Card className="mt-4">
-      <CardHeader title="Planned data connections" description="From the Twin Builder. These are plans, not live connections: the twin keeps using the source shown above until each connector is set up and verified." icon={<PlugZap className="h-4 w-4" />} />
+      <CardHeader title="Planned data connections" description="Connections planned in the Twin Builder. Each becomes live once its connector is set up and verified." icon={<PlugZap className="h-4 w-4" />} />
       <CardBody>
         <ul className="divide-y divide-line">
           {plan.map((c) => {

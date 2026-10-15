@@ -1,28 +1,12 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useIntegrations, type AiInfo } from "./integrations";
 
-export interface AiInfo {
-  provider: string;
-  model: string | null;
-  disabled: boolean;
-  capabilities: { available: boolean; video: boolean; images: boolean; pdf: boolean; webSearch: boolean };
-}
+export type { AiInfo };
 
 /** The AI provider this server uses and what it can do (from the honest integration status). */
 export function useAiInfo(refresh = 0): AiInfo | null {
-  const [info, setInfo] = useState<AiInfo | null>(null);
-  useEffect(() => {
-    let alive = true;
-    fetch("/api/integrations", { cache: "no-store" })
-      .then((r) => r.json())
-      .then((d: { ai?: AiInfo }) => alive && setInfo(d.ai ?? null))
-      .catch(() => alive && setInfo(null));
-    return () => {
-      alive = false;
-    };
-  }, [refresh]);
-  return info;
+  return useIntegrations({ refresh }).data?.ai ?? null;
 }
 
 /** Short name for buttons and labels: "Claude", "Gemini", "OpenAI"… */

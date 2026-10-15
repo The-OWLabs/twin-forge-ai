@@ -3,12 +3,12 @@
 import { Suspense, useDeferredValue, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Camera, ClipboardCheck, CopyPlus, FlaskConical, Network, Play, RotateCcw, Sigma, Trash2 } from "lucide-react";
+import { Camera, ClipboardCheck, CopyPlus, FlaskConical, Network, Play, RotateCcw, Trash2 } from "lucide-react";
 import { consumptionPerHour } from "@/domain/kpis";
 import { applyShared, pickFocusAsset, presetScenarios, type SharedAssumptions } from "@/domain/scenarios";
 import { primaryProductOf, rankScenarios, simulateScenarios } from "@/domain/simulation";
 import type { FactoryState, ScenarioDefinition, ScenarioResult } from "@/domain/types";
-import { useFactory, useUi, useWorkbench, type Highlight } from "@/client/store";
+import { highlightFor, useFactory, useUi, useWorkbench } from "@/client/store";
 import { KeyValue, PageHeader, SectionLabel } from "@/components/page";
 import { AssumptionsPanel, PlanLevers } from "@/components/simulator/levers";
 import { ComparisonTable, ConditionChart, OutputChart, ScenarioCards, Timeline, scenarioColor } from "@/components/simulator/compare";
@@ -25,20 +25,6 @@ export default function SimulatorPage() {
   );
 }
 
-function highlightFor(runId: string, r: ScenarioResult): Highlight {
-  return {
-    runId,
-    scenarioId: r.definition.id,
-    scenarioName: r.definition.name,
-    kind: r.definition.kind,
-    assetIds: r.affectedAssetIds,
-    lineIds: r.affectedLineIds,
-    itemIds: r.affectedItemIds,
-    orderIds: r.affectedOrderIds,
-    rerouteLineId: r.definition.params.reroute.enabled ? r.definition.params.reroute.toLineId : null,
-    targetAssetId: r.definition.params.targetAssetId,
-  };
-}
 
 function sharedOf(defs: ScenarioDefinition[], state: FactoryState): SharedAssumptions {
   const p = defs[0]?.params;
@@ -161,12 +147,7 @@ function Simulator() {
     <div className="animate-fade-in">
       <PageHeader
         title="What-If Twin Simulator"
-        description="Compare operating plans on the shared plant model. Every result is calculated from the factory state plus the explicit assumptions on the left — estimates based on demo data, not validated forecasts."
-        eyebrow={
-          <Badge tone="accent">
-            <Sigma className="h-3 w-3" /> Deterministic engine · 15-min steps · telemetry-calibrated wear model
-          </Badge>
-        }
+        description="Compare operating plans on the shared plant model. Every result is calculated from the factory state plus the assumptions on the left."
         actions={
           <>
             <Button size="sm" variant="secondary" onClick={simulate} loading={busy.scenarios && !busy.recommend}>
@@ -274,7 +255,7 @@ function Simulator() {
                   </CardBody>
                 </Card>
                 <Card>
-                  <CardHeader title="Ranking & rationale" description="Asset-protection policy demotes plans that run to a predicted trip" />
+                  <CardHeader title="Ranking & rationale" description="Plans that run a machine to a predicted trip rank last" />
                   <CardBody className="space-y-2">
                     {ranking.map((r, i) => {
                       const res = results.find((x) => x.definition.id === r.scenarioId)!;
@@ -374,6 +355,7 @@ function Simulator() {
                       <button
                         key={v}
                         onClick={() => setPathView(v)}
+                        aria-pressed={pathView === v}
                         className={`h-6 rounded-md px-2 text-[11.5px] ${pathView === v ? "bg-surface-3 text-ink" : "text-muted hover:text-ink"}`}
                       >
                         {v === "iso" ? "Isometric" : "Topology"}

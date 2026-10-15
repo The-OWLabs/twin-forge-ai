@@ -26,7 +26,8 @@ const isTyping = (t: EventTarget | null) => t instanceof HTMLElement && (t.isCon
 
 export function Playground() {
   const router = useRouter();
-  const live = useFactory((s) => s.state)!;
+  // Narrow subscriptions: the page must not re-render on every telemetry tick.
+  const liveRules = useFactory((s) => s.state?.ruleRuntime ?? null);
   const spec = usePlayground((s) => s.spec);
   const source = usePlayground((s) => s.source);
   const dirty = usePlayground((s) => s.dirty);
@@ -44,8 +45,9 @@ export function Playground() {
   // The draft lives in this browser; start from the live twin the first time.
   useEffect(() => setMounted(true), []);
   useEffect(() => {
-    if (mounted && !usePlayground.getState().spec) load(specFromState(live), `Live twin: ${live.profile.name}`);
-  }, [mounted, live, load]);
+    const live = useFactory.getState().state;
+    if (mounted && live && !usePlayground.getState().spec) load(specFromState(live), `Live twin: ${live.profile.name}`);
+  }, [mounted, load]);
 
   const validation = useMemo(() => (spec ? validateSpec(spec) : null), [spec]);
   const fleetLines = useMemo(() => Object.fromEntries((validation?.spec?.mobileRobots ?? []).map((f) => [f.id, f.lineId])), [validation]);
@@ -194,6 +196,7 @@ export function Playground() {
 
   const startFrom = (value: string) => {
     if (value === "live") {
+      const live = useFactory.getState().state!;
       const next = specFromState(live);
       const label = `Live twin: ${live.profile.name}`;
       if (dirty) setConfirm({ kind: "replace", spec: next, source: label });
@@ -294,7 +297,7 @@ export function Playground() {
               <Inspector spec={spec} validation={validation} selection={selection} onSelect={onSelect} edit={(ops) => void edit(ops)} remove={remove} rotate={rotate} routeFleet={routeFleet} setRouteFleet={setRouteFleet} />
             </TabsContent>
             <TabsContent value="rules" className="min-h-0 flex-1 overflow-y-auto pr-1">
-              <RulesPanel spec={spec} edit={(ops) => void rawEdit(ops)} onSelect={onSelect} runtime={live.ruleRuntime ?? null} />
+              <RulesPanel spec={spec} edit={(ops) => void rawEdit(ops)} onSelect={onSelect} runtime={liveRules} />
             </TabsContent>
             <TabsContent value="ai" className="min-h-0 flex-1">
               <Assistant />
@@ -344,7 +347,7 @@ export function Playground() {
       >
         <p className="flex items-start gap-2 text-[12.5px] leading-relaxed text-ink-2">
           <CircleAlert className="mt-0.5 h-4 w-4 shrink-0 text-warning-ink" />
-          Rules and robots act on the simulation only. Nothing is sent to real equipment. The demo plant can be restored at any time from the Twin Builder.
+          The demo plant can be restored at any time from the Twin Builder.
         </p>
       </Dialog>
 

@@ -18,10 +18,11 @@ import { STATUS_META } from "@/components/ui/status";
 import { amrPaths } from "@/components/three/amr-paths";
 import { isoModelFromState, layoutIso } from "@/components/iso/model";
 import { amrFleet, amrUtilisation, METRES_PER_UNIT } from "@/domain/intralogistics";
-import { ASSET_KIND_LABEL } from "@/domain/seed";
+import { ASSET_KIND_LABEL } from "@/domain/archetypes";
 import type { AssetKind, FactoryState } from "@/domain/types";
 import { cn } from "@/lib/cn";
-import { fmtInt, fmtRelHours } from "@/lib/format";
+import { fmtInt, fmtRelHours } from "@/lib/format";import { MISSION, ROBOT_TYPE } from "@/components/ui/labels";
+
 
 // three.js is loaded only when the 3D view is opened.
 const Twin3D = dynamic(() => import("@/components/three/twin-3d").then((m) => m.Twin3D), {
@@ -77,7 +78,7 @@ function TwinStudio() {
     <div className="animate-fade-in">
       <PageHeader
         title="Digital Twin Studio"
-        description="Interactive topology of lines, machines, sensors, material dependencies and customer orders — live from the shared factory state. Select a node to inspect it; drag to rearrange."
+        description="Lines, machines, sensors, materials and customer orders, live. Select anything to inspect it; drag to rearrange."
         actions={
           <>
             <Button size="sm" variant="secondary" onClick={() => setAddOpen(true)}>
@@ -94,16 +95,16 @@ function TwinStudio() {
 
       <div className="mb-3 flex flex-wrap items-center gap-2">
         <div className="inline-flex rounded-lg border border-line bg-shell p-0.5">
-          <button onClick={() => setView("topology")} className={cn("flex h-7 items-center gap-1.5 rounded-md px-2.5 text-[12.5px]", view === "topology" ? "bg-surface-3 text-ink" : "text-muted hover:text-ink")}>
+          <button onClick={() => setView("topology")} aria-pressed={view === "topology"} className={cn("flex h-7 items-center gap-1.5 rounded-md px-2.5 text-[12.5px]", view === "topology" ? "bg-surface-3 text-ink" : "text-muted hover:text-ink")}>
             <Network className="h-3.5 w-3.5" /> Topology
           </button>
-          <button onClick={() => setView("iso")} className={cn("flex h-7 items-center gap-1.5 rounded-md px-2.5 text-[12.5px]", view === "iso" ? "bg-surface-3 text-ink" : "text-muted hover:text-ink")}>
+          <button onClick={() => setView("iso")} aria-pressed={view === "iso"} className={cn("flex h-7 items-center gap-1.5 rounded-md px-2.5 text-[12.5px]", view === "iso" ? "bg-surface-3 text-ink" : "text-muted hover:text-ink")}>
             <Box className="h-3.5 w-3.5" /> Isometric
           </button>
-          <button onClick={() => setView("floor")} className={cn("flex h-7 items-center gap-1.5 rounded-md px-2.5 text-[12.5px]", view === "floor" ? "bg-surface-3 text-ink" : "text-muted hover:text-ink")}>
+          <button onClick={() => setView("floor")} aria-pressed={view === "floor"} className={cn("flex h-7 items-center gap-1.5 rounded-md px-2.5 text-[12.5px]", view === "floor" ? "bg-surface-3 text-ink" : "text-muted hover:text-ink")}>
             <MapIcon className="h-3.5 w-3.5" /> Floor plan
           </button>
-          <button onClick={() => setView("3d")} className={cn("flex h-7 items-center gap-1.5 rounded-md px-2.5 text-[12.5px]", view === "3d" ? "bg-surface-3 text-ink" : "text-muted hover:text-ink")}>
+          <button onClick={() => setView("3d")} aria-pressed={view === "3d"} className={cn("flex h-7 items-center gap-1.5 rounded-md px-2.5 text-[12.5px]", view === "3d" ? "bg-surface-3 text-ink" : "text-muted hover:text-ink")}>
             <Rotate3d className="h-3.5 w-3.5" /> 3D
           </button>
         </div>
@@ -283,7 +284,6 @@ function OtherNodePanel({ state, id, onClose }: { state: FactoryState; id: strin
   );
 }
 
-const ROBOT_TYPE_LABEL = { amr: "Autonomous mobile robot", agv: "Automated guided vehicle", "forklift-agv": "Automated forklift", tugger: "Tugger train" } as const;
 
 /** A mobile robot from the simulated intralogistics layer (from the Twin Builder spec, or the demo's derived fleet). */
 function AmrPanel({ state, id, onClose }: { state: FactoryState; id: string; onClose: () => void }) {
@@ -303,7 +303,7 @@ function AmrPanel({ state, id, onClose }: { state: FactoryState; id: string; onC
             <p className="font-mono text-[11.5px] text-muted">{amr.id}</p>
             <p className="text-[15px] font-semibold text-ink">{amr.name}</p>
             <p className="text-[11.5px] text-muted">
-              {ROBOT_TYPE_LABEL[amr.robotType]} · {amr.fleetName} · {amr.lineName}
+              {ROBOT_TYPE[amr.robotType].name} · {amr.fleetName} · {amr.lineName}
             </p>
           </div>
         </div>
@@ -313,12 +313,11 @@ function AmrPanel({ state, id, onClose }: { state: FactoryState; id: string; onC
       </div>
       <div className="mb-3 flex flex-wrap gap-1.5">
         <Badge tone={amr.status === "active" ? "healthy" : "warning"}>{amr.status === "active" ? "On mission" : "Parked"}</Badge>
-        <Badge tone="warning">Simulated</Badge>
-        <Badge tone="neutral">{amr.configured ? "From the Twin Builder spec" : "Demo fleet"}</Badge>
+        <Badge tone="neutral">{amr.fleetName}</Badge>
       </div>
       {amr.reason && <p className="mb-3 rounded-lg border border-warning/40 bg-warning/5 p-2 text-[12px] text-ink-2">{amr.reason}</p>}
       <div className="space-y-1">
-        <KeyValue k="Mission" v={amr.mission === "kitting" ? "Line-side kitting" : amr.mission === "line-transfer" ? "Product to the packing line" : "Finished goods to dock"} />
+        <KeyValue k="Mission" v={MISSION[amr.mission].description} />
         <KeyValue k="From" v={amr.from} />
         <KeyValue k="To" v={amr.to} />
         <KeyValue k="Payload" v={amr.payload} />
@@ -327,10 +326,10 @@ function AmrPanel({ state, id, onClose }: { state: FactoryState; id: string; onC
         <KeyValue k="Trips" v={`${amr.tripsPerHour} per hour`} />
         {route && <KeyValue k="Route" v={`${Math.round(route.length * METRES_PER_UNIT)} m each way`} />}
         <KeyValue k="Speed" v={`${amr.speedMps.toFixed(1)} m/s`} />
-        {util !== null && <KeyValue k="Busy (est.)" v={`${Math.round(util * 100)}% of the hour`} />}
+        {util !== null && <KeyValue k="Busy" v={`${Math.round(util * 100)}% of the hour`} />}
       </div>
       <p className="mt-3 text-[11px] leading-relaxed text-muted">
-        Simulated intralogistics: trips are sized from the line&apos;s measured output{amr.configured ? " and shared across its fleet" : ""}, and the robot parks when its line stops or a part runs out. No robots are connected. A fleet manager (VDA 5050 or a vendor API) would replace this with real positions and missions.
+        Trips follow the line&apos;s output{amr.configured ? " and are shared across the fleet" : ""}; the robot parks when its line stops or a part runs out.
       </p>
     </div>
   );
@@ -358,7 +357,7 @@ function AddAssetDialog({ open, onOpenChange, state, onAdded }: { open: boolean;
       open={open}
       onOpenChange={onOpenChange}
       title="Add asset to the twin"
-      description="The asset joins the line's material flow (machines in series) and starts producing simulated telemetry."
+      description="The asset joins the line's material flow and starts reporting telemetry."
       footer={
         <>
           <Button variant="ghost" size="sm" onClick={() => onOpenChange(false)}>

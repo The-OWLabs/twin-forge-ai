@@ -3,7 +3,8 @@
 import { memo, useMemo, type ReactNode } from "react";
 import type { AssetStatus } from "@/domain/types";
 import { boxFaces, floorQuad, localExtents, localToWorld, machineParts, project, pts, rotatePoint, UNIT, type Box, type Part, type Tone, type V3 } from "./geometry";
-import { FOOTPRINT, layoutIso, type IsoMachine, type IsoModel, type PlacedMachine } from "./model";
+import { FOOTPRINT, layoutIso, type IsoMachine, type IsoModel, type PlacedMachine } from "./model";import { CAMERA_LENS_COLOR, STATUS_COLOR } from "../ui/labels";
+
 
 export interface IsoHighlight {
   assetIds: string[];
@@ -32,15 +33,8 @@ export interface IsoSceneProps {
   title?: string;
 }
 
-const CAM_LENS: Record<string, string> = { area: "#38bdf8", inspection: "#4c8dff", thermal: "#fb923c", dock: "#38bdf8" };
+const CAM_LENS = CAMERA_LENS_COLOR;
 
-const STATUS_COLOR: Record<AssetStatus, string> = {
-  healthy: "#10b981",
-  warning: "#f59e0b",
-  critical: "#ef4444",
-  offline: "#64748b",
-  maintenance: "#818cf8",
-};
 
 const TONES: Record<Exclude<Tone, "accent">, [string, string, string]> = {
   body: ["var(--iso-top)", "var(--iso-right)", "var(--iso-left)"],

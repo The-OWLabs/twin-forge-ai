@@ -168,7 +168,7 @@ export function ComparisonTable({ results, selectedId }: { results: ScenarioResu
           ))}
         </tbody>
       </table>
-      <p className="mt-2 text-[11px] text-muted">Deltas compare each plan with the reference plan (healthy-asset assumption). Green = better, red = worse. All values are model estimates.</p>
+      <p className="mt-2 text-[11px] text-muted">Deltas compare each plan with the reference plan (healthy-asset assumption). Green = better, red = worse.</p>
     </div>
   );
 }
@@ -237,7 +237,7 @@ export function ConditionChart({ results, alarm, trip }: { results: ScenarioResu
           </LineChart>
         </ResponsiveContainer>
       </div>
-      <p className="mt-1 text-[11px] text-muted">Gaps = machine stopped (maintenance or unplanned repair). Trajectory uses the telemetry-calibrated wear trend.</p>
+      <p className="mt-1 text-[11px] text-muted">Gaps = machine stopped (maintenance or unplanned repair).</p>
     </div>
   );
 }

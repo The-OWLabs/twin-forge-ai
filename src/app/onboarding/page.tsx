@@ -67,7 +67,7 @@ export default function TwinBuilderPage() {
             </div>
             {meta && (
               <Badge tone={meta.ai.available ? "agent" : "warning"} className="self-start md:self-auto">
-                <Sparkles className="h-3 w-3" /> {meta.ai.available ? `Agent: ${meta.ai.model}` : "AI not configured: template mode"}
+                <Sparkles className="h-3 w-3" /> {meta.ai.available ? `Agent: ${meta.ai.model}` : "Template mode"}
               </Badge>
             )}
           </div>

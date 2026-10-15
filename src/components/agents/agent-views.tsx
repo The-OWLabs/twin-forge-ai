@@ -215,7 +215,7 @@ export function AgentDetail({ state, report }: { state: FactoryState; report: Ag
         </div>
       )}
       <p className="text-[10.5px] text-muted">
-        Computed in {report.durationMs < 1 ? "<1" : report.durationMs} ms on a snapshot of {state.profile.name} · deterministic given the same factory state
+        Computed in {report.durationMs < 1 ? "<1" : report.durationMs} ms on a snapshot of {state.profile.name}
       </p>
     </div>
   );
@@ -231,7 +231,7 @@ export function NarrativeCard({ narrative }: { narrative: Narrative }) {
           </Badge>
         ) : (
           <Badge tone="neutral">
-            <Microscope className="h-3 w-3" /> Deterministic narrative
+            <Microscope className="h-3 w-3" /> Analysis summary
           </Badge>
         )}
       </div>

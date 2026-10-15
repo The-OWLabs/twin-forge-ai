@@ -2,7 +2,6 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { ShieldCheck } from "lucide-react";
 import { useFactory } from "@/client/store";
 import { cn } from "@/lib/cn";
 import { BrandMark, BrandName } from "../brand";
@@ -44,6 +43,7 @@ export function Sidebar({ open, onNavigate }: { open: boolean; onNavigate: () =>
                     <Link
                       href={item.href}
                       onClick={onNavigate}
+                      aria-current={active ? "page" : undefined}
                       className={cn(
                         "group flex h-9 items-center gap-2.5 rounded-lg px-2.5 text-[13px] font-medium transition-colors",
                         active ? "bg-surface-2 text-ink shadow-[inset_2px_0_0_var(--color-accent)]" : "text-ink-2 hover:bg-surface/70 hover:text-ink",
@@ -61,15 +61,6 @@ export function Sidebar({ open, onNavigate }: { open: boolean; onNavigate: () =>
           </div>
         ))}
       </nav>
-      <div className="m-2.5 rounded-xl border border-line bg-surface/60 p-3">
-        <div className="flex items-center gap-2 text-[12px] font-medium text-ink-2">
-          <ShieldCheck className="h-3.5 w-3.5 text-healthy" />
-          Simulated execution only
-        </div>
-        <p className="mt-1 text-[11px] leading-relaxed text-muted">
-          No PLC writes or machine commands. Approved actions change the digital twin, not real equipment.
-        </p>
-      </div>
     </aside>
   );
 }

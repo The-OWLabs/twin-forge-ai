@@ -6,11 +6,12 @@ import Link from "next/link";
 import { CartesianGrid, Line, LineChart, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { ArrowDownRight, ArrowUpRight, BrainCircuit, FileText, Flame, Network, PowerOff, RotateCcw, Save, Waves, Wrench, Boxes, Truck, Link2 } from "lucide-react";
 import { diagnoseAsset } from "@/domain/anomaly";
-import { riskFromStatus } from "@/domain/health";
-import { ASSET_KIND_LABEL } from "@/domain/seed";
+import { healthBand, riskFromStatus } from "@/domain/health";
+import { ASSET_KIND_LABEL } from "@/domain/archetypes";
 import { readingsFor } from "@/domain/telemetry";
 import type { Asset, FactoryState } from "@/domain/types";
 import type { FaultMode } from "@/domain/commands";
+import { api } from "@/client/api";
 import { useFactory, useUi } from "@/client/store";
 import { cn } from "@/lib/cn";
 import { fmtHours, fmtInt, fmtNum, fmtPct, fmtRelHours, fmtSimTime } from "@/lib/format";
@@ -18,7 +19,8 @@ import { AXIS_TICK, ChartTooltip, GRID, SERIES } from "../charts/kit";
 import { KeyValue, SectionLabel } from "../page";
 import { Badge, Button, Dialog, Input, Label, Meter, Select, Slider, Tabs, TabsContent, TabsList, TabsTrigger } from "../ui/primitives";
 import { RiskBadge, StatusBadge, healthTone } from "../ui/status";
-import { KIND_ICON } from "../twin/nodes";
+import { KIND_ICON } from "../ui/asset-kind";
+import { STATUS_COLOR } from "../ui/labels";
 import { CamerasWatching } from "../vision/camera-panel";
 
 export function AssetPanel({ state, asset, compact = false, onClose }: { state: FactoryState; asset: Asset; compact?: boolean; onClose?: () => void }) {
@@ -147,7 +149,7 @@ function Overview({ state, asset, compact }: { state: FactoryState; asset: Asset
           <KeyValue k="Preventive maintenance" v={d.pmOverdueHours > 0 ? <span className="text-warning-ink">{d.pmOverdueHours} h overdue</span> : `due in ${fmtInt(-d.pmOverdueHours)} h`} />
           <KeyValue k="Readings analysed" v={fmtInt(d.readingsUsed)} />
         </div>
-        <p className="mt-2 text-[10.5px] leading-relaxed text-muted">OLS trend on running telemetry with a change-point test. Estimates from simulated demo data.</p>
+        <p className="mt-2 text-[10.5px] leading-relaxed text-muted">Trend on running telemetry with a change-point test.</p>
       </div>
 
       <CamerasWatching state={state} assetId={asset.id} />
@@ -219,7 +221,7 @@ export function TelemetryCharts({ state, asset }: { state: FactoryState; asset: 
   return (
     <div className="space-y-4">
       <p className="text-[11px] text-muted">
-        {data.length} readings · 10-min history + latest live reading · simulated sensors ({asset.sensors.map((s) => s.kind).join(", ")})
+        {data.length} readings · 10-min history + latest live reading · sensors ({asset.sensors.map((s) => s.kind).join(", ")})
       </p>
       {chart("vibration", "mm/s", SERIES[0], asset.thresholds.vibrationAlarm, asset.thresholds.vibrationTrip)}
       {chart("temperature", "°C", SERIES[1], asset.thresholds.temperatureAlarm, asset.thresholds.temperatureTrip)}
@@ -231,12 +233,12 @@ export function TelemetryCharts({ state, asset }: { state: FactoryState; asset: 
             <div
               key={h.day}
               className="flex-1 rounded-t-[2px]"
-              style={{ height: `${Math.max(6, h.score)}%`, background: h.score >= 75 ? "#10b981" : h.score >= 45 ? "#f59e0b" : "#ef4444", opacity: 0.85 }}
+              style={{ height: `${Math.max(6, h.score)}%`, background: STATUS_COLOR[healthBand(h.score)], opacity: 0.85 }}
               title={`Day ${h.day}: ${h.score.toFixed(0)}`}
             />
           ))}
         </div>
-        <p className="mt-1 text-[10.5px] text-muted">Daily health score (seeded history, last bar = today).</p>
+        <p className="mt-1 text-[10.5px] text-muted">Daily health score (last bar = today).</p>
       </div>
     </div>
   );
@@ -385,8 +387,7 @@ function Documents({ asset }: { asset: Asset }) {
   const [open, setOpen] = useState<{ title: string; content: string } | null>(null);
   useEffect(() => {
     let alive = true;
-    fetch(`/api/documents?assetId=${encodeURIComponent(asset.id)}`, { cache: "no-store" })
-      .then((r) => r.json())
+    api<{ documents: DocMeta[]; store: string; remoteError: string | null }>(`/api/documents?assetId=${encodeURIComponent(asset.id)}`)
       .then((d) => alive && setData(d))
       .catch(() => alive && setData({ documents: [], store: "unavailable", remoteError: "Could not load documents" }));
     return () => {
@@ -395,10 +396,11 @@ function Documents({ asset }: { asset: Asset }) {
   }, [asset.id]);
   const view = async (d: DocMeta) => {
     if (d.source !== "local") return;
-    const r = await fetch(`/api/documents/${d.id}`);
-    if (r.ok) {
-      const j = await r.json();
+    try {
+      const j = await api<{ title: string; content: string }>(`/api/documents/${d.id}`);
       setOpen({ title: j.title, content: j.content });
+    } catch {
+      /* the list already shows when documents are unavailable */
     }
   };
   return (
@@ -499,7 +501,7 @@ function Configure({ state, asset }: { state: FactoryState; asset: Asset }) {
         </div>
         <div className="space-y-1.5">
           <div className="flex justify-between">
-            <Label>Commanded speed (simulated setpoint)</Label>
+            <Label>Commanded speed</Label>
             <span className="tabular text-[12px] text-ink">{form.speedPct}%</span>
           </div>
           <Slider min={30} max={110} step={5} value={[form.speedPct]} onValueChange={([v]) => setForm({ ...form, speedPct: v })} />
@@ -515,9 +517,9 @@ function Configure({ state, asset }: { state: FactoryState; asset: Asset }) {
 
       <div className="space-y-3 rounded-xl border border-warning/30 bg-warning/5 p-3">
         <div>
-          <SectionLabel className="text-warning-ink">Fault injection — simulation control</SectionLabel>
+          <SectionLabel className="text-warning-ink">Fault injection</SectionLabel>
           <p className="mt-1 text-[11.5px] leading-relaxed text-muted">
-            Changes the simulated physical condition. Effects appear in telemetry, status, incidents and agent analysis like a real event. Every injection is logged in the audit trail.
+            Introduce a fault to rehearse the response. Effects appear in telemetry, status, incidents and agent analysis; every injection is logged in the audit trail.
           </p>
         </div>
         <div className="space-y-1.5">

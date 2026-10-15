@@ -3,7 +3,7 @@
 import { useRouter, usePathname } from "next/navigation";
 import { ArrowRight, CheckCircle2, ChevronDown, ChevronUp, Compass, X } from "lucide-react";
 import { useState } from "react";
-import { useFactory, useUi } from "@/client/store";
+import { highlightFor, useFactory, useUi } from "@/client/store";
 import { cn } from "@/lib/cn";
 import { Button } from "../ui/primitives";
 
@@ -17,7 +17,7 @@ interface GuideStep {
 const STEPS: GuideStep[] = [
   {
     title: "A critical incident is developing",
-    body: "Bearing damage was injected on Assembly Robot A3. Vibration jumped above the alarm limit and a critical incident opened. Note the delivery risk on ORD-1042.",
+    body: "Assembly Robot A3 has bearing damage. Vibration jumped above the alarm limit and a critical incident opened. Note the delivery risk on ORD-1042.",
     path: "/dashboard",
     cta: "Investigate with AI agents",
   },
@@ -29,7 +29,7 @@ const STEPS: GuideStep[] = [
   },
   {
     title: "What-if scenarios",
-    body: "Each plan is simulated on the shared plant model. Adjust levers such as maintenance timing, line allocation or MCU-7 availability, and results recalculate instantly.",
+    body: "Each plan runs on the twin. Adjust levers such as maintenance timing, line allocation or MCU-7 availability, and results recalculate instantly.",
     path: "/simulator",
     cta: "See it in the digital twin",
   },
@@ -41,7 +41,7 @@ const STEPS: GuideStep[] = [
   },
   {
     title: "Human approval",
-    body: "Review actions, evidence, risks and rollback options, then approve. Execution is simulated: directives are applied to the twin, never to real equipment.",
+    body: "Review actions, evidence, risks and rollback options, then approve. The approved actions run in the twin.",
     path: "/approvals",
     cta: "View the audit trail",
   },
@@ -60,8 +60,8 @@ export function DemoGuide() {
   const setGuide = useUi((s) => s.setGuide);
   const setHighlight = useUi((s) => s.setHighlight);
   const analyze = useFactory((s) => s.analyze);
-  const analysis = useFactory((s) => s.analysis);
-  const state = useFactory((s) => s.state);
+  // Only the running flag is rendered; everything else is read when a button is pressed.
+  const analysisRunning = useFactory((s) => !!s.analysis?.running);
   const [collapsed, setCollapsed] = useState(false);
   if (!guide.active) return null;
   const step = STEPS[Math.min(guide.step, STEPS.length - 1)];
@@ -76,28 +76,15 @@ export function DemoGuide() {
     setGuide({ step: n });
     const target = STEPS[n];
     router.push(target.path);
-    if (target.path === "/agents" && !analysis?.running) void analyze();
+    if (target.path === "/agents" && !analysisRunning) void analyze();
     if (target.path === "/twin") {
-      const run = useFactory.getState().analysis?.run ?? state?.scenarioRuns[0];
+      const run = useFactory.getState().analysis?.run ?? useFactory.getState().state?.scenarioRuns[0];
       const rec = run?.results.find((r) => r.definition.id === run.recommendedId);
-      if (run && rec) {
-        setHighlight({
-          runId: run.id,
-          scenarioId: rec.definition.id,
-          scenarioName: rec.definition.name,
-          kind: rec.definition.kind,
-          assetIds: rec.affectedAssetIds,
-          lineIds: rec.affectedLineIds,
-          itemIds: rec.affectedItemIds,
-          orderIds: rec.affectedOrderIds,
-          rerouteLineId: rec.definition.params.reroute.enabled ? rec.definition.params.reroute.toLineId : null,
-          targetAssetId: rec.definition.params.targetAssetId,
-        });
-      }
+      if (run && rec) setHighlight(highlightFor(run.id, rec));
     }
   };
 
-  const waitingForAnalysis = step.path === "/agents" && !!analysis?.running;
+  const waitingForAnalysis = step.path === "/agents" && analysisRunning;
 
   return (
     <div className="fixed bottom-4 left-4 z-[55] w-[min(360px,calc(100vw-32px))] rounded-2xl border border-accent/40 bg-shell/95 shadow-[0_20px_60px_-20px_rgba(76,141,255,0.45)] backdrop-blur lg:left-64">

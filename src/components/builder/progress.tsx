@@ -9,7 +9,7 @@ const META: Record<BuilderStage, { label: string; Icon: typeof Globe; what: stri
   read: { label: "Read blueprint", Icon: FileSearch, what: "Recognise machines, lines and flow on the drawing" },
   research: { label: "Research", Icon: Globe, what: "Standard layouts, rates and sensors, with citations" },
   draft: { label: "Draft twin", Icon: PenTool, what: "Propose lines, machines, products and connections" },
-  validate: { label: "Validate", Icon: ListChecks, what: "Deterministic checks before anything is built" },
+  validate: { label: "Validate", Icon: ListChecks, what: "Checks before anything is built" },
 };
 
 export function AgentStages({ compact = false }: { compact?: boolean }) {

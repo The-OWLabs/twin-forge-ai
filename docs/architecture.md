@@ -114,25 +114,34 @@ src/
     builder/              Twin Builder: spec, validation, compile, templates, edit ops, agent workflow
     tools/                agent tool layer (12 tools) + numeric grounding check
     seed.ts               plan → FactoryState builder (demo and generated twins)
+    layout.ts             floor layout shared by the isometric, 3D and Playground views
+    rules.ts, crisis.ts   maintenance rules; the scripted demo crisis
+    errors.ts             DomainError (status-carrying domain error)
     recommendations.ts, actions.ts, commands.ts, kpis.ts, audit.ts
   server/                 server-only adapters
+    http.ts               route wrapper, error contract, NDJSON responses
+    runtime.ts            runtime facts: serverless detection, data dir, atomic writes
     store.ts              state persistence
-    ai/provider.ts        Gemini calls: config, retries, timeouts, narrative grounding
-    builder/gemini.ts     Twin Builder prompts and schemas
-    copilot/              ADK agents, runner, Gemini schema conversion
-    tools/store.ts        binds the tool layer to live state
+    ai/                   provider-neutral LLM port (llm.ts) and provider config
+    builder/ai.ts         Twin Builder prompts and schemas (BuilderAi adapter)
+    copilot/              ADK agents, runner, ProviderLlm adapter
+    tools/store.ts        binds the tool layer to live state (ToolStore adapter)
     integrations/         BigQuery, Pub/Sub, GCS, MQTT, vision service; honest status
+  lib/contracts.ts        wire types shared by server and browser (copilot stream, landing story)
   app/                    Next.js routes: pages + /api/*
-  client/                 Zustand stores (factory, UI prefs, simulator, builder, copilot)
-  components/             UI: shell, twin (topology, iso, floor plan), vision, builder, copilot…
+  client/                 Zustand stores (factory, UI, simulator, builder, playground, copilot, admin),
+                          the typed API client and the integrations client
+  components/             UI: shell, twin, iso, three (3D), playground, vision, builder, copilot…
 services/
   vision/                 Python FastAPI + OpenCV service (tests, Dockerfile)
   agents/                 Python ADK agent that uses TwinForge over MCP
-tests/ e2e/               Vitest (81) and Playwright (11); services/vision has pytest (16)
+tests/ e2e/               Vitest (117) and Playwright (16); services/vision has pytest (16)
 docs/                     this document, Twin Builder, Python services plan
 ```
 
-**Layering rule:** `domain` imports nothing from `server`, `app` or `components`. Route handlers stay thin: validate input (zod), call a domain function, persist, respond. The browser imports the same domain code so the simulator and builder respond instantly.
+**Layering rule:** `domain` imports nothing from `server`, `app`, `components` or `client`; the browser code imports nothing from `server`; `server` imports nothing from `components`. Shared wire types live in `lib/contracts.ts`. Route handlers stay thin: validate input (zod), call a domain function, persist, respond. The browser imports the same domain code so the simulator and builder respond instantly. Checked on 16 Oct 2026: 202 modules, 728 runtime import edges, no circular imports.
+
+**Ports and adapters.** The domain defines the interfaces it needs and the server implements them: `ToolStore` (state access for the copilot and MCP tools; adapter `server/tools/store.ts`, fakes in tests), `BuilderAi` (Twin Builder AI steps; adapter `server/builder/ai.ts`), `PipelineDeps` (clock, pacing and narration for the analysis pipeline). Language-model calls go through one provider-neutral port (`server/ai/llm.ts`).
 
 ---
 
@@ -179,7 +188,7 @@ Approving a recommendation creates **directives** (maintenance window, allocatio
 Rules are part of the compiled twin (`state.rules`, engine ids) and act only through mechanisms the engine already has:
 - **Inventory and connector rules** run at the end of every `stepWorld`, so the live twin and What-If runs behave the same. An inventory rule adds a purchase order (whole lots, due after the lead time) when stock plus open orders falls below its level. A connector rule creates allocation or speed **directives** tagged with its id: *divert* re-allocates another process line (half its own mix, half the stopped line's products it can make), *slow* and *pause* set the line's machines' speed (a line at speed 0 reports *idle*); the directives end when the condition clears, with 80% hysteresis on buffer limits. Rule state (`state.ruleRuntime`) is cloned into simulations, so a What-If run never changes the live rules.
 - **Maintenance rules** (`src/domain/rules.ts`) watch measured health and vibration after each live step and, once per crossing, simulate the preset plans and create a **pending** preventive recommendation with source *rule*. Approval stays with a person.
-- Rule events are audited as *Automation rule (simulated)*; at most 12 finished rule directives are kept. A twin without rules has no `rules` field, so the demo seed is unchanged.
+- Rule events are audited as *Automation rule*; at most 12 finished rule directives are kept. A twin without rules has no `rules` field, so the demo seed is unchanged.
 
 ---
 

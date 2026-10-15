@@ -63,11 +63,11 @@ export function injectFault(state: FactoryState, input: FaultInput, nowISO: stri
     }
     asset.signal.vibration = asset.baseline.vibration;
     asset.signal.temperature = asset.baseline.temperature;
-    detail = "Condition reset to baseline (simulation control — not a maintenance action).";
+    detail = "Condition reset to baseline (not a maintenance action).";
   }
   appendAudit(state, nowISO, {
     category: "system",
-    actor: "Operator · simulation control",
+    actor: "Operator · demo controls",
     title: `Fault injection on ${asset.id}: ${input.mode}`,
     detail,
     severity: input.mode === "restore" ? "info" : "warning",
@@ -103,7 +103,7 @@ export function fastForward(state: FactoryState, hours: number, nowISO: string) 
   runMaintenanceRules(state, nowISO);
   appendAudit(state, nowISO, {
     category: "system",
-    actor: "Operator · simulation control",
+    actor: "Operator · demo controls",
     title: `Simulation fast-forwarded ${hours} h`,
     detail: `Plant model advanced to h+${state.clock.hour.toFixed(1)}.`,
     severity: "info",
@@ -254,7 +254,7 @@ export function setLiveTelemetry(state: FactoryState, enabled: boolean, nowISO: 
     category: "system",
     actor: "Operator",
     title: enabled ? "Live telemetry simulation started" : "Live telemetry simulation paused",
-    detail: enabled ? "Simulated telemetry advances 2 min of plant time every 4 s." : "Plant clock frozen; state is unchanged until resumed.",
+    detail: enabled ? "Live telemetry resumed: 2 min of plant time every 4 s." : "Plant clock paused; nothing changes until it resumes.",
     severity: "info",
     refs: {},
   });

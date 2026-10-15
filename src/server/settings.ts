@@ -57,10 +57,10 @@ export const SETTINGS = {
   AI_ENABLED: {
     defaultValue: "true",
     label: "AI agents",
-    help: "Turn Gemini off to run every agent on deterministic narratives only.",
+    help: "Turn AI off to stop all AI calls; agents then write their summaries from the analysis.",
     options: [
       { value: "true", label: "On" },
-      { value: "false", label: "Off (deterministic only)" },
+      { value: "false", label: "Off" },
     ],
   },
   AI_PROVIDER: {
@@ -171,7 +171,7 @@ export const SETTINGS = {
     label: "Telemetry source",
     help: "With Pub/Sub, incoming readings override the simulated measurements of matching assets.",
     options: [
-      { value: "simulated", label: "Simulated plant model" },
+      { value: "simulated", label: "Built-in plant model" },
       { value: "pubsub", label: "Pub/Sub (needs a subscription)" },
     ],
   },

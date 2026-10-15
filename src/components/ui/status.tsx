@@ -2,13 +2,15 @@ import { AlertOctagon, AlertTriangle, CheckCircle2, PowerOff, Wrench } from "luc
 import type { AssetStatus, RiskLevel, Severity } from "@/domain/types";
 import { cn } from "@/lib/cn";
 import { Badge, type Tone } from "./primitives";
+import { healthBand } from "@/domain/health";
+import { STATUS_COLOR } from "./labels";
 
 export const STATUS_META: Record<AssetStatus, { label: string; tone: Tone; color: string; Icon: typeof CheckCircle2 }> = {
-  healthy: { label: "Healthy", tone: "healthy", color: "#10b981", Icon: CheckCircle2 },
-  warning: { label: "Warning", tone: "warning", color: "#f59e0b", Icon: AlertTriangle },
-  critical: { label: "Critical", tone: "critical", color: "#ef4444", Icon: AlertOctagon },
-  offline: { label: "Offline", tone: "offline", color: "#64748b", Icon: PowerOff },
-  maintenance: { label: "Maintenance", tone: "maint", color: "#818cf8", Icon: Wrench },
+  healthy: { label: "Healthy", tone: "healthy", color: STATUS_COLOR.healthy, Icon: CheckCircle2 },
+  warning: { label: "Warning", tone: "warning", color: STATUS_COLOR.warning, Icon: AlertTriangle },
+  critical: { label: "Critical", tone: "critical", color: STATUS_COLOR.critical, Icon: AlertOctagon },
+  offline: { label: "Offline", tone: "offline", color: STATUS_COLOR.offline, Icon: PowerOff },
+  maintenance: { label: "Maintenance", tone: "maint", color: STATUS_COLOR.maintenance, Icon: Wrench },
 };
 
 export function StatusBadge({ status, className }: { status: AssetStatus; className?: string }) {
@@ -39,5 +41,5 @@ export function RiskBadge({ risk }: { risk: RiskLevel }) {
 export const SEVERITY_TONE: Record<Severity, Tone> = { info: "accent", warning: "warning", critical: "critical", success: "healthy" };
 
 export function healthTone(score: number): "healthy" | "warning" | "critical" {
-  return score >= 75 ? "healthy" : score >= 45 ? "warning" : "critical";
+  return healthBand(score);
 }
