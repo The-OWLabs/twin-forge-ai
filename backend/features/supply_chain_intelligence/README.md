@@ -1,38 +1,235 @@
-# Supply Chain Intelligence Domain (`backend/features/supply_chain_intelligence`)
+# TwinForge — AI-Powered Supply Chain Intelligence Platform
 
-## 1. Domain Overview & Purpose
-The **Supply Chain Intelligence** module prevents production line starvation by monitoring raw material inventory, evaluating multi-tier supplier lead-time variance, calculating dynamic safety stock buffers, and recommending optimal purchase order replenishment strategies.
-
----
-
-## 2. Domain Models & Mathematical Foundations
-
-### Core Entities & Value Objects (`domain/`)
-- `BillOfMaterials (BOM)`: Hierarchical graph mapping finished goods (FG) down to sub-assemblies and raw component part numbers with scrap factors.
-- `InventoryBuffer`: Current stock-on-hand, stock-in-transit, safety stock, and reorder point:
-  $$\text{Reorder Point (ROP)} = (d \times L) + SS$$
-  $$\text{Safety Stock (SS)} = Z \times \sqrt{L \times \sigma_d^2 + d^2 \times \sigma_L^2}$$
-  *(where $d$ = average demand, $L$ = average lead time, $\sigma_d$ = demand variance, $\sigma_L$ = lead time variance, $Z$ = service level factor).*
-- `SupplierRiskScore`: Multi-factor score evaluating lead-time reliability, quality defect rate, geopolitical risk, and single-source dependency.
+> **Enterprise-grade, GCP-Powered Autonomous Supply Chain Intelligence Platform**  
+> Uniting multi-tier supplier delivery tracking, Bill-of-Materials (BOM) downstream plant propagation, in-transit logistics delay detection, governed KPI frameworks, and an AI-powered conversational analytics assistant with what-if disruption simulation.
 
 ---
 
-## 3. Ports & Contracts (`ports/`)
+## 1. Executive Summary & Business Objective
 
-### Driving Ports (`ports/input/`)
-- `ISupplyChainUseCase`:
-  - `evaluate_part_stockout_risk(part_number: str, horizon_days: int) -> StockoutRiskReport`
-  - `calculate_dynamic_safety_stock(part_number: str, target_service_level: float) -> float`
-  - `recommend_purchase_orders() -> list[PurchaseOrderRecommendation]`
+Industrial supply chains suffer from fragmented visibility across ERP purchase orders, logistics carrier milestones, shop-floor inventory levels, and customer order delivery commitments. A single delayed component shipment frequently cascades into idle manufacturing lines, missed customer delivery SLAs, and steep contractual penalties.
 
-### Driven Ports (`ports/output/`)
-- `IERPInventoryAdapter`: Interfaces with SAP/ERP to read real-time stock balances and open POs.
-- `ISupplierTelemetryAdapter`: Ingests logistics carrier tracking updates and delivery milestones.
-- `IPOEmitter`: Posts draft purchase orders for procurement approval.
+**TwinForge Supply Chain Intelligence** bridges the entire value chain into a governed operational graph:
+1. **Governed Supply Chain Ontology**: Connects `Supplier` ➔ `Part (BOM)` ➔ `Purchase Order` ➔ `Shipment` ➔ `Warehouse` ➔ `Plant` ➔ `Customer Order` ➔ `Customer`.
+2. **Multi-Factor Supplier Risk Scoring**: Evaluates historical On-Time Delivery (OTD), lead-time variance, defect PPM, geopolitical exposure, and financial stability.
+3. **Real-Time Logistics Delay Detection**: Tracks in-transit multi-modal shipments, detecting ETA drift, port congestion, and customs clearance holds.
+4. **BOM Downstream Plant Propagation**: Traces delayed parts through the Bill of Materials to identify threatened finished assemblies, halted plant shifts, and customer orders at immediate delivery risk.
+5. **Governed KPI Framework**: Computes 9 standard enterprise metrics (OTD, Fill Rate, Days of Inventory, Lead-Time Variance, Shipment Delay Rate, Disruption Financial Cost).
+6. **Prescriptive Mitigation Action Center**: Ranks corrective actions (Expedited air freight, dual-source reallocation, inventory re-balancing) by net financial benefit ($ cost avoidance) with 1-click human approval.
+7. **AI Conversational Analytics & What-If Simulator**: Zero-hallucination conversational interface answering complex operational inquiries and simulating hypothetical supplier failure scenarios.
 
 ---
 
-## 4. MCP Tools & Agent Interfaces
-- `check_inventory_headroom(part_number)`: Returns hours of run-time remaining before line starvation.
-- `simulate_supplier_delay(supplier_id, delay_days)`: Assesses line impact if an inbound shipment is delayed.
-- `recommend_replenishment_order(part_number)`: Calculates optimal lot size and required delivery date.
+## 2. End-to-End System Architecture
+
+```
+┌────────────────────────────────────────────────────────────────────────────────────────┐
+│                              GLOBAL MULTI-SOURCE INPUTS                                │
+│                                                                                        │
+│   ┌────────────────────┐   ┌────────────────────┐   ┌────────────────┐   ┌─────────┐   │
+│   │     ERP Systems    │   │     TMS Systems    │   │  WMS Systems   │   │   OMS   │   │
+│   │ SAP S/4HANA POs    │   │ Carrier GPS, ETAs  │   │ Stock Balances │   │ Customer│   │
+│   │ & Supplier Master  │   │ & Port Congestion  │   │ & Bin Locations│   │ Orders  │   │
+│   └─────────┬──────────┘   └─────────┬──────────┘   └───────┬────────┘   └───┬─────┘   │
+└─────────────┼────────────────────────┼──────────────────────┼────────────────┼─────────┘
+              │                        │                      │                │
+              ▼                        ▼                      ▼                ▼
+┌────────────────────────────────────────────────────────────────────────────────────────┐
+│                        INGESTION & CANONICAL ONTOLOGY LAYER                            │
+│                                                                                        │
+│   • Google Cloud Pub/Sub (`supply-chain-events` topic)                                 │
+│   • Schema Validation, Deduplication, Timestamp Normalization & DLQ Routing            │
+│   • Data Provenance Tagging [ACTUAL vs. SIMULATED vs. ESTIMATED]                       │
+│   • Cross-System Entity Resolution (`Supplier` -> `Part` -> `PO` -> `Shipment`)        │
+└──────────────────────────────────────┬─────────────────────────────────────────────────┘
+                                       │
+                                       ▼
+┌────────────────────────────────────────────────────────────────────────────────────────┐
+│                         BIGQUERY ENTERPRISE DATA LAKEHOUSE                             │
+│                                                                                        │
+│   • dim_supplier                  • fact_inventory_balance       • fact_customer_order │
+│   • dim_part                      • fact_purchase_order          • fact_disruption     │
+│   • dim_bill_of_materials         • fact_shipment                • fact_mitigation     │
+└──────────────────────────────────────┬─────────────────────────────────────────────────┘
+                                       │
+            ┌──────────────────────────┴──────────────────────────┐
+            ▼                                                     ▼
+┌───────────────────────────────────────┐   ┌────────────────────────────────────────────┐
+│     INTELLIGENCE & RISK ENGINE        │   │          CONVERSATIONAL AI ASSISTANT       │
+│                                       │   │                                            │
+│ • Multi-Factor Supplier Risk Scoring  │   │ • Multi-Source Grounded Synthesis          │
+│ • Real-Time ETA Drift & Port Delay    │   │ • Strict Zero-Hallucination Guardrails     │
+│ • Days of Inventory (DOI) Forecasting │   │ • Downstream BOM & SLA Impact Tracing      │
+│ • Single-Source Concentration (HHI)   │   │ • What-If Disruption Scenario Simulator    │
+│ • Prescriptive Mitigation ROI Ranking │   │ • Prompt-Injection Defense Sanitizer       │
+│ • Governed Enterprise KPI Framework   │   │ • Multilingual Generation (EN / DE / HI)   │
+└───────────────────┬───────────────────┘   └─────────────────────┬──────────────────────┘
+                    │                                             │
+                    └──────────────────────┬──────────────────────┘
+                                           │
+                                           ▼
+┌────────────────────────────────────────────────────────────────────────────────────────┐
+│                         FASTAPI BACKEND & ENTERPRISE UI                                │
+│                                                                                        │
+│   • High-Performance Async REST API (`/api/v1/supply-chain/*`)                         │
+│   • Interactive Streamlit Operations Cockpit (`dashboard/supply_chain_app.py`)        │
+└────────────────────────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## 3. Governed Business Ontology & Entities
+
+The platform implements an explicit enterprise relational graph:
+
+```
+Supplier ──(supplies)──> Part ──(BOM)──> Finished Assembly
+    │                     │
+(issues)             (carried by)
+    │                     │
+    ▼                     ▼
+Purchase Order ─────> Shipment ──(delivers to)──> Warehouse ──> Plant
+                                                                  │
+                                                          (manufactures for)
+                                                                  │
+                                                                  ▼
+                                                            Customer Order ──> Customer
+```
+
+### Table Catalog:
+| Entity / Table | Primary Key | Description | Key Foreign Keys |
+|---|---|---|---|
+| `dim_supplier` | `supplier_id` | Tier 1/2/3 global vendors with lead times and OTD rates | — |
+| `dim_part` | `part_id` | Component catalog, unit costs, safety stocks, dual-sourcing | `primary_supplier_id`, `alternate_supplier_id` |
+| `dim_bill_of_materials` | Composite | Maps component parts into finished assemblies | `finished_assembly_id`, `part_id` |
+| `fact_inventory_balance` | `inventory_id` | Real-time stock on hand, allocated, available, and DOI | `part_id`, `warehouse_id`, `plant_id` |
+| `fact_purchase_order` | `po_id` | Commercial purchase orders with promise and arrival dates | `supplier_id`, `part_id`, `destination_plant_id` |
+| `fact_shipment` | `shipment_id` | Logistics tracking with transport mode and ETA drift | `po_id` |
+| `fact_customer_order` | `order_id` | Customer delivery commitments, revenues, and SLA penalties | `finished_assembly_id`, `plant_id` |
+| `fact_disruption_event` | `disruption_id` | Detected bottleneck events and daily financial exposure | Array of affected suppliers, parts, orders |
+| `fact_mitigation_recommendation` | `recommendation_id` | Prescriptive mitigation actions with ROI calculations | `disruption_id`, `target_part_id` |
+
+---
+
+## 4. Governed KPI Framework & Mathematical Formulas
+
+Every KPI in the platform is strictly defined and verifiable:
+
+### 1. On-Time Delivery Rate (OTD)
+$$\text{OTD} = \frac{\sum \text{Completed Shipments Delivered on or before Promise Date}}{\text{Total Completed Shipments}} \times 100\%$$
+
+### 2. Order Fill Rate
+$$\text{Order Fill Rate} = \frac{\text{Customer Orders Fulfilled Complete Without Backorder}}{\text{Total Customer Orders Placed}} \times 100\%$$
+
+### 3. Days of Inventory (DOI)
+$$\text{DOI} = \frac{\text{Stock On Hand (Units)}}{\text{Average Daily Consumption Rate (Units/Day)}}$$
+*Breaches below 3.0 days trigger immediate critical stockout warnings.*
+
+### 4. Supplier Reliability Index (0–100)
+Blends four operational parameters:
+$$\text{Reliability} = 0.40 \cdot (\text{OTD} \times 100) + 0.25 \cdot \max(0, 100 - 12 \sigma_{\text{lead}}) + 0.20 \cdot (\text{FinScore} \times 100) + 0.15 \cdot \max(0, 100 - \text{PPM}/10)$$
+
+### 5. Lead-Time Variability ($\sigma_{\text{lead}}$)
+$$\sigma_{\text{lead}} = \sqrt{\frac{1}{N-1} \sum_{i=1}^N (L_i - \bar{L})^2}$$
+*Measures standard deviation in days between promised and actual shipment arrival.*
+
+### 6. Stockout Risk Index
+$$\text{Stockout Risk} = \frac{\text{Active SKUs with Stockout Risk} > 50\% \text{ or DOI} < 3\text{ Days}}{\text{Total Monitored SKUs}} \times 100\%$$
+
+### 7. Shipment Delay Rate
+$$\text{Delay Rate} = \frac{\text{In-Transit Shipments with ETA Drift} > 0}{\text{Total Active In-Transit Shipments}} \times 100\%$$
+
+### 8. Orders at Risk
+Count and USD revenue valuation of customer orders whose required BOM parts are delayed or out of stock.
+
+### 9. Estimated Disruption Cost
+$$\text{Cost} = \sum_{\text{Disruptions}} \Big( \text{Daily Plant Downtime Loss} \times \text{Days} + \sum_{\text{Orders}} \text{Daily SLA Penalty} \times \text{Days} \Big)$$
+
+---
+
+## 5. Conversational AI Assistant & What-If Simulator
+
+The Conversational AI operates under a **Strict Zero-Hallucination Policy**:
+- All stock balances, supplier OTD rates, and customer orders originate from verified repository services.
+- User queries are passed through pre-execution regex sanitization (`sanitize_supply_chain_text`) neutralizing prompt-injection attempts.
+- Output strictly separates **[Verified Facts]**, **[Risk Predictions]**, **[Downstream BOM Impact]**, and **[Prescriptive Mitigations]**.
+- Multilingual support for English (`en`), German (`de`), and Hindi (`hi`), strictly preserving technical tags (`PRT-MCU-8841`, `SUP-MICRO-01`) and financial currencies.
+
+### What-If Disruption Scenario Simulator
+Simulates hypothetical supply disruptions (e.g., complete delivery shutdown of a supplier or port closure for 14 days):
+- Computes projected factory idle hours across affected production lines.
+- Quantifies total financial exposure (lost throughput $+$ customer SLA penalties).
+- Lists all depleted component SKUs and threatened customer order numbers.
+- Formulates an actionable contingency plan (air-freight expedite, secondary supplier activation).
+
+---
+
+## 6. REST API Reference
+
+All endpoints are hosted under `/api/v1/supply-chain`:
+
+| Group | Method | Endpoint | Description |
+|---|---|---|---|
+| **KPIs** | `GET` | `/kpis/summary` | Enterprise scorecard (OTD, Fill Rate, DOI, Disruption Cost) |
+| **Suppliers** | `GET` | `/suppliers` | List all suppliers with risk tiers and country origin |
+| | `GET` | `/suppliers/{id}` | Detailed supplier profile and contract terms |
+| | `GET` | `/suppliers/risks/evaluated` | Multi-factor composite delivery risk scores |
+| | `GET` | `/suppliers/concentration` | Single-source dependency analysis and concentration alerts |
+| **Inventory** | `GET` | `/parts` | Component parts catalog with dual-sourcing status |
+| | `GET` | `/parts/{id}` | Component details, unit costs, and safety stock |
+| | `GET` | `/inventory` | Real-time stock on hand, daily consumption, and DOI |
+| | `GET` | `/parts/{id}/bom-impact` | Trace part through BOM to affected assemblies and orders |
+| **Logistics** | `GET` | `/shipments` | In-transit shipments with milestone updates |
+| | `GET` | `/shipments/delayed` | Shipments experiencing ETA drift, port holds, or customs holds |
+| **Orders** | `GET` | `/orders` | Customer orders, revenue values, and delivery deadlines |
+| | `GET` | `/orders/at-risk` | Customer orders exposed to component stockouts |
+| **Disruptions** | `GET` | `/disruptions` | Active supply chain disruptions and daily financial losses |
+| | `GET` | `/mitigations` | Prescriptive mitigation recommendations ranked by ROI |
+| | `POST` | `/mitigations/{id}/approve` | Approve mitigation (updates status to `APPROVED`) |
+| **AI Assistant** | `POST` | `/assistant/chat` | Conversational query with multi-source grounded evidence |
+| | `POST` | `/assistant/what-if` | Run What-If disruption scenario simulation |
+| **Config** | `GET` | `/config` | Read active supply chain thresholds |
+| | `PUT` | `/config` | Dynamically update critical days of inventory or targets |
+
+---
+
+## 7. Streamlit Operations Cockpit
+
+Launch the interactive operations dashboard:
+
+```bash
+cd dashboard
+streamlit run supply_chain_app.py --server.port 8502
+```
+
+### Dashboard Tabs:
+1. **🏭 Suppliers & Delivery Risk**: Multi-tier supplier scorecard, lead-time variance vs OTD scatter plot, single-source concentration alert card.
+2. **📦 Inventory & BOM Propagation**: Real-time stock balances, Days of Inventory (DOI), interactive component BOM drill-down tracing downstream revenue at risk.
+3. **🚢 Active Shipments & Port Delays**: In-transit shipment tracking with port congestion (Chennai) and customs hold (Long Beach) milestone updates.
+4. **🎯 Disruption & Mitigation Center**: Active bottleneck cards with daily loss estimates, prescriptive mitigations, and 1-click approval buttons.
+5. **🤖 AI Assistant & What-If Simulator**: Natural language conversational interface with quick prompts, collapsible multi-source evidence inspection, and an interactive What-If scenario stress-tester.
+
+---
+
+## 8. Automated Testing & Verification
+
+Run the test suite with 100% offline fallback compatibility:
+
+```bash
+# Run Supply Chain Intelligence test suite
+python3 backend/tests/supply_chain_intelligence/test_supply_chain_intelligence.py
+
+# Run cross-feature compatibility tests
+PYTHONPATH=. python3 backend/tests/test_features.py
+PYTHONPATH=. python3 backend/tests/test_core.py
+```
+
+### Test Coverage:
+- `test_prompt_injection_sanitization`: Verifies regex neutralizing instruction-override attacks.
+- `test_supply_chain_kpi_calculations`: Validates mathematical consistency across all 9 KPIs.
+- `test_supplier_risk_scoring_and_concentration`: Validates composite risk ranking and single-source alerts.
+- `test_bom_downstream_impact_propagation`: Confirms component stockout propagates to finished products and orders.
+- `test_disruption_detection_and_mitigation_workflow`: Confirms approval workflow auto-resolves disruptions.
+- `test_ai_conversational_analytics_grounding`: Confirms zero-hallucination multi-source evidence.
+- `test_what_if_scenario_simulation`: Validates quantitative modeling of hypothetical supplier failures.
+- `test_multilingual_synthesis`: Confirms unit, currency, and tag preservation in German and Hindi.
