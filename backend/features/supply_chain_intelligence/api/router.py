@@ -55,10 +55,18 @@ from backend.features.supply_chain_intelligence.schemas.ontology import (
     MitigationRecommendation,
     GovernedSupplyChainKPIs,
     RiskSeverity,
+    Carrier,
+    Warehouse,
+    ProductionSchedule,
+    DemandForecast,
+    AlternativeSupplierContract,
+    ExcessInventoryItem,
+    EndToEndImpactTrace,
 )
 from backend.features.supply_chain_intelligence.repositories.local_mock_repo import local_supply_chain_repo
 from backend.features.supply_chain_intelligence.services.kpi_service import supply_chain_kpi_service
 from backend.features.supply_chain_intelligence.services.risk_engine import supply_chain_risk_engine
+from backend.features.supply_chain_intelligence.services.impact_analyzer import multi_echelon_impact_analyzer
 from backend.features.supply_chain_intelligence.assistant.models import (
     SupplyChainChatRequest,
     SupplyChainChatResponse,
@@ -224,7 +232,82 @@ async def simulate_what_if(request: WhatIfSimulationRequest) -> WhatIfSimulation
 
 
 # ==============================================================================
-# 8. Dynamic Configuration
+# 8. Multi-Echelon Ontology & Advanced Operational Analytics
+# ==============================================================================
+@router.get("/carriers", response_model=list[Carrier])
+async def list_carriers() -> list[Carrier]:
+    """Retrieve logistics service providers and carrier on-time performance."""
+    return local_supply_chain_repo.list_carriers()
+
+
+@router.get("/warehouses", response_model=list[Warehouse])
+async def list_warehouses(plant_id: Optional[str] = Query(None, description="Optional plant filter")) -> list[Warehouse]:
+    """Retrieve dedicated regional warehouses with utilization and holding cost rates."""
+    return local_supply_chain_repo.list_warehouses(plant_id=plant_id)
+
+
+@router.get("/production-schedules", response_model=list[ProductionSchedule])
+async def list_production_schedules(
+    plant_id: Optional[str] = Query(None, description="Optional plant filter"),
+    at_risk_only: bool = Query(False, description="Filter only schedules at HIGH or CRITICAL starvation risk"),
+) -> list[ProductionSchedule]:
+    """Retrieve plant production schedules and component line starvation risks."""
+    return local_supply_chain_repo.list_production_schedules(plant_id=plant_id, at_risk_only=at_risk_only)
+
+
+@router.get("/demand-forecasts", response_model=list[DemandForecast])
+async def list_demand_forecasts(
+    assembly_id: Optional[str] = Query(None, description="Optional finished assembly filter"),
+) -> list[DemandForecast]:
+    """Retrieve probabilistic demand forecasts (P10, P50, P90) with demand surge indicators."""
+    return local_supply_chain_repo.list_demand_forecasts(assembly_id=assembly_id)
+
+
+@router.get("/alternative-contracts", response_model=list[AlternativeSupplierContract])
+async def list_alternative_contracts(
+    part_id: Optional[str] = Query(None, description="Optional component part filter"),
+) -> list[AlternativeSupplierContract]:
+    """Retrieve pre-negotiated dual-source and contingency supplier contracts."""
+    return local_supply_chain_repo.list_alternative_contracts(part_id=part_id)
+
+
+@router.get("/inventory/excess")
+async def get_excess_inventory_analytics() -> dict[str, Any]:
+    """Quantifies excess inventory, tied-up working capital, and holding cost inefficiencies."""
+    return supply_chain_risk_engine.evaluate_excess_inventory()
+
+
+@router.get("/analytics/demand-supply-mismatch")
+async def get_demand_supply_mismatches() -> list[dict[str, Any]]:
+    """Evaluates multi-echelon demand-supply balance comparing forecast demand against available stock and inbound pipeline."""
+    return supply_chain_risk_engine.evaluate_demand_supply_mismatches()
+
+
+@router.get("/analytics/plant-vulnerability")
+async def get_plant_vulnerabilities() -> list[dict[str, Any]]:
+    """Ranks manufacturing plants by operational vulnerability, line starvation hours, and downtime cost exposure."""
+    return supply_chain_risk_engine.evaluate_plant_vulnerability()
+
+
+@router.post("/impact/trace/{disruption_id}", response_model=EndToEndImpactTrace)
+async def trace_disruption_impact(disruption_id: str) -> EndToEndImpactTrace:
+    """Traces an active disruption event across multi-echelon tiers: Inbound -> PO -> Shipment -> Inventory -> Starved Lines -> Customer Orders & SLA Loss."""
+    trace = multi_echelon_impact_analyzer.trace_disruption_impact(disruption_id)
+    if not trace:
+        raise HTTPException(status_code=404, detail=f"Disruption {disruption_id} not found")
+    return trace
+
+
+@router.post("/simulation/run")
+async def run_scenario_simulation(payload: dict[str, Any]) -> dict[str, Any]:
+    """Executes multi-vector What-If stress test (DEMAND_SURGE, CORRIDOR_CHOKEPOINT, SUPPLIER_SHUTDOWN) with governed SIMULATED_SCENARIO provenance."""
+    scenario_type = payload.get("scenario_type", "DEMAND_SURGE")
+    parameters = payload.get("parameters", {})
+    return supply_chain_risk_engine.simulate_scenario(scenario_type=scenario_type, parameters=parameters)
+
+
+# ==============================================================================
+# 9. Dynamic Configuration
 # ==============================================================================
 @router.get("/config", response_model=SupplyChainConfig)
 async def get_supply_config() -> SupplyChainConfig:

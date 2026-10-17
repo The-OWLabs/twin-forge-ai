@@ -171,3 +171,116 @@ CREATE TABLE IF NOT EXISTS `twinforge-enterprise.supply_chain_intelligence.fact_
 )
 PARTITION BY DATE(created_at)
 CLUSTER BY status, urgency, target_part_id;
+
+-- 10. Dimension: Logistics Service Providers (Carriers)
+CREATE TABLE IF NOT EXISTS `twinforge-enterprise.supply_chain_intelligence.dim_carrier` (
+    carrier_id STRING NOT NULL OPTIONS(description="Primary Key: Carrier ID"),
+    carrier_name STRING NOT NULL,
+    transport_mode STRING NOT NULL,
+    on_time_performance_rate FLOAT64 NOT NULL,
+    average_transit_delay_days FLOAT64 NOT NULL,
+    carbon_efficiency_rating STRING DEFAULT 'B',
+    primary_corridors ARRAY<STRING>,
+    contact_dispatch STRING
+)
+CLUSTER BY transport_mode, on_time_performance_rate;
+
+-- 11. Dimension: Dedicated Regional Warehouses
+CREATE TABLE IF NOT EXISTS `twinforge-enterprise.supply_chain_intelligence.dim_warehouse` (
+    warehouse_id STRING NOT NULL OPTIONS(description="Primary Key: Warehouse ID"),
+    warehouse_name STRING NOT NULL,
+    location_city STRING NOT NULL,
+    storage_capacity_pallets INT64 NOT NULL,
+    utilized_capacity_pct FLOAT64 NOT NULL,
+    associated_plant_id STRING NOT NULL,
+    annual_holding_cost_rate_pct FLOAT64 DEFAULT 22.0
+)
+CLUSTER BY associated_plant_id, utilized_capacity_pct;
+
+-- 12. Fact: Plant Production Schedules & Line Starvation
+CREATE TABLE IF NOT EXISTS `twinforge-enterprise.supply_chain_intelligence.fact_production_schedule` (
+    schedule_id STRING NOT NULL,
+    plant_id STRING NOT NULL,
+    line_id STRING NOT NULL,
+    assembly_id STRING NOT NULL,
+    assembly_name STRING NOT NULL,
+    planned_start_date DATE NOT NULL,
+    planned_end_date DATE NOT NULL,
+    planned_units INT64 NOT NULL,
+    daily_run_rate INT64 NOT NULL,
+    required_parts_allocated BOOL NOT NULL,
+    starvation_risk_level STRING NOT NULL,
+    estimated_starvation_hours FLOAT64 DEFAULT 0.0,
+    bottleneck_part_id STRING
+)
+PARTITION BY planned_start_date
+CLUSTER BY plant_id, starvation_risk_level, bottleneck_part_id;
+
+-- 13. Fact: Probabilistic Demand Forecasts
+CREATE TABLE IF NOT EXISTS `twinforge-enterprise.supply_chain_intelligence.fact_demand_forecast` (
+    forecast_id STRING NOT NULL,
+    assembly_id STRING NOT NULL,
+    assembly_name STRING NOT NULL,
+    horizon_days INT64 DEFAULT 30,
+    p10_units INT64 NOT NULL,
+    p50_units INT64 NOT NULL,
+    p90_units INT64 NOT NULL,
+    forecast_growth_rate_pct FLOAT64 DEFAULT 5.0,
+    demand_surge_risk BOOL DEFAULT FALSE,
+    generated_at DATE NOT NULL
+)
+PARTITION BY generated_at
+CLUSTER BY assembly_id, demand_surge_risk;
+
+-- 14. Dimension: Pre-Negotiated Alternative Supplier Contracts
+CREATE TABLE IF NOT EXISTS `twinforge-enterprise.supply_chain_intelligence.dim_alternative_supplier_contract` (
+    contract_id STRING NOT NULL,
+    primary_supplier_id STRING NOT NULL,
+    alternative_supplier_id STRING NOT NULL,
+    alternative_supplier_name STRING NOT NULL,
+    part_id STRING NOT NULL,
+    guaranteed_capacity_units_per_month INT64 NOT NULL,
+    expedited_lead_time_days INT64 NOT NULL,
+    price_premium_pct FLOAT64 DEFAULT 15.0,
+    is_contract_active BOOL DEFAULT TRUE
+)
+CLUSTER BY part_id, is_contract_active, primary_supplier_id;
+
+-- 15. Fact: Excess Inventory & Working Capital Inefficiencies
+CREATE TABLE IF NOT EXISTS `twinforge-enterprise.supply_chain_intelligence.fact_excess_inventory` (
+    part_id STRING NOT NULL,
+    part_name STRING NOT NULL,
+    stock_on_hand INT64 NOT NULL,
+    days_of_inventory FLOAT64 NOT NULL,
+    excess_units INT64 NOT NULL,
+    tied_up_capital_usd FLOAT64 NOT NULL,
+    annual_holding_cost_usd FLOAT64 NOT NULL,
+    obsolescence_risk_score FLOAT64 NOT NULL,
+    recommended_action STRING DEFAULT 'HOLD',
+    calculated_at TIMESTAMP NOT NULL
+)
+PARTITION BY DATE(calculated_at)
+CLUSTER BY recommended_action, tied_up_capital_usd;
+
+-- 16. Fact: Multi-Echelon End-to-End Disruption Impact Traces
+CREATE TABLE IF NOT EXISTS `twinforge-enterprise.supply_chain_intelligence.fact_end_to_end_impact_trace` (
+    disruption_id STRING NOT NULL,
+    root_cause_type STRING NOT NULL,
+    trigger_entity_id STRING NOT NULL,
+    affected_pos ARRAY<STRING>,
+    affected_shipments ARRAY<STRING>,
+    affected_parts ARRAY<STRING>,
+    time_to_depletion_hours FLOAT64 NOT NULL,
+    depletion_timestamp TIMESTAMP NOT NULL,
+    starved_production_lines ARRAY<STRING>,
+    threatened_customer_orders ARRAY<STRING>,
+    total_revenue_at_risk_usd FLOAT64 NOT NULL,
+    daily_sla_penalties_usd FLOAT64 NOT NULL,
+    total_projected_loss_usd FLOAT64 NOT NULL,
+    contingency_mitigation_ids ARRAY<STRING>,
+    data_provenance STRING DEFAULT 'ACTUAL',
+    traced_at TIMESTAMP NOT NULL
+)
+PARTITION BY DATE(traced_at)
+CLUSTER BY root_cause_type, data_provenance, disruption_id;
+

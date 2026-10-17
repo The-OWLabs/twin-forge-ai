@@ -30,6 +30,13 @@ from backend.features.supply_chain_intelligence.schemas.ontology import (
     CustomerOrderStatus,
     DisruptionType,
     DataProvenance,
+    Carrier,
+    Warehouse,
+    ProductionSchedule,
+    DemandForecast,
+    AlternativeSupplierContract,
+    ExcessInventoryItem,
+    EndToEndImpactTrace,
 )
 
 
@@ -47,6 +54,12 @@ class LocalMockSupplyChainRepository:
         self.customer_orders: dict[str, CustomerOrder] = {}
         self.disruptions: dict[str, DisruptionEvent] = {}
         self.mitigations: dict[str, MitigationRecommendation] = {}
+        self.carriers: dict[str, Carrier] = {}
+        self.warehouses: dict[str, Warehouse] = {}
+        self.production_schedules: dict[str, ProductionSchedule] = {}
+        self.demand_forecasts: dict[str, DemandForecast] = {}
+        self.alternative_contracts: dict[str, AlternativeSupplierContract] = {}
+        self.excess_inventory: dict[str, ExcessInventoryItem] = {}
 
         self._seed_reproducible_data()
 
@@ -659,6 +672,228 @@ class LocalMockSupplyChainRepository:
             ),
         }
 
+        # 11. Logistics Carriers
+        raw_carriers = [
+            Carrier(
+                carrier_id="CRR-EVERGREEN-01",
+                carrier_name="Evergreen Marine Line",
+                transport_mode=TransportMode.OCEAN,
+                on_time_performance_rate=0.74,
+                average_transit_delay_days=5.2,
+                carbon_efficiency_rating="B",
+                primary_corridors=["Kaohsiung-Chennai", "Ningbo-Rotterdam"],
+                contact_dispatch="ops@evergreen-marine.com",
+            ),
+            Carrier(
+                carrier_id="CRR-CAL-02",
+                carrier_name="China Airlines Cargo",
+                transport_mode=TransportMode.AIR,
+                on_time_performance_rate=0.96,
+                average_transit_delay_days=0.5,
+                carbon_efficiency_rating="C",
+                primary_corridors=["Taipei-Bangalore", "Incheon-Frankfurt"],
+                contact_dispatch="cargo@china-airlines.com",
+            ),
+            Carrier(
+                carrier_id="CRR-DACHSER-03",
+                carrier_name="Dachser European Logistics",
+                transport_mode=TransportMode.ROAD,
+                on_time_performance_rate=0.95,
+                average_transit_delay_days=0.8,
+                carbon_efficiency_rating="B",
+                primary_corridors=["Stuttgart-Rotterdam", "Munich-Milan"],
+                contact_dispatch="dispatch@dachser.com",
+            ),
+            Carrier(
+                carrier_id="CRR-ONE-04",
+                carrier_name="Ocean Network Express (ONE)",
+                transport_mode=TransportMode.OCEAN,
+                on_time_performance_rate=0.81,
+                average_transit_delay_days=4.1,
+                carbon_efficiency_rating="B",
+                primary_corridors=["Yokohama-Los Angeles", "Kobe-Hamburg"],
+                contact_dispatch="line-ops@one-line.com",
+            ),
+        ]
+        self.carriers = {c.carrier_id: c for c in raw_carriers}
+
+        # 12. Warehouses
+        raw_warehouses = [
+            Warehouse(
+                warehouse_id="WH-BLR-01",
+                warehouse_name="Bangalore Central Logistics Hub",
+                location_city="Bangalore",
+                storage_capacity_pallets=4500,
+                utilized_capacity_pct=88.5,
+                associated_plant_id="PLANT_BANGALORE",
+                annual_holding_cost_rate_pct=22.0,
+            ),
+            Warehouse(
+                warehouse_id="WH-STG-01",
+                warehouse_name="Stuttgart High-Bay Automated Warehouse",
+                location_city="Stuttgart",
+                storage_capacity_pallets=6200,
+                utilized_capacity_pct=72.0,
+                associated_plant_id="PLANT_STUTTGART",
+                annual_holding_cost_rate_pct=20.0,
+            ),
+            Warehouse(
+                warehouse_id="WH-DET-01",
+                warehouse_name="Detroit Great Lakes Fulfillment Center",
+                location_city="Detroit",
+                storage_capacity_pallets=5500,
+                utilized_capacity_pct=81.0,
+                associated_plant_id="PLANT_DETROIT",
+                annual_holding_cost_rate_pct=24.0,
+            ),
+        ]
+        self.warehouses = {w.warehouse_id: w for w in raw_warehouses}
+
+        # 13. Production Schedules & Starvation Risks
+        raw_schedules = [
+            ProductionSchedule(
+                schedule_id="SCH-2026-W42-BLR-L1",
+                plant_id="PLANT_BANGALORE",
+                line_id="LINE-BLR-01",
+                assembly_id="ASM-CNC-MILL-5X",
+                assembly_name="5-Axis High Precision CNC Milling Center",
+                planned_start_date="2026-10-19",
+                planned_end_date="2026-10-24",
+                planned_units=25,
+                daily_run_rate=5,
+                required_parts_allocated=False,
+                starvation_risk_level=RiskSeverity.CRITICAL,
+                estimated_starvation_hours=32.0,
+                bottleneck_part_id="PRT-MCU-8841",
+            ),
+            ProductionSchedule(
+                schedule_id="SCH-2026-W42-DET-L2",
+                plant_id="PLANT_DETROIT",
+                line_id="LINE-DET-02",
+                assembly_id="ASM-HYD-PRESS-200T",
+                assembly_name="200-Ton High Duty Hydraulic Stamping Press",
+                planned_start_date="2026-10-20",
+                planned_end_date="2026-10-25",
+                planned_units=15,
+                daily_run_rate=3,
+                required_parts_allocated=False,
+                starvation_risk_level=RiskSeverity.HIGH,
+                estimated_starvation_hours=48.0,
+                bottleneck_part_id="PRT-HYD-VLV-09",
+            ),
+            ProductionSchedule(
+                schedule_id="SCH-2026-W42-STG-L1",
+                plant_id="PLANT_STUTTGART",
+                line_id="LINE-STG-01",
+                assembly_id="ASM-ROBOTIC-ARM-6AXIS",
+                assembly_name="6-Axis Articulated Industrial Robotic Arm",
+                planned_start_date="2026-10-19",
+                planned_end_date="2026-10-25",
+                planned_units=30,
+                daily_run_rate=5,
+                required_parts_allocated=True,
+                starvation_risk_level=RiskSeverity.LOW,
+                estimated_starvation_hours=0.0,
+                bottleneck_part_id=None,
+            ),
+        ]
+        self.production_schedules = {s.schedule_id: s for s in raw_schedules}
+
+        # 14. Probabilistic Demand Forecasts
+        raw_forecasts = [
+            DemandForecast(
+                forecast_id="FC-2026-Q4-MILL",
+                assembly_id="ASM-CNC-MILL-5X",
+                assembly_name="5-Axis High Precision CNC Milling Center",
+                horizon_days=30,
+                p10_units=20,
+                p50_units=28,
+                p90_units=42,
+                forecast_growth_rate_pct=14.5,
+                demand_surge_risk=True,
+                generated_at="2026-10-18",
+            ),
+            DemandForecast(
+                forecast_id="FC-2026-Q4-ROBOT",
+                assembly_id="ASM-ROBOTIC-ARM-6AXIS",
+                assembly_name="6-Axis Articulated Industrial Robotic Arm",
+                horizon_days=30,
+                p10_units=25,
+                p50_units=35,
+                p90_units=48,
+                forecast_growth_rate_pct=6.0,
+                demand_surge_risk=False,
+                generated_at="2026-10-18",
+            ),
+            DemandForecast(
+                forecast_id="FC-2026-Q4-PRESS",
+                assembly_id="ASM-HYD-PRESS-200T",
+                assembly_name="200-Ton High Duty Hydraulic Stamping Press",
+                horizon_days=30,
+                p10_units=12,
+                p50_units=16,
+                p90_units=22,
+                forecast_growth_rate_pct=3.0,
+                demand_surge_risk=False,
+                generated_at="2026-10-18",
+            ),
+        ]
+        self.demand_forecasts = {f.forecast_id: f for f in raw_forecasts}
+
+        # 15. Alternative Supplier Pre-Negotiated Contracts
+        raw_alt_contracts = [
+            AlternativeSupplierContract(
+                contract_id="ALT-CONT-01",
+                primary_supplier_id="SUP-MICRO-01",
+                alternative_supplier_id="SUP-KOREA-SEMI-08",
+                alternative_supplier_name="Hana Semiconductor Solutions",
+                part_id="PRT-MCU-8841",
+                guaranteed_capacity_units_per_month=500,
+                expedited_lead_time_days=7,
+                price_premium_pct=18.0,
+                is_contract_active=True,
+            ),
+            AlternativeSupplierContract(
+                contract_id="ALT-CONT-02",
+                primary_supplier_id="SUP-HYD-03",
+                alternative_supplier_id="SUP-EU-HYD-09",
+                alternative_supplier_name="Danfoss Industrial Fluid Systems",
+                part_id="PRT-HYD-VLV-09",
+                guaranteed_capacity_units_per_month=150,
+                expedited_lead_time_days=10,
+                price_premium_pct=12.5,
+                is_contract_active=True,
+            ),
+        ]
+        self.alternative_contracts = {c.contract_id: c for c in raw_alt_contracts}
+
+        # 16. Excess Inventory & Tied-Up Working Capital Items
+        raw_excess = [
+            ExcessInventoryItem(
+                part_id="PRT-BOLT-M16-HT",
+                part_name="M16 Grade 12.9 High-Tensile Machine Bolt (Pack of 50)",
+                stock_on_hand=8500,
+                days_of_inventory=212.5,
+                excess_units=5500,
+                tied_up_capital_usd=176000.0,
+                annual_holding_cost_usd=38720.0,
+                obsolescence_risk_score=0.18,
+                recommended_action="REBALANCE_TO_PLANT",
+            ),
+            ExcessInventoryItem(
+                part_id="PRT-FLT-SEAL-99",
+                part_name="Nitrile O-Ring Flange Gasket Seal 120mm",
+                stock_on_hand=3500,
+                days_of_inventory=225.0,
+                excess_units=2500,
+                tied_up_capital_usd=52500.0,
+                annual_holding_cost_usd=11550.0,
+                obsolescence_risk_score=0.45,
+                recommended_action="RETURN_TO_SUPPLIER",
+            ),
+        ]
+        self.excess_inventory = {e.part_id: e for e in raw_excess}
+
     # Repository Access Methods
     def list_suppliers(self, risk_level: Optional[str] = None) -> list[Supplier]:
         res = list(self.suppliers.values())
@@ -715,6 +950,44 @@ class LocalMockSupplyChainRepository:
             if dis:
                 dis.resolved = True
         return rec
+
+    def list_carriers(self) -> list[Carrier]:
+        return list(self.carriers.values())
+
+    def get_carrier(self, carrier_id: str) -> Optional[Carrier]:
+        return self.carriers.get(carrier_id)
+
+    def list_warehouses(self, plant_id: Optional[str] = None) -> list[Warehouse]:
+        res = list(self.warehouses.values())
+        if plant_id and plant_id != "All":
+            res = [w for w in res if w.associated_plant_id == plant_id]
+        return res
+
+    def get_warehouse(self, warehouse_id: str) -> Optional[Warehouse]:
+        return self.warehouses.get(warehouse_id)
+
+    def list_production_schedules(self, plant_id: Optional[str] = None, at_risk_only: bool = False) -> list[ProductionSchedule]:
+        res = list(self.production_schedules.values())
+        if plant_id and plant_id != "All":
+            res = [s for s in res if s.plant_id == plant_id]
+        if at_risk_only:
+            res = [s for s in res if s.starvation_risk_level in [RiskSeverity.HIGH, RiskSeverity.CRITICAL]]
+        return res
+
+    def list_demand_forecasts(self, assembly_id: Optional[str] = None) -> list[DemandForecast]:
+        res = list(self.demand_forecasts.values())
+        if assembly_id:
+            res = [f for f in res if f.assembly_id == assembly_id]
+        return res
+
+    def list_alternative_contracts(self, part_id: Optional[str] = None) -> list[AlternativeSupplierContract]:
+        res = list(self.alternative_contracts.values())
+        if part_id:
+            res = [c for c in res if c.part_id == part_id]
+        return res
+
+    def list_excess_inventory(self) -> list[ExcessInventoryItem]:
+        return list(self.excess_inventory.values())
 
 
 # Global singleton instance

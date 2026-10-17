@@ -179,10 +179,20 @@ All endpoints are hosted under `/api/v1/supply-chain`:
 | | `GET` | `/parts/{id}` | Component details, unit costs, and safety stock |
 | | `GET` | `/inventory` | Real-time stock on hand, daily consumption, and DOI |
 | | `GET` | `/parts/{id}/bom-impact` | Trace part through BOM to affected assemblies and orders |
+| | `GET` | `/inventory/excess` | Excess inventory analytics & tied-up working capital ($228,500) |
+| **Multi-Echelon** | `GET` | `/carriers` | Logistics service providers & carrier on-time performance |
+| | `GET` | `/warehouses` | Dedicated regional warehouses with utilization & holding rates |
+| | `GET` | `/production-schedules`| Plant production schedules & component line starvation countdowns |
+| | `GET` | `/demand-forecasts` | Probabilistic demand forecasts ($P_{10}, P_{50}, P_{90}$) with surge flags |
+| | `GET` | `/alternative-contracts`| Pre-negotiated backup and dual-sourcing contracts |
 | **Logistics** | `GET` | `/shipments` | In-transit shipments with milestone updates |
 | | `GET` | `/shipments/delayed` | Shipments experiencing ETA drift, port holds, or customs holds |
 | **Orders** | `GET` | `/orders` | Customer orders, revenue values, and delivery deadlines |
 | | `GET` | `/orders/at-risk` | Customer orders exposed to component stockouts |
+| **Analytics** | `GET` | `/analytics/demand-supply-mismatch` | Multi-echelon demand-supply balance evaluation |
+| | `GET` | `/analytics/plant-vulnerability` | Plant operational vulnerability & line starvation rankings |
+| | `POST` | `/impact/trace/{id}` | Deterministic end-to-end impact trace from disruption to SLA penalties |
+| | `POST` | `/simulation/run` | Multi-vector What-If stress test (`SIMULATED_SCENARIO` provenance) |
 | **Disruptions** | `GET` | `/disruptions` | Active supply chain disruptions and daily financial losses |
 | | `GET` | `/mitigations` | Prescriptive mitigation recommendations ranked by ROI |
 | | `POST` | `/mitigations/{id}/approve` | Approve mitigation (updates status to `APPROVED`) |
@@ -193,7 +203,7 @@ All endpoints are hosted under `/api/v1/supply-chain`:
 
 ---
 
-## 7. Streamlit Operations Cockpit
+## 7. Streamlit Control Tower Cockpit
 
 Launch the interactive operations dashboard:
 
@@ -204,10 +214,12 @@ streamlit run supply_chain_app.py --server.port 8502
 
 ### Dashboard Tabs:
 1. **🏭 Suppliers & Delivery Risk**: Multi-tier supplier scorecard, lead-time variance vs OTD scatter plot, single-source concentration alert card.
-2. **📦 Inventory & BOM Propagation**: Real-time stock balances, Days of Inventory (DOI), interactive component BOM drill-down tracing downstream revenue at risk.
-3. **🚢 Active Shipments & Port Delays**: In-transit shipment tracking with port congestion (Chennai) and customs hold (Long Beach) milestone updates.
-4. **🎯 Disruption & Mitigation Center**: Active bottleneck cards with daily loss estimates, prescriptive mitigations, and 1-click approval buttons.
-5. **🤖 AI Assistant & What-If Simulator**: Natural language conversational interface with quick prompts, collapsible multi-source evidence inspection, and an interactive What-If scenario stress-tester.
+2. **📦 Inventory, Working Capital & BOM**: Real-time stock balances, excess working capital ($228,500), annual holding costs ($50,270), demand-supply mismatch analysis ($P_{50} / P_{90}$), interactive BOM drill-down.
+3. **🚢 Logistics, Carriers & Warehouses**: Logistics carrier performance (OTD, carbon rating, transit delays), regional dedicated warehouses, active in-transit shipments and port delays.
+4. **⏱️ Control Tower: Starvation & E2E Tracing**: Plant operational vulnerability rankings, production line starvation countdown timers, multi-echelon end-to-end disruption tracer ($TTD = \frac{\text{stock\_available}}{\text{daily\_consumption}} \times 24h$).
+5. **🎯 Disruption & Mitigation Center**: Pre-negotiated backup contracts, active disruption mitigation cards with net benefit calculation, and 1-click executive approval workflow.
+6. **🔮 Multi-Scenario What-If Simulator**: Multi-vector stress testing (Demand Surge, Corridor Chokepoint, Supplier Shutdown) with explicit `SIMULATED_SCENARIO` provenance badge.
+7. **🤖 Conversational AI Assistant**: Grounded natural language Q&A with prompt-injection defense, quick operational prompts, multilingual output (English, German, Hindi), and collapsible evidence inspection.
 
 ---
 
@@ -224,7 +236,7 @@ PYTHONPATH=. python3 backend/tests/test_features.py
 PYTHONPATH=. python3 backend/tests/test_core.py
 ```
 
-### Test Coverage:
+### Test Coverage (13 Automated Test Suites):
 - `test_prompt_injection_sanitization`: Verifies regex neutralizing instruction-override attacks.
 - `test_supply_chain_kpi_calculations`: Validates mathematical consistency across all 9 KPIs.
 - `test_supplier_risk_scoring_and_concentration`: Validates composite risk ranking and single-source alerts.
@@ -233,3 +245,9 @@ PYTHONPATH=. python3 backend/tests/test_core.py
 - `test_ai_conversational_analytics_grounding`: Confirms zero-hallucination multi-source evidence.
 - `test_what_if_scenario_simulation`: Validates quantitative modeling of hypothetical supplier failures.
 - `test_multilingual_synthesis`: Confirms unit, currency, and tag preservation in German and Hindi.
+- `test_end_to_end_impact_trace`: Verifies deterministic multi-echelon impact tracing ($TTD$, starved lines, customer SLA loss).
+- `test_demand_supply_mismatches_and_excess_inventory`: Verifies deficit/surplus detection and excess working capital metrics.
+- `test_plant_vulnerability_and_line_starvation`: Verifies plant operational vulnerability scoring and line starvation countdowns.
+- `test_multi_vector_scenario_simulation`: Verifies What-If stress test carrying explicit `SIMULATED_SCENARIO` provenance.
+- `test_carriers_and_warehouses_ontology`: Verifies carriers, warehouses, and dual-sourcing contracts integrity.
+

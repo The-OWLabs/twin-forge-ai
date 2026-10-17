@@ -197,6 +197,92 @@ def test_multilingual_synthesis():
     assert "PRT-MCU-8841" in resp_hi.answer_markdown
 
 
+def test_end_to_end_impact_trace():
+    """Verify deterministic multi-echelon impact tracing from disruption to starved lines and SLA penalties."""
+    from backend.features.supply_chain_intelligence.services.impact_analyzer import multi_echelon_impact_analyzer
+
+    trace = multi_echelon_impact_analyzer.trace_disruption_impact("DISRUPT-2026-001")
+    assert trace is not None
+    assert trace.disruption_id == "DISRUPT-2026-001"
+    assert "PRT-MCU-8841" in trace.affected_parts
+    assert len(trace.affected_pos) >= 1
+    assert len(trace.affected_shipments) >= 1
+    assert trace.time_to_depletion_hours <= 48.0
+    assert len(trace.starved_production_lines) >= 1
+    assert len(trace.threatened_customer_orders) >= 1
+    assert trace.total_revenue_at_risk_usd >= 700000.0
+    assert trace.daily_sla_penalties_usd > 0.0
+    assert len(trace.contingency_mitigation_ids) >= 1
+    assert trace.data_provenance == DataProvenance.ACTUAL
+
+
+def test_demand_supply_mismatches_and_excess_inventory():
+    """Verify demand-supply mismatch detection and excess working capital calculations."""
+    mismatches = supply_chain_risk_engine.evaluate_demand_supply_mismatches()
+    assert len(mismatches) >= 1
+    deficit_items = [m for m in mismatches if "DEFICIT" in m["mismatch_status"]]
+    assert len(deficit_items) >= 1
+
+    # Excess working capital
+    excess = supply_chain_risk_engine.evaluate_excess_inventory()
+    assert excess["total_excess_skus"] >= 2
+    assert excess["total_tied_up_capital_usd"] > 100000.0
+    assert excess["total_annual_holding_cost_usd"] > 20000.0
+    assert excess["data_provenance"] == DataProvenance.ACTUAL
+
+
+def test_plant_vulnerability_and_line_starvation():
+    """Verify plant operational vulnerability scoring and line starvation countdowns."""
+    vuln = supply_chain_risk_engine.evaluate_plant_vulnerability()
+    assert len(vuln) == 3
+    # Bangalore should be top vulnerable due to semiconductor stockout
+    blr = next((v for v in vuln if v["plant_id"] == "PLANT_BANGALORE"), None)
+    assert blr is not None
+    assert blr["starved_production_lines"] >= 1
+    assert blr["vulnerability_score"] >= 50.0
+
+    # Production schedules
+    schedules = local_supply_chain_repo.list_production_schedules(at_risk_only=True)
+    assert len(schedules) >= 1
+    assert any(s.bottleneck_part_id == "PRT-MCU-8841" for s in schedules)
+
+
+def test_multi_vector_scenario_simulation():
+    """Verify What-If scenario simulations carry explicit SIMULATED_SCENARIO provenance."""
+    # 1. Demand surge
+    res_surge = supply_chain_risk_engine.simulate_scenario("DEMAND_SURGE", {"assembly_id": "ASM-CNC-MILL-5X", "surge_percentage": 40.0})
+    assert res_surge["data_provenance"] == DataProvenance.SIMULATED_SCENARIO
+    assert res_surge["surged_units"] > res_surge["base_units"]
+    assert len(res_surge["bottleneck_parts"]) >= 1
+
+    # 2. Corridor chokepoint
+    res_corr = supply_chain_risk_engine.simulate_scenario("CORRIDOR_CHOKEPOINT", {"corridor": "Kaohsiung-Chennai", "delay_days": 8.0})
+    assert res_corr["data_provenance"] == DataProvenance.SIMULATED_SCENARIO
+    assert res_corr["projected_plant_downtime_hours"] > 0.0
+    assert res_corr["projected_financial_loss_usd"] > 0.0
+
+    # 3. Supplier shutdown
+    res_shut = supply_chain_risk_engine.simulate_scenario("SUPPLIER_SHUTDOWN", {"supplier_id": "SUP-MICRO-01"})
+    assert res_shut["data_provenance"] == DataProvenance.SIMULATED_SCENARIO
+    assert res_shut["time_to_complete_line_starvation_hours"] == 32.0
+
+
+def test_carriers_and_warehouses_ontology():
+    """Verify logistics service providers, warehouses, and alternative contracts."""
+    carriers = local_supply_chain_repo.list_carriers()
+    assert len(carriers) >= 4
+    evergreen = next((c for c in carriers if c.carrier_id == "CRR-EVERGREEN-01"), None)
+    assert evergreen is not None
+    assert evergreen.on_time_performance_rate < 0.80
+
+    warehouses = local_supply_chain_repo.list_warehouses()
+    assert len(warehouses) >= 3
+
+    contracts = local_supply_chain_repo.list_alternative_contracts("PRT-MCU-8841")
+    assert len(contracts) >= 1
+    assert contracts[0].alternative_supplier_name == "Hana Semiconductor Solutions"
+
+
 if __name__ == "__main__":
     print("Running TwinForge Supply Chain Intelligence Automated Test Suite...")
     test_prompt_injection_sanitization()
@@ -215,4 +301,15 @@ if __name__ == "__main__":
     print("  ✅ What-If disruption scenario simulation passed.")
     test_multilingual_synthesis()
     print("  ✅ Multilingual synthesis (de, hi) preserving technical units passed.")
+    test_end_to_end_impact_trace()
+    print("  ✅ Multi-echelon end-to-end impact tracing passed.")
+    test_demand_supply_mismatches_and_excess_inventory()
+    print("  ✅ Demand-supply mismatch & excess working capital analytics passed.")
+    test_plant_vulnerability_and_line_starvation()
+    print("  ✅ Plant operational vulnerability & line starvation countdown passed.")
+    test_multi_vector_scenario_simulation()
+    print("  ✅ Multi-vector What-If stress simulations (Surge, Chokepoint, Outage) passed.")
+    test_carriers_and_warehouses_ontology()
+    print("  ✅ Carriers, warehouses, and dual-sourcing contracts ontology passed.")
     print("\n🎉 ALL SUPPLY CHAIN INTELLIGENCE TESTS PASSED SUCCESSFULLY!")
+

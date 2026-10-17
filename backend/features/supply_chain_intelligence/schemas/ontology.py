@@ -19,6 +19,7 @@ class DataProvenance(str, Enum):
     ACTUAL = "ACTUAL"
     SIMULATED = "SIMULATED"
     ESTIMATED = "ESTIMATED"
+    SIMULATED_SCENARIO = "SIMULATED_SCENARIO"
 
 
 class RiskSeverity(str, Enum):
@@ -33,6 +34,7 @@ class TransportMode(str, Enum):
     OCEAN = "OCEAN"
     AIR = "AIR"
     ROAD_FREIGHT = "ROAD_FREIGHT"
+    ROAD = "ROAD_FREIGHT"
     RAIL = "RAIL"
     EXPRESS_COURIER = "EXPRESS_COURIER"
 
@@ -255,3 +257,102 @@ class GovernedSupplyChainKPIs(BaseModel):
     estimated_disruption_cost_usd: float = Field(..., description="Projected financial impact summing plant downtime and SLA penalties")
     data_provenance: DataProvenance = DataProvenance.ACTUAL
     calculated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+# 12. Carrier & Logistics Service Provider Entity
+class Carrier(BaseModel):
+    carrier_id: str = Field(..., description="Unique carrier identifier (e.g. CRR-EVERGREEN-01)")
+    carrier_name: str
+    transport_mode: TransportMode
+    on_time_performance_rate: float = Field(..., ge=0.0, le=1.0)
+    average_transit_delay_days: float = Field(..., ge=0.0)
+    carbon_efficiency_rating: str = Field("B", description="A=Low carbon, B=Standard, C=High emissions")
+    primary_corridors: list[str] = Field(default_factory=list)
+    contact_dispatch: str = "dispatch@carrier-logistics.com"
+
+
+# 13. Dedicated Warehouse Entity
+class Warehouse(BaseModel):
+    warehouse_id: str = Field(..., description="Unique warehouse identifier (e.g. WH-BLR-01)")
+    warehouse_name: str
+    location_city: str
+    storage_capacity_pallets: int
+    utilized_capacity_pct: float = Field(..., ge=0.0, le=100.0)
+    associated_plant_id: str
+    annual_holding_cost_rate_pct: float = Field(22.0, description="Annual inventory carrying cost percentage")
+
+
+# 14. Plant Production Schedule & Line Starvation
+class ProductionSchedule(BaseModel):
+    schedule_id: str = Field(..., description="Schedule block (e.g. SCH-2026-W42-L1)")
+    plant_id: str
+    line_id: str
+    assembly_id: str
+    assembly_name: str
+    planned_start_date: str
+    planned_end_date: str
+    planned_units: int
+    daily_run_rate: int
+    required_parts_allocated: bool
+    starvation_risk_level: RiskSeverity = RiskSeverity.LOW
+    estimated_starvation_hours: float = 0.0
+    bottleneck_part_id: Optional[str] = None
+
+
+# 15. Probabilistic Demand Forecast
+class DemandForecast(BaseModel):
+    forecast_id: str
+    assembly_id: str
+    assembly_name: str
+    horizon_days: int = Field(30, description="Forecast window in days")
+    p10_units: int = Field(..., description="Conservative lower-bound demand")
+    p50_units: int = Field(..., description="Expected baseline demand")
+    p90_units: int = Field(..., description="Upside demand surge potential")
+    forecast_growth_rate_pct: float = 5.0
+    demand_surge_risk: bool = False
+    generated_at: str = "2026-10-18"
+
+
+# 16. Pre-Negotiated Alternative Supplier Contract
+class AlternativeSupplierContract(BaseModel):
+    contract_id: str
+    primary_supplier_id: str
+    alternative_supplier_id: str
+    alternative_supplier_name: str
+    part_id: str
+    guaranteed_capacity_units_per_month: int
+    expedited_lead_time_days: int
+    price_premium_pct: float = Field(15.0, description="Percentage cost increase over primary supplier")
+    is_contract_active: bool = True
+
+
+# 17. Excess Inventory & Tied-Up Working Capital Item
+class ExcessInventoryItem(BaseModel):
+    part_id: str
+    part_name: str
+    stock_on_hand: int
+    days_of_inventory: float
+    excess_units: int
+    tied_up_capital_usd: float
+    annual_holding_cost_usd: float
+    obsolescence_risk_score: float = Field(..., ge=0.0, le=1.0)
+    recommended_action: str = "HOLD"  # REBALANCE_TO_PLANT | RETURN_TO_SUPPLIER | DISCOUNT_SCRAP
+
+
+# 18. Multi-Echelon End-to-End Disruption Impact Trace
+class EndToEndImpactTrace(BaseModel):
+    disruption_id: str
+    root_cause_type: str
+    trigger_entity_id: str
+    affected_pos: list[str] = Field(default_factory=list)
+    affected_shipments: list[str] = Field(default_factory=list)
+    affected_parts: list[str] = Field(default_factory=list)
+    time_to_depletion_hours: float
+    depletion_timestamp: str
+    starved_production_lines: list[str] = Field(default_factory=list)
+    threatened_customer_orders: list[str] = Field(default_factory=list)
+    total_revenue_at_risk_usd: float
+    daily_sla_penalties_usd: float
+    total_projected_loss_usd: float
+    contingency_mitigation_ids: list[str] = Field(default_factory=list)
+    data_provenance: DataProvenance = DataProvenance.ACTUAL

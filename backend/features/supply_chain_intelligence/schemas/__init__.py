@@ -18,6 +18,13 @@ from backend.features.supply_chain_intelligence.schemas.ontology import (
     CustomerOrderStatus,
     DisruptionType,
     DataProvenance,
+    Carrier,
+    Warehouse,
+    ProductionSchedule,
+    DemandForecast,
+    AlternativeSupplierContract,
+    ExcessInventoryItem,
+    EndToEndImpactTrace,
 )
 
 __all__ = [
@@ -39,4 +46,11 @@ __all__ = [
     "CustomerOrderStatus",
     "DisruptionType",
     "DataProvenance",
+    "Carrier",
+    "Warehouse",
+    "ProductionSchedule",
+    "DemandForecast",
+    "AlternativeSupplierContract",
+    "ExcessInventoryItem",
+    "EndToEndImpactTrace",
 ]
