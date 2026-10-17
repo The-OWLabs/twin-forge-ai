@@ -4,16 +4,18 @@ from backend.features.predictive_maintenance.repositories.base import IMachineRe
 from backend.features.predictive_maintenance.schemas.sensor_reading import SensorReadingEvent
 from backend.features.predictive_maintenance.simulator.generator import IndustrialSensorSimulator
 from backend.features.predictive_maintenance.ml.inference.predictor import FailurePredictor
+from backend.features.predictive_maintenance.config.models import maintenance_config_store
 
 
 class LocalMockMachineRepository(IMachineRepository):
     """High-fidelity in-memory machine repository seeded with 20 simulated industrial machines."""
 
-    def __init__(self, num_machines: int = 20) -> None:
+    def __init__(self, num_machines: int = 20, config_store=None) -> None:
+        self.config_store = config_store or maintenance_config_store
         self.simulator = IndustrialSensorSimulator(num_machines=num_machines, seed=42)
         self.history: dict[str, list[SensorReadingEvent]] = {}
         self.predictions: dict[str, dict] = {}
-        self.predictor = FailurePredictor()
+        self.predictor = FailurePredictor(config_store=self.config_store)
         self._seed_initial_history()
 
     def _seed_initial_history(self) -> None:
@@ -37,7 +39,8 @@ class LocalMockMachineRepository(IMachineRepository):
         machines = []
         for m in self.simulator.machines:
             latest = self.history.get(m.machine_id, [None])[-1]
-            pred = self.predictions.get(m.machine_id, {})
+            hist = self.history.get(m.machine_id, [])
+            pred = self.predictor.predict_machine_health(hist) if hist else self.predictions.get(m.machine_id, {})
             machines.append({
                 "machine_id": m.machine_id,
                 "machine_type": m.machine_type.value,
@@ -62,6 +65,13 @@ class LocalMockMachineRepository(IMachineRepository):
         return self.history.get(machine_id, [])[-limit:]
 
     async def get_latest_prediction(self, machine_id: str) -> Optional[dict]:
+        hist = self.history.get(machine_id, [])
+        if hist:
+            pred = self.predictor.predict_machine_health(hist)
+            pred["machine_id"] = machine_id
+            pred["prediction_timestamp"] = hist[-1].timestamp.isoformat()
+            pred["prediction_horizon_hours"] = self.config_store.get_config().default_prediction_horizon_hours
+            return pred
         return self.predictions.get(machine_id)
 
     async def save_prediction(self, prediction_record: dict) -> None:

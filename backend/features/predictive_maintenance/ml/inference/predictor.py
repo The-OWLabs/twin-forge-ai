@@ -17,16 +17,21 @@ except ImportError:
 
 from backend.features.predictive_maintenance.schemas.sensor_reading import SensorReadingEvent
 from backend.features.predictive_maintenance.feature_engineering.pipeline import FeatureEngineeringPipeline
+from backend.features.predictive_maintenance.config.models import (
+    PredictiveMaintenanceConfig,
+    maintenance_config_store,
+)
 
 
 class FailurePredictor:
     """Loads model artifacts and evaluates real-time probability of failure and risk categories."""
 
-    def __init__(self, model_path: Optional[str] = None) -> None:
+    def __init__(self, model_path: Optional[str] = None, config_store=None) -> None:
         if model_path is None:
             model_path = str(Path(__file__).resolve().parent.parent / "artifacts" / "model.joblib")
         
         self.model_path = Path(model_path)
+        self.config_store = config_store or maintenance_config_store
         self.model = None
         self.metadata = {}
         self._load_model()
@@ -80,31 +85,38 @@ class FailurePredictor:
             df_feat = pd.DataFrame([latest_row])[feature_cols].fillna(0.0)
             prob = float(self.model.predict_proba(df_feat)[0][1])
         else:
-            # Deterministic empirical failure probability curve based on ISO 10816 vibration zones
-            # Normal: < 1.8 mm/s -> prob ~ 0.03
-            # Acceptable: 1.8 - 4.5 mm/s -> prob ~ 0.05 - 0.35
-            # Unsatisfactory: 4.5 - 7.1 mm/s -> prob ~ 0.40 - 0.70
-            # Unacceptable / Trip: > 7.1 mm/s -> prob ~ 0.75 - 0.99
-            if roll_mean_vib > 7.1:
-                prob = min(0.99, 0.75 + (roll_mean_vib - 7.1) * 0.1)
-            elif roll_mean_vib > 4.5:
-                prob = 0.35 + ((roll_mean_vib - 4.5) / 2.6) * 0.35
-            elif roll_mean_vib > 2.0:
-                prob = 0.10 + ((roll_mean_vib - 2.0) / 2.5) * 0.25
-            else:
-                prob = max(0.02, roll_mean_vib * 0.04)
+            cfg = self.config_store.get_config()
+            zone_d = cfg.iso_thresholds.zone_c_unsatisfactory_max
+            zone_c = cfg.iso_thresholds.zone_b_acceptable_max
+            zone_b = cfg.iso_thresholds.zone_a_good_max
+            overheat_thresh = cfg.overheating_temperature_threshold
+            high_risk_thresh = cfg.high_risk_probability_threshold
+            med_risk_thresh = cfg.medium_risk_probability_threshold
 
-            # Thermal boost if overheating (> 70°C)
-            if roll_max_temp > 70.0:
+            # Dynamic empirical failure probability curve based on configurable ISO 10816 thresholds
+            if roll_mean_vib > zone_d:
+                prob = min(0.99, 0.75 + (roll_mean_vib - zone_d) * 0.1)
+            elif roll_mean_vib > zone_c:
+                span = max(0.1, zone_d - zone_c)
+                prob = 0.35 + ((roll_mean_vib - zone_c) / span) * 0.35
+            elif roll_mean_vib > zone_b:
+                span = max(0.1, zone_c - zone_b)
+                prob = 0.10 + ((roll_mean_vib - zone_b) / span) * 0.25
+            else:
+                prob = max(0.02, roll_mean_vib * (0.10 / max(0.1, zone_b)))
+
+            # Thermal boost if overheating (> configurable threshold)
+            if roll_max_temp > overheat_thresh:
                 prob = min(0.99, prob + 0.20)
 
         prob = round(float(prob), 3)
 
-        # Risk Classification
-        if prob >= 0.70:
+        # Risk Classification driven dynamically by configuration
+        cfg = self.config_store.get_config()
+        if prob >= cfg.high_risk_probability_threshold:
             category = "HIGH"
             action = "IMMEDIATE_SHUTDOWN: Bearing vibration exceeds ISO Zone D. Overhaul immediately."
-        elif prob >= 0.35:
+        elif prob >= cfg.medium_risk_probability_threshold:
             category = "MEDIUM"
             action = "INSPECT_NEXT_SHIFT: Elevated thermal/vibration drift detected. Lubricate and re-align."
         else:
@@ -127,9 +139,15 @@ class FailurePredictor:
         }
 
     def _heuristic_fallback(self, latest: SensorReadingEvent) -> dict[str, Any]:
+        cfg = self.config_store.get_config()
         vib = latest.vibration_mm_s
-        prob = 0.85 if vib > 6.0 else (0.45 if vib > 3.5 else 0.05)
-        cat = "HIGH" if prob > 0.70 else ("MEDIUM" if prob > 0.30 else "LOW")
+        zone_d = cfg.iso_thresholds.zone_c_unsatisfactory_max
+        zone_c = cfg.iso_thresholds.zone_b_acceptable_max
+        high_risk_thresh = cfg.high_risk_probability_threshold
+        med_risk_thresh = cfg.medium_risk_probability_threshold
+
+        prob = 0.85 if vib > zone_d else (0.45 if vib > zone_c else 0.05)
+        cat = "HIGH" if prob >= high_risk_thresh else ("MEDIUM" if prob >= med_risk_thresh else "LOW")
         return {
             "failure_probability": prob,
             "risk_category": cat,

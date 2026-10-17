@@ -15,9 +15,14 @@ class PredictiveMaintenanceConfig(BaseModel):
     trip_threshold_rms: float = Field(8.5, description="Vibration threshold triggering emergency trip")
     nominal_temperature_c: float = Field(40.0, description="Nominal operating temperature in °C")
     max_temperature_c: float = Field(80.0, description="Temperature threshold for severe thermal warning")
+    overheating_temperature_threshold: float = Field(70.0, description="Temperature threshold adding failure risk boost")
     vibration_damage_weight: float = Field(0.7, description="Weight of vibration in composite health score")
     temperature_damage_weight: float = Field(0.3, description="Weight of temperature in composite health score")
     imminent_trip_hours_threshold: float = Field(24.0, description="Hours threshold to declare trip imminent")
+    high_risk_probability_threshold: float = Field(0.70, description="Failure probability threshold for HIGH risk tier")
+    medium_risk_probability_threshold: float = Field(0.35, description="Failure probability threshold for MEDIUM risk tier")
+    default_prediction_horizon_hours: int = Field(24, description="Default prediction horizon in hours")
+    alert_cooldown_minutes: int = Field(30, description="Cooldown period between repeated high-risk alerts")
 
 
 class MaintenanceConfigStore:
