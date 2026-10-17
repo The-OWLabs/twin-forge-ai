@@ -1,8 +1,46 @@
 """FastAPI router for predictive maintenance endpoints including dynamic runtime configuration,
-machine health monitoring, telemetry feeds, and predictive failure analytics.
+machine health monitoring, telemetry feeds, predictive failure analytics,
+Siemens Senseye-inspired actionable recommendations, source lineage, and auditable ROI intelligence.
 """
-from typing import Optional
-from fastapi import APIRouter, HTTPException, Query, Depends
+from typing import Any, Optional
+try:
+    from fastapi import APIRouter, HTTPException, Query, Depends
+except ImportError:
+    class HTTPException(Exception):
+        def __init__(self, status_code: int = 400, detail: str = ""):
+            self.status_code = status_code
+            self.detail = detail
+            super().__init__(detail)
+
+    def Query(default=None, **kwargs):
+        return default
+
+    def Depends(dependency=None):
+        return dependency
+
+    class APIRouter:
+        def __init__(self, prefix="", tags=None):
+            self.prefix = prefix
+            self.tags = tags or []
+            self.routes = []
+        def get(self, path, **kwargs):
+            def decorator(f):
+                self.routes.append(("GET", path, f))
+                return f
+            return decorator
+        def put(self, path, **kwargs):
+            def decorator(f):
+                self.routes.append(("PUT", path, f))
+                return f
+            return decorator
+        def post(self, path, **kwargs):
+            def decorator(f):
+                self.routes.append(("POST", path, f))
+                return f
+            return decorator
+        def add_api_route(self, path, endpoint, methods=None, **kwargs):
+            for m in (methods or ["GET"]):
+                self.routes.append((m, path, endpoint))
 from backend.features.predictive_maintenance.services.maintenance_service import PredictiveMaintenanceService
 from backend.features.predictive_maintenance.adapters.mock_telemetry import InMemoryTelemetryReader
 from backend.features.predictive_maintenance.domain.models import AssetDiagnosticReport, RulEstimate
@@ -12,6 +50,16 @@ from backend.features.predictive_maintenance.config.models import (
 )
 from backend.features.predictive_maintenance.services.machine_service import MachineService
 from backend.features.predictive_maintenance.repositories.local_mock_repo import LocalMockMachineRepository
+from backend.features.predictive_maintenance.connectors.manager import source_system_manager
+from backend.features.predictive_maintenance.connectors.models import SourceSystemHealth
+from backend.features.predictive_maintenance.services.canonical_mapping_service import canonical_mapping_service
+from backend.features.predictive_maintenance.services.recommendation_engine import recommendation_engine
+from backend.features.predictive_maintenance.services.roi_intelligence_service import roi_intelligence_service, RoiSummary
+from backend.features.predictive_maintenance.schemas.canonical_models import (
+    DimAsset,
+    FactMaintenanceRecommendation,
+    FactRoiLedger,
+)
 
 # Singletons for mock/local execution
 _telemetry_reader = InMemoryTelemetryReader()
@@ -31,7 +79,9 @@ router = APIRouter(prefix="/maintenance", tags=["Predictive Maintenance"])
 root_router = APIRouter(tags=["Predictive Maintenance"])
 
 
-# Handlers
+# ==============================================================================
+# 1. Telemetry & Machine Health Handlers
+# ==============================================================================
 async def handle_list_machines(
     plant_id: Optional[str] = Query(None, description="Filter by plant location"),
     risk_category: Optional[str] = Query(None, description="Filter by risk category: LOW | MEDIUM | HIGH"),
@@ -93,7 +143,88 @@ root_router.add_api_route("/predictions/high-risk", handle_get_high_risk, method
 root_router.add_api_route("/analytics/summary", handle_get_analytics, methods=["GET"])
 
 
-# Diagnostics & Dynamic Config endpoints
+# ==============================================================================
+# 2. Source Connectors & Lineage Health
+# ==============================================================================
+@router.get("/sources", response_model=list[SourceSystemHealth])
+async def get_connected_sources() -> list[SourceSystemHealth]:
+    """Retrieve connected OT/IT source system health, active endpoints, and missing prerequisites."""
+    return source_system_manager.get_fleet_source_health()
+
+
+# ==============================================================================
+# 3. Canonical Asset Hierarchy
+# ==============================================================================
+@router.get("/canonical/assets", response_model=list[DimAsset])
+async def list_canonical_assets(
+    plant_id: Optional[str] = Query(None, description="Filter by plant location"),
+    criticality: Optional[str] = Query(None, description="Filter by criticality: A | B | C"),
+) -> list[DimAsset]:
+    """Retrieve canonical master assets with hourly downtime costs and cross-system mappings."""
+    return canonical_mapping_service.list_canonical_assets(plant_id=plant_id, criticality=criticality)
+
+
+@router.get("/canonical/assets/{asset_id}", response_model=DimAsset)
+async def get_canonical_asset(asset_id: str) -> DimAsset:
+    """Retrieve a single canonical asset master record."""
+    asset = canonical_mapping_service.get_canonical_asset(asset_id)
+    if not asset:
+        raise HTTPException(status_code=404, detail=f"Canonical asset {asset_id} not found")
+    return asset
+
+
+# ==============================================================================
+# 4. Siemens Senseye-Style Actionable Maintenance Recommendations
+# ==============================================================================
+@router.get("/recommendations", response_model=list[FactMaintenanceRecommendation])
+async def list_maintenance_recommendations(service: MachineService = Depends(get_machine_service)) -> list[FactMaintenanceRecommendation]:
+    """Generate and retrieve prioritized maintenance advisories ranked by Criticality-Adjusted Risk Index (CARI)."""
+    fleet = await service.list_machines()
+    return recommendation_engine.generate_recommendations_for_fleet(fleet)
+
+
+@router.post("/recommendations/{recommendation_id}/approve", response_model=FactMaintenanceRecommendation)
+async def approve_maintenance_recommendation(
+    recommendation_id: str,
+    approver_name: str = Query("Chief Reliability Engineer", description="User signing off on the action"),
+) -> FactMaintenanceRecommendation:
+    """Human-in-the-loop signoff approving maintenance intervention and auto-generating CMMS work order."""
+    rec = recommendation_engine.approve_recommendation(recommendation_id, approver_name)
+    if not rec:
+        raise HTTPException(status_code=404, detail=f"Recommendation {recommendation_id} not found")
+    return rec
+
+
+@router.post("/recommendations/{recommendation_id}/reject", response_model=FactMaintenanceRecommendation)
+async def reject_maintenance_recommendation(
+    recommendation_id: str,
+    approver_name: str = Query("Shift Maintenance Lead", description="User rejecting recommendation"),
+) -> FactMaintenanceRecommendation:
+    """Human-in-the-loop action rejecting recommendation as false alarm or deferred maintenance."""
+    rec = recommendation_engine.reject_recommendation(recommendation_id, approver_name)
+    if not rec:
+        raise HTTPException(status_code=404, detail=f"Recommendation {recommendation_id} not found")
+    return rec
+
+
+# ==============================================================================
+# 5. Auditable Financial ROI & Business Intelligence
+# ==============================================================================
+@router.get("/roi/summary", response_model=RoiSummary)
+async def get_roi_summary() -> RoiSummary:
+    """Retrieve platform financial ROI metrics, avoided downtime hours, net benefit, and payback period."""
+    return roi_intelligence_service.compute_roi_summary()
+
+
+@router.get("/roi/ledger", response_model=list[FactRoiLedger])
+async def get_roi_ledger() -> list[FactRoiLedger]:
+    """Retrieve auditable fact_roi_ledger lines proving realized and estimated savings calculations."""
+    return roi_intelligence_service.get_ledger_entries()
+
+
+# ==============================================================================
+# 6. Diagnostics & Dynamic Runtime Configuration
+# ==============================================================================
 @router.get("/diagnostics/{asset_id}", response_model=AssetDiagnosticReport)
 async def get_asset_diagnostics(asset_id: str) -> AssetDiagnosticReport:
     """Diagnose an asset's bearing condition, ISO 10816 zone, and failure risk."""
