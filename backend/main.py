@@ -10,10 +10,46 @@ from backend.features.demand_forecasting.api.router import router as demand_rout
 from backend.features.waste_reduction.api.router import router as waste_router
 from backend.features.operational_copilots.api.router import router as copilot_router
 
+tags_metadata = [
+    {
+        "name": "Predictive Maintenance",
+        "description": "Remaining Useful Life (RUL) estimation, ISO 10816-3 vibration severity classification, and bearing diagnostic reports.",
+    },
+    {
+        "name": "Visual Quality Inspection",
+        "description": "Automated Optical Inspection (AOI), golden template alignment, First-Pass Yield (FPY), DPMO, and defect Pareto analysis.",
+    },
+    {
+        "name": "Production Optimization",
+        "description": "Overall Equipment Effectiveness (OEE = Availability × Performance × Quality), Little's Law throughput pacing, and bottleneck station detection.",
+    },
+    {
+        "name": "Supply Chain Intelligence",
+        "description": "Dynamic safety stock calculation, Bill-of-Materials (BOM) stockout risk evaluation, and purchase order replenishment.",
+    },
+    {
+        "name": "Demand Forecasting",
+        "description": "Probabilistic P10/P50/P90 multi-horizon demand forecasting, order backlog pacing, and plant capacity headroom checks.",
+    },
+    {
+        "name": "Waste Reduction & Sustainability",
+        "description": "Scrap root-cause causal attribution, machine idle friction energy losses, and unit-level Scope 1 & 2 carbon footprint accounting.",
+    },
+    {
+        "name": "Operational Copilots",
+        "description": "Interactive Standard Operating Procedure (SOP) step-by-step guidance, automated shift handover reports, and PLC alarm code triage.",
+    },
+    {
+        "name": "System Health",
+        "description": "Backend liveness probes, heartbeat, and platform configuration status.",
+    },
+]
+
 app = FastAPI(
     title=settings.app_name,
     version="0.1.0",
     description="Enterprise Industrial Intelligence Platform - Predictive Maintenance, Visual Inspection, Optimization, Supply Chain, and Copilots",
+    openapi_tags=tags_metadata,
 )
 
 app.add_middleware(
@@ -34,6 +70,7 @@ app.include_router(waste_router, prefix="/api/v1")
 app.include_router(copilot_router, prefix="/api/v1")
 
 
-@app.get("/health")
+@app.get("/health", tags=["System Health"])
 async def health_check() -> dict[str, str]:
     return {"status": "HEALTHY", "app": settings.app_name}
+
