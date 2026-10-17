@@ -247,3 +247,78 @@ async def get_maintenance_config() -> PredictiveMaintenanceConfig:
 async def update_maintenance_config(config: PredictiveMaintenanceConfig) -> PredictiveMaintenanceConfig:
     """Update predictive maintenance thresholds dynamically at runtime from UI."""
     return maintenance_config_store.update_config(config)
+
+
+# ==============================================================================
+# 7. GenAI Maintenance Copilot (Siemens Senseye-Inspired)
+# ==============================================================================
+from backend.features.predictive_maintenance.copilot.models import (
+    CopilotChatRequest,
+    CopilotChatResponse,
+    SimilarIncident,
+    ApprovedProcedure,
+    GroundedEvidence,
+    TechnicianFeedbackSubmission,
+)
+from backend.features.predictive_maintenance.copilot.copilot_service import copilot_service
+from backend.features.predictive_maintenance.copilot.rag_service import maintenance_rag_service
+from backend.features.predictive_maintenance.copilot.feedback_service import technician_feedback_service
+
+
+@router.post("/copilot/chat", response_model=CopilotChatResponse)
+async def chat_with_copilot(request: CopilotChatRequest) -> CopilotChatResponse:
+    """Conversational assistant grounding answers strictly on verified telemetry, predictions, and RAG."""
+    return await copilot_service.answer_query(request)
+
+
+@router.get("/copilot/incidents/similar", response_model=list[SimilarIncident])
+async def search_similar_incidents(
+    query: str = Query(..., description="Failure description or symptom"),
+    asset_id: Optional[str] = Query(None, description="Optional asset ID"),
+    equipment_type: Optional[str] = Query(None, description="Optional equipment family"),
+    plant_id: Optional[str] = Query(None, description="Plant filter for access boundary"),
+    limit: int = Query(3, ge=1, le=10),
+) -> list[SimilarIncident]:
+    """Retrieves governed historical CMMS failure records with documented root causes and verified outcomes."""
+    return maintenance_rag_service.search_similar_incidents(
+        query=query,
+        asset_id=asset_id,
+        equipment_type=equipment_type,
+        plant_id=plant_id,
+        limit=limit,
+    )
+
+
+@router.get("/copilot/procedures/approved", response_model=list[ApprovedProcedure])
+async def search_approved_procedures(
+    equipment_type: Optional[str] = Query(None, description="Equipment type (e.g. CNC_MILLING, ROBOTIC_ARM)"),
+    keyword: Optional[str] = Query(None, description="Keyword search (e.g. bearing, lockout)"),
+) -> list[ApprovedProcedure]:
+    """Retrieves approved Standard Operating Procedures (SOPs) matching equipment and failure modes."""
+    return maintenance_rag_service.search_approved_procedures(equipment_type=equipment_type, keyword=keyword)
+
+
+@router.get("/copilot/asset-context/{asset_id}", response_model=GroundedEvidence)
+async def get_copilot_asset_context(
+    asset_id: str,
+    query: str = Query("General equipment health", description="Query context"),
+    plant_id: Optional[str] = Query(None, description="Plant boundary filter"),
+) -> GroundedEvidence:
+    """Retrieves 360-degree grounded context package: telemetry, predictions, RAG cases, and applicable SOPs."""
+    return await copilot_service._assemble_grounded_evidence(asset_id=asset_id, query=query, plant_id=plant_id)
+
+
+@router.post("/copilot/feedback", response_model=TechnicianFeedbackSubmission)
+async def submit_technician_feedback(submission: TechnicianFeedbackSubmission) -> TechnicianFeedbackSubmission:
+    """Records human-in-the-loop operational feedback, observed condition, and verified ROI savings."""
+    return technician_feedback_service.record_feedback(submission)
+
+
+@router.get("/copilot/feedback", response_model=list[TechnicianFeedbackSubmission])
+async def list_technician_feedback(
+    asset_id: Optional[str] = Query(None, description="Filter by asset ID"),
+    recommendation_id: Optional[str] = Query(None, description="Filter by recommendation ID"),
+) -> list[TechnicianFeedbackSubmission]:
+    """Retrieves auditable technician feedback history and resolution outcomes."""
+    return technician_feedback_service.get_feedback_history(asset_id=asset_id, recommendation_id=recommendation_id)
+
