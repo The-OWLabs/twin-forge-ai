@@ -1,6 +1,6 @@
-"""GenAI Maintenance Copilot Package.
+"""TwinForge GenAI Maintenance Copilot Package.
 
-Provides Siemens Senseye-inspired conversational intelligence, multi-source RAG,
+Provides autonomous conversational intelligence, multi-source RAG,
 standard operating procedure retrieval, and technician feedback capture.
 """
 from backend.features.predictive_maintenance.copilot.models import (

@@ -1,6 +1,6 @@
 """FastAPI router for predictive maintenance endpoints including dynamic runtime configuration,
 machine health monitoring, telemetry feeds, predictive failure analytics,
-Siemens Senseye-inspired actionable recommendations, source lineage, and auditable ROI intelligence.
+TwinForge actionable recommendations, source lineage, and auditable ROI intelligence.
 """
 from typing import Any, Optional
 try:
@@ -174,7 +174,7 @@ async def get_canonical_asset(asset_id: str) -> DimAsset:
 
 
 # ==============================================================================
-# 4. Siemens Senseye-Style Actionable Maintenance Recommendations
+# 4. Actionable Maintenance Recommendations (CARI-Ranked)
 # ==============================================================================
 @router.get("/recommendations", response_model=list[FactMaintenanceRecommendation])
 async def list_maintenance_recommendations(service: MachineService = Depends(get_machine_service)) -> list[FactMaintenanceRecommendation]:
@@ -250,7 +250,7 @@ async def update_maintenance_config(config: PredictiveMaintenanceConfig) -> Pred
 
 
 # ==============================================================================
-# 7. GenAI Maintenance Copilot (Siemens Senseye-Inspired)
+# 7. GenAI Maintenance Copilot
 # ==============================================================================
 from backend.features.predictive_maintenance.copilot.models import (
     CopilotChatRequest,

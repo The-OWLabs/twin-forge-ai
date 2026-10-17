@@ -1,4 +1,4 @@
-"""MES Adapter (Siemens Opcenter / Rockwell FactoryTalk / AVEVA).
+"""MES Adapter (Opcenter / Rockwell FactoryTalk / AVEVA).
 
 Ingests production schedules, station output, downtime events, and line criticality.
 Enables quantifying the actual financial cost of unplanned downtime per station.

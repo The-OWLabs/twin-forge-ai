@@ -1,4 +1,4 @@
-"""Siemens Senseye-Inspired Maintenance Recommendation Engine.
+"""TwinForge Maintenance Recommendation Engine.
 
 Ranks assets by Criticality-Adjusted Risk Index (CARI), correlates with
 spare-parts availability from ERP and downtime impact from MES, and produces

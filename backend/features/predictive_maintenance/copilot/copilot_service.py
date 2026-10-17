@@ -1,4 +1,4 @@
-"""Siemens Senseye-Inspired GenAI Maintenance Copilot Service.
+"""TwinForge GenAI Maintenance Copilot Service.
 
 Orchestrates multi-source grounding:
 - Retrieves real-time sensor readings from PLC/SCADA

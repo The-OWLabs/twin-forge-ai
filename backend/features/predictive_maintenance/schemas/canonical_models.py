@@ -1,4 +1,4 @@
-"""Canonical Industrial Data Models (Senseye Inspired).
+"""Canonical Industrial Data Models for TwinForge.
 
 Standardizes heterogeneous entities from PLC/SCADA, CMMS, MES, and ERP systems
 into a unified enterprise asset hierarchy with explicit data provenance and financial tracking.

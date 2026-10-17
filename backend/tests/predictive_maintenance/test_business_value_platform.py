@@ -1,4 +1,4 @@
-"""Unit & Integration Tests for Siemens Senseye-Inspired Predictive Maintenance & ROI Platform.
+"""Unit & Integration Tests for TwinForge Predictive Maintenance & ROI Platform.
 
 Verifies:
 1. Canonical Asset & Bridge ID Resolution (PLC, CMMS, MES, ERP -> canonical asset_id).
@@ -72,7 +72,7 @@ def test_source_system_adapters_and_provenance():
 
 
 def test_recommendation_engine_cari_scoring():
-    """Verify Senseye-style multi-factor ranking and human approval workflow."""
+    """Verify CARI multi-factor ranking and human approval workflow."""
     fleet = [
         {"machine_id": "CNC-001", "failure_probability": 0.85, "latest_vibration": 7.4, "latest_temperature": 75.0},
         {"machine_id": "CNV-005", "failure_probability": 0.05, "latest_vibration": 0.8, "latest_temperature": 32.0},

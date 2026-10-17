@@ -1,6 +1,6 @@
 # TwinForge — GCP Predictive Maintenance, ROI Intelligence & GenAI Copilot
 
-> **Enterprise-grade, Siemens Senseye-inspired Predictive Maintenance Platform**  
+> **Enterprise-grade Autonomous Predictive Maintenance & ROI Intelligence Platform**  
 > Uniting Industrial IoT telemetry, multi-source OT/IT connectivity (PLC, CMMS, MES, ERP), supervised failure prediction, Criticality-Adjusted Risk Index (CARI) advisories, auditable financial ROI ledgers, and a grounded GenAI Maintenance Copilot.
 
 ---
@@ -14,7 +14,7 @@ Traditional industrial predictive maintenance stops at statistical anomaly alert
 2. **Standardized ISO 10816-3 Physics**: Real-time vibration velocity RMS zone classification ($A, B, C, D$) combined with supervised Random Forest failure probabilities ($24\text{h}$ prediction horizon).
 3. **CARI Recommendation Engine**: Scores and ranks maintenance advisories by business risk, cross-checks ERP spare-part stock, and enforces human-in-the-loop signoff.
 4. **Auditable Financial ROI Ledger (`fact_roi_ledger`)**: Compares avoided downtime against unmonitored plant baselines, tracking realized vs. estimated savings and platform payback period.
-5. **GenAI Maintenance Copilot**: Siemens Senseye-style conversational assistant grounded in verified telemetry, historical incident RAG, approved SOPs with mandatory LOTO safety protocols, prompt-injection defense, and multilingual support (English, German, Hindi).
+5. **GenAI Maintenance Copilot**: Autonomous conversational assistant grounded in verified telemetry, historical incident RAG, approved SOPs with mandatory LOTO safety protocols, prompt-injection defense, and multilingual support (English, German, Hindi).
 
 ---
 
@@ -91,10 +91,10 @@ backend/features/predictive_maintenance/
 │   ├── base.py             # Abstract BaseConnector, SourceSystemState, DataProvenance
 │   ├── plc_connector.py    # OPC-UA / Modbus / MQTT PLC stream connector
 │   ├── cmms_connector.py   # IBM Maximo / SAP PM work order connector
-│   ├── mes_connector.py    # Siemens Opcenter production downtime connector
+│   ├── mes_connector.py    # Opcenter production downtime connector
 │   ├── erp_connector.py    # SAP S/4HANA spare parts & labor rate connector
 │   └── manager.py          # Unified SourceSystemManager fleet coordinator
-├── copilot/                # Siemens Senseye-inspired GenAI Maintenance Copilot
+├── copilot/                # TwinForge GenAI Maintenance Copilot
 │   ├── __init__.py         # Exported copilot package symbols
 │   ├── models.py           # Chat requests, grounded evidence, incidents, SOPs, feedback
 │   ├── rag_service.py      # Governed RAG retrieval, prompt-injection defense, SOP index
@@ -190,7 +190,7 @@ $$\text{Payback} = \frac{\text{Platform Implementation Cost} + \text{Annual OpEx
 
 ---
 
-## 6. GenAI Maintenance Copilot (Senseye-Inspired)
+## 6. GenAI Maintenance Copilot
 
 The Copilot is an intelligent maintenance assistant that operates under a **Strict Zero-Hallucination Policy**: all telemetry, ML metrics, and costs originate from repository services.
 
@@ -214,7 +214,7 @@ All endpoints are hosted under `/api/v1/predictive-maintenance`:
 | | `GET` | `/machines/{id}` | Real-time telemetry, operating hours, and risk category |
 | | `GET` | `/machines/{id}/history` | Historical time-series sensor readings |
 | | `GET` | `/analytics/summary` | Fleet reliability score, active alerts, and plant distribution |
-| **Senseye** | `GET` | `/recommendations` | Active CARI maintenance advisories with ERP parts check |
+| **Advisories** | `GET` | `/recommendations` | Active CARI maintenance advisories with ERP parts check |
 | | `POST` | `/recommendations/{id}/approve` | Sign off on recommendation (transitions to `APPROVED`) |
 | | `POST` | `/recommendations/{id}/reject` | Reject recommendation with documented reasoning |
 | **ROI** | `GET` | `/roi/summary` | Financial waterfall, realized vs estimated savings, payback period |
@@ -242,7 +242,7 @@ cd dashboard && streamlit run app.py --server.port 8501
 ```
 
 - **Tab 1: 🏭 Fleet Health & Physics**: Top KPI metrics, Asset Health Matrix, ISO 10816 vibration drift line charts with color-coded severity zones.
-- **Tab 2: 🎯 Senseye Recommendations**: CARI-ranked actionable advisories, ERP parts stockout warnings, downtime avoided metrics, and 1-click Approve/Reject buttons.
+- **Tab 2: 🎯 CARI Recommendations**: CARI-ranked actionable advisories, ERP parts stockout warnings, downtime avoided metrics, and 1-click Approve/Reject buttons.
 - **Tab 3: 💰 Financial ROI & Ledger**: Enterprise value waterfall chart, realized vs. estimated savings cards, payback period metric, and immutable `fact_roi_ledger` audit table.
 - **Tab 4: 🔌 Connected OT/IT Sources & Lineage**: Live health status for PLC, CMMS, MES, and ERP connectors, data provenance badges (`ACTUAL` vs `SIMULATED`), and the cross-system entity bridge table.
 - **Tab 5: 🤖 GenAI Maintenance Copilot**: Natural-language conversational query interface with quick-action prompts, grounded evidence inspection tabs (Facts, Predictions, Incidents, SOPs, Data Gaps), and the governed technician feedback capture form.
@@ -257,7 +257,7 @@ The test suite runs with 100% offline fallback compatibility without external GC
 # 1. Run the GenAI Maintenance Copilot test suite
 python3 backend/tests/predictive_maintenance/test_genai_copilot.py
 
-# 2. Run the Siemens Senseye Business Value & ROI test suite
+# 2. Run the TwinForge Business Value & ROI test suite
 PYTHONPATH=. python3 backend/tests/predictive_maintenance/test_business_value_platform.py
 
 # 3. Run sensor simulator & feature engineering tests

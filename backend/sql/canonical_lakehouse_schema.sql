@@ -1,5 +1,5 @@
 -- ==============================================================================
--- Canonical Industrial Lakehouse Schema (Siemens Senseye Inspired)
+-- TwinForge Canonical Industrial Lakehouse Schema
 -- Database / Dataset: predictive_maintenance
 -- Supports Unified Asset Modeling across PLC, SCADA, CMMS, MES, and ERP systems.
 -- ==============================================================================
@@ -151,7 +151,7 @@ CREATE TABLE IF NOT EXISTS `twinforge-predictive-maintenance.predictive_maintena
 PARTITION BY DATE(prediction_timestamp)
 CLUSTER BY risk_category, asset_id;
 
--- 9. Senseye-Style Actionable Maintenance Recommendations
+-- 9. Actionable Maintenance Recommendations (CARI-Ranked)
 CREATE TABLE IF NOT EXISTS `twinforge-predictive-maintenance.predictive_maintenance.fact_maintenance_recommendation` (
     recommendation_id STRING NOT NULL,
     asset_id STRING NOT NULL,

@@ -49,7 +49,7 @@ class CanonicalMappingService:
                     line_id=f"LINE-{(count % 3) + 1}",
                     equipment_type=eq_type,
                     criticality=crit,
-                    manufacturer="Siemens / Fanuc Industrial",
+                    manufacturer="TwinForge / Fanuc Industrial",
                     model_number=f"GEN4-{code}",
                     hourly_downtime_cost_usd=dt_cost,
                     replacement_value_usd=repl_val,

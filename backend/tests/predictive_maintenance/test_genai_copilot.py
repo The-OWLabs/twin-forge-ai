@@ -1,4 +1,4 @@
-"""Automated Test Suite for Siemens Senseye-Inspired GenAI Maintenance Copilot.
+"""Automated Test Suite for TwinForge GenAI Maintenance Copilot.
 
 Tests:
 1. Grounded Conversational Query Processing (Zero-hallucination verification)

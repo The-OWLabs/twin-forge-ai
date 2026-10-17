@@ -1,9 +1,9 @@
-"""TwinForge - Siemens Senseye-Inspired Predictive Maintenance & ROI Intelligence Platform.
+"""TwinForge - Predictive Maintenance & ROI Intelligence Platform.
 
 An enterprise operations and financial intelligence dashboard providing:
 - Multi-source OT/IT connectivity (PLC, CMMS, MES, ERP) with data provenance tracking
 - Fleet health monitoring and ISO 10816 vibration severity
-- Senseye-style actionable maintenance advisories with human-in-the-loop signoff
+- Actionable CARI maintenance advisories with human-in-the-loop signoff
 - Auditable downtime cost avoidance, realized vs estimated savings, ROI, and payback period
 """
 import sys
@@ -60,7 +60,7 @@ repo, machine_service = get_services()
 col_h1, col_h2 = st.columns([3, 1])
 with col_h1:
     st.title("⚙️ Predictive Maintenance & ROI Intelligence")
-    st.caption("Siemens Senseye-Inspired Industrial Condition Monitoring, Advisory Recommendations & Financial Ledger")
+    st.caption("TwinForge Industrial Condition Monitoring, Advisory Recommendations & Financial Ledger")
 
 with col_h2:
     sources = source_system_manager.get_fleet_source_health()
@@ -107,7 +107,7 @@ roi_summary = roi_intelligence_service.compute_roi_summary()
 # Main Application Tabs
 tab_fleet, tab_recs, tab_roi, tab_sources, tab_copilot = st.tabs([
     "🏭 Fleet Health & Physics",
-    "🎯 Senseye Recommendations",
+    "🎯 CARI Recommendations",
     "💰 Financial ROI & Ledger",
     "🔌 Connected OT/IT Sources & Lineage",
     "🤖 GenAI Maintenance Copilot",
@@ -192,10 +192,10 @@ with tab_fleet:
         st.plotly_chart(fig, use_container_width=True)
 
 # ==============================================================================
-# TAB 2: SENSEYE RECOMMENDATIONS
+# TAB 2: CARI RECOMMENDATIONS
 # ==============================================================================
 with tab_recs:
-    st.subheader("🎯 Siemens Senseye-Style Actionable Maintenance Advisories")
+    st.subheader("🎯 Actionable CARI-Ranked Maintenance Advisories")
     st.caption("Ranked by Criticality-Adjusted Risk Index (CARI). Human approval required for work order creation.")
 
     for rec in recommendations:
@@ -348,7 +348,7 @@ with tab_sources:
 with tab_copilot:
     st.subheader("🤖 GenAI Maintenance Copilot")
     st.caption(
-        "Siemens Senseye-inspired generative AI assistant. Grounded multi-source reasoning across "
+        "TwinForge autonomous generative AI assistant. Grounded multi-source reasoning across "
         "real-time PLC/SCADA telemetry, ML anomaly scores, historical CMMS work order RAG, and approved SOPs."
     )
 

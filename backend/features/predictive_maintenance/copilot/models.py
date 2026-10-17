@@ -1,4 +1,4 @@
-"""Data models for GenAI Maintenance Copilot (Siemens Senseye-inspired).
+"""Data models for TwinForge GenAI Maintenance Copilot.
 
 Encapsulates conversational query contracts, grounded multi-source evidence,
 similar incident references, approved SOP procedures, and technician feedback.
