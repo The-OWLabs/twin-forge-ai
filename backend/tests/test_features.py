@@ -1,5 +1,13 @@
 """Unit tests for all 7 feature domain services."""
-import pytest
+try:
+    import pytest
+except ImportError:
+    class _MockPytest:
+        class mark:
+            @staticmethod
+            def asyncio(f):
+                return f
+    pytest = _MockPytest()
 from backend.features.predictive_maintenance.services.maintenance_service import PredictiveMaintenanceService
 from backend.features.predictive_maintenance.adapters.mock_telemetry import InMemoryTelemetryReader
 from backend.features.predictive_maintenance.domain.models import ISO10816Severity

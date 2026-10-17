@@ -2,7 +2,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from backend.core.config.settings import settings
-from backend.features.predictive_maintenance.api.router import router as maint_router
+from backend.features.predictive_maintenance.api.router import router as maint_router, root_router as maint_root_router
 from backend.features.visual_quality_inspection.api.router import router as quality_router
 from backend.features.production_optimization.api.router import router as prod_router
 from backend.features.supply_chain_intelligence.api.router import router as supply_router
@@ -68,6 +68,9 @@ app.include_router(supply_router, prefix="/api/v1")
 app.include_router(demand_router, prefix="/api/v1")
 app.include_router(waste_router, prefix="/api/v1")
 app.include_router(copilot_router, prefix="/api/v1")
+
+# Mount root machine endpoints for top-level access
+app.include_router(maint_root_router)
 
 
 @app.get("/health", tags=["System Health"])
