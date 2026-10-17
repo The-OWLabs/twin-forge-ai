@@ -11,35 +11,52 @@ from backend.features.predictive_maintenance.domain.models import (
     RulEstimate,
     ISO10816Severity,
 )
+from backend.features.predictive_maintenance.config.models import (
+    MaintenanceConfigStore,
+    maintenance_config_store,
+)
 
 
 class PredictiveMaintenanceService(IPredictiveMaintenanceUseCase):
-    """Application service calculating condition metrics, ISO 10816-3 zones, and RUL."""
+    """Application service calculating condition metrics, ISO 10816-3 zones, and RUL dynamically."""
 
-    def __init__(self, telemetry_reader: ITelemetryReader, trip_threshold_rms: float = 8.5) -> None:
+    def __init__(
+        self,
+        telemetry_reader: ITelemetryReader,
+        config_store: Optional[MaintenanceConfigStore] = None,
+    ) -> None:
         self.telemetry = telemetry_reader
-        self.trip_threshold_rms = trip_threshold_rms
+        self.config_store = config_store or maintenance_config_store
 
     def _classify_iso_zone(self, vib_rms: float) -> ISO10816Severity:
-        if vib_rms < 1.8:
+        # Dynamic thresholds read from runtime config store
+        cfg = self.config_store.get_config().iso_thresholds
+        if vib_rms < cfg.zone_a_good_max:
             return ISO10816Severity.ZONE_A_GOOD
-        elif vib_rms < 4.5:
+        elif vib_rms < cfg.zone_b_acceptable_max:
             return ISO10816Severity.ZONE_B_ACCEPTABLE
-        elif vib_rms < 7.1:
+        elif vib_rms < cfg.zone_c_unsatisfactory_max:
             return ISO10816Severity.ZONE_C_UNSATISFACTORY
         else:
             return ISO10816Severity.ZONE_D_UNACCEPTABLE
 
     def _calculate_health_score(self, vib_rms: float, temp_c: float) -> float:
-        # Base penalty from vibration (normal is ~1.0 mm/s, trip is 8.5 mm/s)
-        vib_penalty = min(1.0, max(0.0, (vib_rms - 1.0) / (self.trip_threshold_rms - 1.0)))
-        # Thermal penalty (nominal ~40C, high > 75C)
-        temp_penalty = min(1.0, max(0.0, (temp_c - 40.0) / 40.0))
-        composite_damage = 0.7 * vib_penalty + 0.3 * temp_penalty
+        cfg = self.config_store.get_config()
+        # Base penalty from vibration
+        vib_headroom = max(0.1, cfg.trip_threshold_rms - 1.0)
+        vib_penalty = min(1.0, max(0.0, (vib_rms - 1.0) / vib_headroom))
+        
+        # Thermal penalty
+        temp_span = max(1.0, cfg.max_temperature_c - cfg.nominal_temperature_c)
+        temp_penalty = min(1.0, max(0.0, (temp_c - cfg.nominal_temperature_c) / temp_span))
+        
+        composite_damage = (
+            cfg.vibration_damage_weight * vib_penalty +
+            cfg.temperature_damage_weight * temp_penalty
+        )
         return max(0.0, min(1.0, round(1.0 - composite_damage, 3)))
 
     def _compute_linear_slope(self, values: list[float]) -> float:
-        """Ordinary Least Squares (OLS) slope per interval."""
         n = len(values)
         if n < 2:
             return 0.0
@@ -53,6 +70,7 @@ class PredictiveMaintenanceService(IPredictiveMaintenanceUseCase):
         return numerator / denominator
 
     async def estimate_rul(self, asset_id: str) -> RulEstimate:
+        cfg = self.config_store.get_config()
         history = await self.telemetry.get_vibration_history(asset_id, limit=30)
         current_rms = await self.telemetry.get_latest_vibration_rms(asset_id)
 
@@ -60,7 +78,7 @@ class PredictiveMaintenanceService(IPredictiveMaintenanceUseCase):
         interval_slope = self._compute_linear_slope(history)
         hourly_degradation = max(0.01, interval_slope * 6.0)
 
-        remaining_headroom = max(0.0, self.trip_threshold_rms - current_rms)
+        remaining_headroom = max(0.0, cfg.trip_threshold_rms - current_rms)
         hours_to_trip = round(remaining_headroom / hourly_degradation, 1)
 
         estimated_trip = datetime.utcnow() + timedelta(hours=hours_to_trip)
@@ -75,13 +93,17 @@ class PredictiveMaintenanceService(IPredictiveMaintenanceUseCase):
         )
 
     async def diagnose_asset(self, asset_id: str) -> AssetDiagnosticReport:
+        cfg = self.config_store.get_config()
         vib_rms = await self.telemetry.get_latest_vibration_rms(asset_id)
         temp_c = await self.telemetry.get_latest_temperature(asset_id)
         iso_zone = self._classify_iso_zone(vib_rms)
         health_score = self._calculate_health_score(vib_rms, temp_c)
         rul = await self.estimate_rul(asset_id)
 
-        is_imminent = (iso_zone == ISO10816Severity.ZONE_D_UNACCEPTABLE) or (rul.hours_to_trip <= 24.0)
+        is_imminent = (
+            iso_zone == ISO10816Severity.ZONE_D_UNACCEPTABLE or
+            rul.hours_to_trip <= cfg.imminent_trip_hours_threshold
+        )
 
         if is_imminent:
             rec = "IMMEDIATE_MAINTENANCE_REQUIRED: Schedule preventive overhaul to avoid line trip."
@@ -96,7 +118,7 @@ class PredictiveMaintenanceService(IPredictiveMaintenanceUseCase):
             temperature_c=round(temp_c, 1),
             iso_zone=iso_zone,
             health_score=health_score,
-            primary_fault_signature="INNER_RACE_BEARING_WEAR" if vib_rms > 4.5 else None,
+            primary_fault_signature="BEARING_DEGRADATION" if vib_rms > cfg.iso_thresholds.zone_b_acceptable_max else None,
         )
 
         return AssetDiagnosticReport(

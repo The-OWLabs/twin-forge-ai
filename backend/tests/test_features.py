@@ -100,3 +100,48 @@ async def test_swarm_coordinator():
     assert plan.target_asset == "A-ROB-03"
     assert "REROUTE_AND_MAINTAIN" in plan.proposed_action
     assert plan.requires_human_approval is True
+
+
+@pytest.mark.asyncio
+async def test_feature_dynamic_configurations():
+    from backend.features.predictive_maintenance.config.models import maintenance_config_store, PredictiveMaintenanceConfig, ISO10816Thresholds
+    from backend.features.visual_quality_inspection.config.models import quality_config_store, VisualQualityConfig
+    from backend.features.production_optimization.config.models import production_config_store, ProductionOptimizationConfig
+    from backend.features.supply_chain_intelligence.config.models import supply_config_store, SupplyChainConfig
+    from backend.features.demand_forecasting.config.models import demand_config_store, DemandForecastingConfig
+    from backend.features.waste_reduction.config.models import waste_config_store, WasteReductionConfig
+    from backend.features.operational_copilots.config.models import copilot_config_store, OperationalCopilotsConfig
+
+    # 1. Update ISO thresholds and verify dynamic adaptation
+    maintenance_config_store.update_config(PredictiveMaintenanceConfig(
+        iso_thresholds=ISO10816Thresholds(zone_a_good_max=2.0, zone_b_acceptable_max=6.0, zone_c_unsatisfactory_max=8.0)
+    ))
+    maint_svc = PredictiveMaintenanceService(InMemoryTelemetryReader(), maintenance_config_store)
+    diag = await maint_svc.diagnose_asset("A-ROB-03")
+    assert diag.health.iso_zone == ISO10816Severity.ZONE_B_ACCEPTABLE
+    # Reset
+    maintenance_config_store.update_config(PredictiveMaintenanceConfig())
+
+    # 2. Update Quality FPY target
+    quality_config_store.update_config(VisualQualityConfig(target_first_pass_yield_pct=99.5))
+    assert quality_config_store.get_config().target_first_pass_yield_pct == 99.5
+
+    # 3. Update Production Target UPH
+    production_config_store.update_config(ProductionOptimizationConfig(target_line_uph=250.0))
+    assert production_config_store.get_config().target_line_uph == 250.0
+
+    # 4. Update Supply Chain Threshold
+    supply_config_store.update_config(SupplyChainConfig(critical_days_of_supply_threshold=5.0))
+    assert supply_config_store.get_config().critical_days_of_supply_threshold == 5.0
+
+    # 5. Update Demand Forecast Multiplier
+    demand_config_store.update_config(DemandForecastingConfig(growth_trend_multiplier=1.10))
+    assert demand_config_store.get_config().growth_trend_multiplier == 1.10
+
+    # 6. Update Waste Tariff
+    waste_config_store.update_config(WasteReductionConfig(electricity_tariff_usd_per_kwh=0.20))
+    assert waste_config_store.get_config().electricity_tariff_usd_per_kwh == 0.20
+
+    # 7. Update Copilot Cooldown
+    copilot_config_store.update_config(OperationalCopilotsConfig(alert_cooldown_minutes=45))
+    assert copilot_config_store.get_config().alert_cooldown_minutes == 45

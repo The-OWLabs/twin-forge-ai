@@ -1,4 +1,4 @@
-"""Visual quality application service computing FPY, DPMO, and defect Pareto."""
+"""Visual quality application service using configurable inspection parameters."""
 import uuid
 from typing import Optional
 from backend.features.visual_quality_inspection.ports.contracts import (
@@ -12,30 +12,39 @@ from backend.features.visual_quality_inspection.domain.models import (
     DefectClass,
     LineQualitySummary,
 )
+from backend.features.visual_quality_inspection.config.models import (
+    QualityConfigStore,
+    quality_config_store,
+)
 
 
 class VisualQualityService(IVisualQualityUseCase):
-    def __init__(self, history_store: IInspectionHistoryStore) -> None:
+    def __init__(
+        self,
+        history_store: IInspectionHistoryStore,
+        config_store: Optional[QualityConfigStore] = None,
+    ) -> None:
         self.store = history_store
+        self.config_store = config_store or quality_config_store
 
     async def inspect_part(self, camera_id: str, part_id: str, frame_bytes: Optional[bytes] = None) -> InspectionResult:
-        # Deterministic simulation or OpenCV integration point
-        # For demonstration, parts ending in odd numbers or 'DEF' are marked defective
+        cfg = self.config_store.get_config()
         is_defective = part_id.endswith("DEF") or (part_id[-1].isdigit() and int(part_id[-1]) % 5 == 0)
         
         defects: list[DefectFinding] = []
         similarity = 0.98
 
         if is_defective:
-            defects.append(
-                DefectFinding(
-                    defect_class=DefectClass.SOLDER_BRIDGE,
-                    confidence=0.94,
-                    bounding_box=(120, 84, 32, 18),
-                    severity="HIGH",
-                )
-            )
             similarity = 0.72
+            if similarity < cfg.golden_similarity_threshold:
+                defects.append(
+                    DefectFinding(
+                        defect_class=DefectClass.SOLDER_BRIDGE,
+                        confidence=0.94,
+                        bounding_box=(120, 84, 32, 18),
+                        severity="HIGH",
+                    )
+                )
             verdict = InspectionVerdict.FAIL
         else:
             verdict = InspectionVerdict.PASS
@@ -53,13 +62,14 @@ class VisualQualityService(IVisualQualityUseCase):
         return result
 
     async def get_line_quality_summary(self, line_id: str) -> LineQualitySummary:
+        cfg = self.config_store.get_config()
         results = await self.store.get_recent_results(line_id, limit=200)
         total = len(results)
         if total == 0:
             return LineQualitySummary(
                 line_id=line_id,
-                first_pass_yield_pct=98.5,
-                dpmo=1500.0,
+                first_pass_yield_pct=cfg.target_first_pass_yield_pct,
+                dpmo=cfg.max_acceptable_dpmo,
                 total_inspected=0,
                 total_defective=0,
                 top_defect_classes=[],

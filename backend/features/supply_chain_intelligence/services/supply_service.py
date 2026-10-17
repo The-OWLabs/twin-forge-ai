@@ -1,7 +1,7 @@
-"""Supply chain intelligence service implementing stockout risks and PO recommendations."""
+"""Supply chain intelligence service using dynamic inventory thresholds."""
 import uuid
 from datetime import datetime, timedelta
-from typing import Any
+from typing import Any, Optional
 from backend.features.supply_chain_intelligence.ports.contracts import (
     ISupplyChainUseCase,
     IERPInventoryReader,
@@ -11,20 +11,30 @@ from backend.features.supply_chain_intelligence.domain.models import (
     SupplierRiskScore,
     PurchaseOrderRecommendation,
 )
+from backend.features.supply_chain_intelligence.config.models import (
+    SupplyConfigStore,
+    supply_config_store,
+)
 
 
 class SupplyChainService(ISupplyChainUseCase):
-    def __init__(self, erp_reader: IERPInventoryReader) -> None:
+    def __init__(
+        self,
+        erp_reader: IERPInventoryReader,
+        config_store: Optional[SupplyConfigStore] = None,
+    ) -> None:
         self.erp = erp_reader
+        self.config_store = config_store or supply_config_store
 
     async def evaluate_stockout_risk(self, part_number: str) -> PartStockRisk:
+        cfg = self.config_store.get_config()
         record = await self.erp.get_inventory_record(part_number)
         stock = record.get("stock_on_hand", 1000)
         daily_use = record.get("daily_consumption", 150.0)
         safety_stock = record.get("safety_stock", 400)
 
         days_remaining = round(stock / daily_use, 1) if daily_use > 0 else 999.0
-        at_risk = stock <= safety_stock or days_remaining < 3.0
+        at_risk = stock <= safety_stock or days_remaining < cfg.critical_days_of_supply_threshold
 
         return PartStockRisk(
             part_number=part_number,
@@ -60,9 +70,9 @@ class SupplyChainService(ISupplyChainUseCase):
         )
 
     async def generate_po_recommendation(self, part_number: str) -> PurchaseOrderRecommendation:
+        cfg = self.config_store.get_config()
         risk = await self.evaluate_stockout_risk(part_number)
-        order_qty = max(500, risk.safety_stock_threshold * 2)
-        unit_cost = 14.50
+        order_qty = max(cfg.min_recommended_po_qty, risk.safety_stock_threshold * 2)
 
         urgency = "CRITICAL" if risk.is_at_risk_of_stockout else "ROUTINE"
         deadline = datetime.utcnow() + (timedelta(days=2) if urgency == "CRITICAL" else timedelta(days=7))
@@ -72,7 +82,7 @@ class SupplyChainService(ISupplyChainUseCase):
             part_number=part_number,
             suggested_order_qty=order_qty,
             supplier_id="SUP-GLOBAL-01",
-            estimated_cost_usd=round(order_qty * unit_cost, 2),
+            estimated_cost_usd=round(order_qty * cfg.default_component_cost_usd, 2),
             urgency=urgency,
             order_deadline=deadline,
         )

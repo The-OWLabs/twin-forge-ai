@@ -1,4 +1,5 @@
-"""Production optimization service implementing deterministic OEE and bottleneck detection."""
+"""Production optimization service implementing dynamic OEE and bottleneck configuration."""
+from typing import Optional
 from backend.features.production_optimization.ports.contracts import (
     IProductionOptimizationUseCase,
     ILineStateReader,
@@ -8,25 +9,31 @@ from backend.features.production_optimization.domain.models import (
     LineThroughputAnalysis,
     BottleneckStation,
 )
+from backend.features.production_optimization.config.models import (
+    ProductionConfigStore,
+    production_config_store,
+)
 
 
 class ProductionOptimizationService(IProductionOptimizationUseCase):
-    def __init__(self, line_reader: ILineStateReader) -> None:
+    def __init__(
+        self,
+        line_reader: ILineStateReader,
+        config_store: Optional[ProductionConfigStore] = None,
+    ) -> None:
         self.line_reader = line_reader
+        self.config_store = config_store or production_config_store
 
     async def compute_oee(self, line_id: str) -> OEEMetrics:
+        cfg = self.config_store.get_config()
         operating_time, planned_time = await self.line_reader.get_operating_hours(line_id)
         good_count, total_count = await self.line_reader.get_production_counts(line_id)
 
-        # Availability: Operating Time / Planned Production Time
         availability = (operating_time / planned_time) if planned_time > 0 else 1.0
-
-        # Performance: Actual Throughput vs Ideal Throughput
-        # Assuming nominal ideal cycle is 15s (240 units/hr)
-        ideal_count = operating_time * 240.0
+        
+        ideal_uph = 3600.0 / cfg.nominal_ideal_cycle_time_seconds
+        ideal_count = operating_time * ideal_uph
         performance = (total_count / ideal_count) if ideal_count > 0 else 1.0
-
-        # Quality: Good Count / Total Count
         quality = (good_count / total_count) if total_count > 0 else 1.0
 
         overall = availability * performance * quality
@@ -40,12 +47,12 @@ class ProductionOptimizationService(IProductionOptimizationUseCase):
         )
 
     async def analyze_line_throughput(self, line_id: str) -> LineThroughputAnalysis:
+        cfg = self.config_store.get_config()
         cycle_times = await self.line_reader.get_machine_cycle_times(line_id)
         oee = await self.compute_oee(line_id)
 
-        # Bottleneck has the longest cycle time (Theory of Constraints)
         sorted_stations = sorted(cycle_times.items(), key=lambda x: x[1], reverse=True)
-        slowest_asset, slowest_ct = sorted_stations[0] if sorted_stations else ("UNKNOWN", 20.0)
+        slowest_asset, slowest_ct = sorted_stations[0] if sorted_stations else ("UNKNOWN", cfg.nominal_ideal_cycle_time_seconds)
 
         bottleneck = BottleneckStation(
             asset_id=slowest_asset,
@@ -57,15 +64,12 @@ class ProductionOptimizationService(IProductionOptimizationUseCase):
         )
 
         current_uph = round(3600.0 / slowest_ct, 1) if slowest_ct > 0 else 0.0
-        target_uph = 220.0
-
-        # Little's Law: WIP = Throughput * CycleTime
         wip = int(current_uph * (sum(cycle_times.values()) / 3600.0))
 
         return LineThroughputAnalysis(
             line_id=line_id,
             current_uph=current_uph,
-            target_uph=target_uph,
+            target_uph=cfg.target_line_uph,
             oee=oee,
             bottleneck=bottleneck,
             wip_units=max(12, wip),
