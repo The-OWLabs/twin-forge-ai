@@ -216,7 +216,7 @@ streamlit run supply_chain_app.py --server.port 8502
 1. **🏭 Suppliers & Delivery Risk**: Multi-tier supplier scorecard, lead-time variance vs OTD scatter plot, single-source concentration alert card.
 2. **📦 Inventory, Working Capital & BOM**: Real-time stock balances, excess working capital ($228,500), annual holding costs ($50,270), demand-supply mismatch analysis ($P_{50} / P_{90}$), interactive BOM drill-down.
 3. **🚢 Logistics, Carriers & Warehouses**: Logistics carrier performance (OTD, carbon rating, transit delays), regional dedicated warehouses, active in-transit shipments and port delays.
-4. **⏱️ Control Tower: Starvation & E2E Tracing**: Plant operational vulnerability rankings, production line starvation countdown timers, multi-echelon end-to-end disruption tracer ($TTD = \frac{\text{stock\_available}}{\text{daily\_consumption}} \times 24h$).
+4. **⏱️ Control Tower: Starvation & E2E Tracing**: Plant operational vulnerability rankings, production line starvation countdown timers, multi-echelon end-to-end disruption tracer ($TTD = \frac{\text{Stock Available}}{\text{Daily Consumption Rate}} \times 24\,\text{h}$).
 5. **🎯 Disruption & Mitigation Center**: Pre-negotiated backup contracts, active disruption mitigation cards with net benefit calculation, and 1-click executive approval workflow.
 6. **🔮 Multi-Scenario What-If Simulator**: Multi-vector stress testing (Demand Surge, Corridor Chokepoint, Supplier Shutdown) with explicit `SIMULATED_SCENARIO` provenance badge.
 7. **🤖 Conversational AI Assistant**: Grounded natural language Q&A with prompt-injection defense, quick operational prompts, multilingual output (English, German, Hindi), and collapsible evidence inspection.
