@@ -15,7 +15,9 @@ This document explains how the system is put together and why. Related design do
 
 Every part of the system follows these rules. When a design choice was unclear, these decided it.
 
-1. **Numbers come from code, never from a model.** Every metric, forecast, cost and probability is computed by deterministic TypeScript in `src/domain`. Language models explain, extract and orchestrate. Their output is schema-validated, and any figure they state is checked against the computed results.
+> **Our Principle:** Language models explain, extract and orchestrate. Numbers come from configured rules. Suggestions come from the ontology. Decisions come from people.
+
+1. **Numbers come from configured rules, never from a model.** Every metric, forecast, cost and probability is computed by deterministic rules and domain models. Language models explain, extract and orchestrate. Suggestions are grounded in the governed supply chain and plant ontology. Every figure stated is checked against verified rules.
 2. **People decide.** Agents may *propose*. Approving, rejecting and rolling back are human actions in the UI, recorded in the audit trail. No code path lets an agent approve its own proposal.
 3. **Nothing touches real equipment.** Approved plans change the twin, not machines. Data connectors are read-only by design; the platform has no write path to PLCs.
 4. **Say what is real.** The demo runs on a simulated plant and says so everywhere. Integrations show *Connected* only after a real call succeeds. Agent output carries provenance (where each element came from), and figures that can't be traced are flagged.
