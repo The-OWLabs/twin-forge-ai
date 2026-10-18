@@ -27,10 +27,11 @@ It ships with one complete scenario: an electronics plant with three lines where
 10. [Copilot (ADK) and MCP](#copilot-adk-and-mcp)
 11. [API reference](#api-reference)
 12. [Google Cloud integrations](#google-cloud-integrations)
-13. [Deploy (Firebase App Hosting or Cloud Run)](#deploy-to-firebase-app-hosting)
-14. [Testing](#testing)
-15. [Project structure](#project-structure)
-16. [Known limitations](#known-limitations)
+13. [Manufacturing intelligence backend & feature domains](#manufacturing-intelligence-backend--feature-domains)
+14. [Deploy (Firebase App Hosting or Cloud Run)](#deploy-to-firebase-app-hosting)
+15. [Testing](#testing)
+16. [Project structure](#project-structure)
+17. [Known limitations](#known-limitations)
 
 The full architecture and design document is [docs/architecture.md](docs/architecture.md).
 
@@ -371,6 +372,31 @@ Use **Integrations → Test connection** to verify each configured service.
 
 ---
 
+## Manufacturing intelligence backend & feature domains
+
+TwinForge includes an enterprise-grade, Hexagonal/DDD Python backend ([`backend/`](backend/README.md)) running on **Python 3.12+ / FastAPI**, powered by **Google Cloud BigQuery Lakehouse**, **Cloud Storage**, **Pub/Sub**, **Cloud Run**, and **Vertex AI / BigQuery ML**, with interactive Streamlit operations cockpits ([`dashboard/`](dashboard/README.md)).
+
+Each intelligence domain is independently designed, fully documented, and backed by automated test suites:
+
+| Intelligence Domain | Capabilities & Mathematical Foundations | Documentation & Specs |
+|---|---|---|
+| **Predictive Maintenance & ROI Intelligence** | ISO 10816-3 vibration severity classification, RUL Weibull hazard rates, bearing fault FFT spectral tracking, `fact_roi_ledger` financial tracking, and GenAI Maintenance Copilot with grounded RAG historical incident similarity retrieval. | [📘 Predictive Maintenance README](backend/features/predictive_maintenance/README.md) |
+| **Supply Chain Intelligence** | End-to-end supply chain ontology (Supplier → Part → PO → Shipment → Warehouse → Plant → Order), multi-factor delivery risk scoring, BOM downstream disruption propagation, plant operational vulnerability rankings, and line starvation countdown ($TTD$). | [📘 Supply Chain Intelligence README](backend/features/supply_chain_intelligence/README.md) |
+| **Demand Forecasting & Operations Planning** | Multi-horizon probabilistic forecasting ($P_{10}, P_{50}, P_{90}$) evaluating champion GBDT vs Seasonal-Naive baseline ($s=7$), out-of-time chronological validation (MAE, RMSE, WAPE, Bias, MAPE), constraint-aware production planning ($\text{Net} = \max(0, \text{Demand} + \text{SafetyStock} - \text{UsableStock} - \text{ConfirmedSupply}) / (1 - \text{Scrap})$), scheduled maintenance downtime deductions, DOI/ROP inventory optimization, and What-If scenario simulations. | [📘 Demand Forecasting README](backend/features/demand_forecasting/README.md) |
+| **Production Optimization** | Real-time Overall Equipment Effectiveness ($\text{OEE} = \text{Availability} \times \text{Performance} \times \text{Quality}$), Theory of Constraints bottleneck station identification, and Little's Law throughput pacing ($\text{WIP} = \text{TH} \times \text{CT}$). | [📘 Production Optimization README](backend/features/production_optimization/README.md) |
+| **Visual Quality Inspection** | Automated Optical Inspection (AOI), OpenCV golden template alignment and differential lighting normalization, IPC-A-610 Class 2 defect classification, First-Pass Yield (FPY), and DPMO. | [📘 Visual Quality README](backend/features/visual_quality_inspection/README.md) |
+| **Waste Reduction & Sustainability** | Machine idle friction energy losses, scrap root-cause attribution, and unit-level Scope 1 & Scope 2 greenhouse gas (GHG) carbon accounting. | [📘 Waste Reduction README](backend/features/waste_reduction/README.md) |
+| **Operational Copilots** | Natural language standard operating procedure (SOP) guidance, OSHA Lockout/Tagout (LOTO) safety protocols, automated shift-handover summaries, and PLC alarm code triage. | [📘 Operational Copilots README](backend/features/operational_copilots/README.md) |
+
+### Supporting Backend Subsystems & Specifications:
+- **[Hexagonal Backend Architecture & DI Container](backend/README.md)**: Ports and adapters blueprint, SOLID principles, and REST/WebSocket entrypoint.
+- **[Feature Modules Overview](backend/features/README.md)**: Standardized hexagonal directory structure and domain guidelines.
+- **[Industrial BigQuery Lakehouse DDL](backend/sql/demand_forecasting_lakehouse_schema.sql)**: Production lakehouse DDL with 18 time-partitioned and clustered tables.
+- **[Streamlit Operations Cockpits](dashboard/README.md)**: Multi-page operations dashboard for live production, inventory, and forecasting.
+- **[Infrastructure as Code (Terraform)](infra/terraform/demand_forecasting.tf)**: Terraform provisioning for BigQuery, GCS, Pub/Sub, Cloud Run, and Cloud Scheduler.
+
+---
+
 ## Deploy to Firebase App Hosting
 
 The repo is configured for [Firebase App Hosting](https://firebase.google.com/docs/app-hosting) (Next.js on Cloud Run, managed by Firebase). The project needs the **Blaze** plan.
@@ -456,12 +482,26 @@ src/
                        operations, agent workflow, spec from a running twin), tools/ (agent tool layer, grounding),
                        recommendations, actions, KPIs, seed
   server/              persistence, AI provider, integrations, documents, request schemas
+backend/               Enterprise Hexagonal Python backend (FastAPI, BigQuery Lakehouse, ML models)
+  core/                Cross-cutting abstractions, DI container, event bus
+  connectors/          Industrial OT (OPC UA, MQTT, Modbus) and IT bridges
+  mcp/                 Model Context Protocol (MCP) server & tool definitions
+  rag/                 Industrial hybrid RAG & knowledge graph engine
+  features/            7 domain intelligence platforms with dedicated sub-READMEs:
+    predictive_maintenance/    RUL estimation, ISO 10816, fact_roi_ledger, GenAI Copilot
+    supply_chain_intelligence/ Disruption tracer, line starvation (TTD), plant vulnerability
+    demand_forecasting/        Multi-horizon ML forecasting, constraint planning, BigQuery lakehouse
+    production_optimization/   OEE analysis, bottleneck detection, Little's Law pacing
+    visual_quality_inspection/ AOI, OpenCV golden template alignment, IPC-A-610 grading
+    waste_reduction/           Scrap causal attribution, machine friction, Scope 1 & 2 carbon
+    operational_copilots/      Digital SOP conversational guidance, LOTO protocols, shift handover
+dashboard/             Streamlit manufacturing operations cockpits
 services/vision/       Python vision service (FastAPI + OpenCV), tests, Dockerfile
 services/agents/       Python ADK agent that operates the twin over MCP
 docs/                  architecture.md, twin-builder.md, python-services-plan.md
 content/docs/          demo maintenance manuals and procedures (fictional)
-infra/                 BigQuery schema, Cloud Run deploy script
-tests/ e2e/            Vitest and Playwright suites
+infra/                 Terraform scripts (GCP BigQuery, Pub/Sub, Cloud Run), schemas, deploy scripts
+tests/ e2e/            Vitest, Playwright, and Pytest suites
 ```
 
 ---
