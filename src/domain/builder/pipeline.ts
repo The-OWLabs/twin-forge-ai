@@ -56,7 +56,7 @@ export type BuilderEvent =
   | { type: "error"; message: string }
   | { type: "complete"; spec: TwinSpec | null };
 
-const NO_AI = "AI is not configured on this server (or is turned off)";
+const NO_AI = "AI is turned off";
 
 function fromTemplate(input: BuilderInput, reason: string): { spec: TwinSpec; note: string } | null {
   const chosen = input.templateId ? templateById(input.templateId) : null;
@@ -67,10 +67,10 @@ function fromTemplate(input: BuilderInput, reason: string): { spec: TwinSpec; no
   if (input.site.name?.trim()) spec.site.name = input.site.name.trim();
   if (input.site.industry?.trim()) spec.site.industry = input.site.industry.trim();
   if (input.site.location?.trim()) spec.site.location = input.site.location.trim();
-  const how = chosen ? `the "${tpl.name}" template you picked` : `the "${tpl.name}" template (matched on: ${matched!.matched.join(", ")})`;
+  const how = chosen ? `the "${tpl.name}" template you picked` : `the "${tpl.name}" template, the closest match to your description`;
   const robots = robotsFromRequirements(input.requirements, spec);
   spec.mobileRobots.push(...robots);
-  const note = `${reason}; started from ${how}.${robots.length ? ` ${robots.length} mobile robot fleet(s) were read from your requirements by keyword matching.` : ""} Your free-text requirements were not interpreted beyond that.`;
+  const note = `${reason}: started from ${how}.${robots.length ? ` ${robots.length} mobile robot fleet(s) were read from your requirements.` : ""} Other details in your description need AI to be read.`;
   spec.assumptions.unshift(note);
   return { spec, note };
 }
@@ -85,7 +85,7 @@ export async function* runBuilder(input: BuilderInput, ai: BuilderAi): AsyncGene
   if (!input.blueprint) {
     yield { type: "stage", stage: "read", status: "skipped", summary: "No blueprint uploaded." };
   } else if (!ai.available) {
-    yield { type: "stage", stage: "read", status: "skipped", summary: `${NO_AI}, so the blueprint could not be read.` };
+    yield { type: "stage", stage: "read", status: "skipped", summary: `${NO_AI}, so the drawing wasn't read.` };
   } else {
     yield { type: "stage", stage: "read", status: "running" };
     try {
@@ -107,7 +107,7 @@ export async function* runBuilder(input: BuilderInput, ai: BuilderAi): AsyncGene
   if (!input.research) {
     yield { type: "stage", stage: "research", status: "skipped", summary: "Research turned off." };
   } else if (!ai.available) {
-    yield { type: "stage", stage: "research", status: "skipped", summary: `${NO_AI}; web research needs an AI provider with web search.` };
+    yield { type: "stage", stage: "research", status: "skipped", summary: `Skipped: ${NO_AI}.` };
   } else if (ai.researchUnavailable) {
     yield { type: "stage", stage: "research", status: "skipped", summary: ai.researchUnavailable };
   } else {

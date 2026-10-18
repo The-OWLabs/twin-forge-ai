@@ -88,7 +88,7 @@ describe("Twin Builder without AI", () => {
     expect(r.stages.find((s) => s.stage === "read")!.status).toBe("skipped");
     expect(r.stages.find((s) => s.stage === "research")!.status).toBe("skipped");
     expect(r.spec!.site.name).toBe("Acme Bakery");
-    expect(r.spec!.assumptions[0]).toMatch(/not configured.*industrial bakery/is);
+    expect(r.spec!.assumptions[0]).toMatch(/AI is turned off.*industrial bakery/is);
     expect(r.stages.find((s) => s.stage === "validate")!.status).toBe("done");
   });
 

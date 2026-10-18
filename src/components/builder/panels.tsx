@@ -66,7 +66,7 @@ export function AgentPanel() {
             className="min-h-0 text-[12.5px]"
             value={text}
             disabled={!ai}
-            placeholder={ai ? "Tell the agent what to change…" : "AI is off or not configured"}
+            placeholder={ai ? "Tell the agent what to change…" : "AI edits are turned off"}
             onChange={(e) => setText(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === "Enter" && !e.shiftKey) {
