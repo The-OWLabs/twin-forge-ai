@@ -77,3 +77,13 @@ app.include_router(maint_root_router)
 async def health_check() -> dict[str, str]:
     return {"status": "HEALTHY", "app": settings.app_name}
 
+
+@app.get("/ready", tags=["System Health"])
+async def readiness_check() -> dict[str, Any]:
+    return {
+        "ready": True,
+        "status": "READY",
+        "app": settings.app_name,
+        "database": "BigQuery (Local In-Memory Mode Active)",
+    }
+
