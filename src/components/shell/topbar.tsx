@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Bot, ChevronDown, FastForward, Menu, MapPin, Pause, Play, RotateCcw, Siren, Sparkles, Database, Cpu } from "lucide-react";
+import { Bot, ChevronDown, FastForward, Menu, Pause, Play, RotateCcw, Siren, Sparkles, Database, Cpu } from "lucide-react";
 import { useCopilot } from "@/client/copilot";
 import { INTEGRATION_STATE, useIntegrations } from "@/client/integrations";
 import { useFactory, useUi } from "@/client/store";
@@ -12,6 +12,7 @@ import { cn } from "@/lib/cn";
 import { Badge, Button, Tip } from "../ui/primitives";
 import { ThemeToggle } from "../theme-toggle";
 import { AGENT_META } from "@/domain/agents/context";
+import { FacilitySwitcher } from "./facility-switcher";
 
 function usePopover() {
   const [open, setOpen] = useState(false);
@@ -143,18 +144,7 @@ export function Topbar({ onMenu }: { onMenu: () => void }) {
       <button className="rounded-lg p-1.5 text-ink-2 hover:bg-surface-2 lg:hidden" onClick={onMenu} aria-label="Open navigation">
         <Menu className="h-5 w-5" />
       </button>
-      <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-2">
-          <h1 className="truncate text-[14px] font-semibold text-ink">{state?.profile.name ?? "Loading factory…"}</h1>
-          {state?.profile.isDemo && <Badge tone="accent">Demo</Badge>}
-        </div>
-        {state && (
-          <p className="flex items-center gap-1 truncate text-[11.5px] text-muted">
-            <MapPin className="h-3 w-3" />
-            {state.profile.location} · {state.profile.productionType}
-          </p>
-        )}
-      </div>
+      <FacilitySwitcher />
       {state && (
         <div className="hidden items-center gap-2 sm:flex">
           <Tip content={`Plant clock${live ? "" : " (paused)"} · h+${state.clock.hour.toFixed(2)} since start`}>

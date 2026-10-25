@@ -1,72 +1,103 @@
 import "server-only";
-import fs from "node:fs";
-import path from "node:path";
-import { buildDemoFactory, SCHEMA_VERSION } from "@/domain/seed";
+import { buildDemoFactory } from "@/domain/seed";
 import type { FactoryState } from "@/domain/types";
-import { dataDir, displayPath, writeFileAtomic } from "./runtime";
+import { sqliteStore, type FacilitySummary } from "./db/sqlite";
+import { displayPath, dataDir } from "./runtime";
+import path from "node:path";
 
 /**
- * Server-authoritative factory state.
+ * Server-authoritative factory state backed by SQLite (node:sqlite).
  *
- * Local-first persistence: the state lives in memory (cached on globalThis so every route
- * shares it) and is written through to a JSON file on each mutation, so it survives page
- * refreshes and server restarts. On Cloud Run the file lives on the instance's in-memory
- * filesystem (`/tmp`), so state is per-instance and resets when the instance is recycled —
- * deploy with max-instances=1 for demos (see README).
+ * Supports multi-facility storage:
+ * - Each plant has its own row in the facilities table.
+ * - Active facility is tracked in the active_session table.
+ * - Resetting demo only resets the demo plant, keeping user twins safe.
  */
-const FILE = path.join(dataDir(), "factory-state.json");
 
-type Cache = { state: FactoryState | null; writeError: string | null };
+type Cache = { state: FactoryState | null; activeId: string | null; writeError: string | null };
 const g = globalThis as unknown as { __twinforge?: Cache };
-const cache: Cache = (g.__twinforge ??= { state: null, writeError: null });
+const cache: Cache = (g.__twinforge ??= { state: null, activeId: null, writeError: null });
 
-function load(): FactoryState {
-  try {
-    if (fs.existsSync(FILE)) {
-      const parsed = JSON.parse(fs.readFileSync(FILE, "utf8")) as FactoryState;
-      if (parsed.schemaVersion === SCHEMA_VERSION) return parsed;
-    }
-  } catch (e) {
-    console.warn("[store] could not read persisted state, reseeding:", e);
+export function getState(facilityId?: string): FactoryState {
+  const targetId = facilityId || sqliteStore.getActiveFacilityId();
+  if (cache.state && cache.activeId === targetId) {
+    return cache.state;
   }
-  const fresh = buildDemoFactory();
-  persist(fresh);
+  const loaded = sqliteStore.getFacility(targetId);
+  if (loaded) {
+    cache.state = loaded;
+    cache.activeId = targetId;
+    return loaded;
+  }
+  // Fallback to fresh demo
+  const fresh = sqliteStore.resetDemo();
+  cache.state = fresh;
+  cache.activeId = fresh.profile.id;
   return fresh;
 }
 
-function persist(state: FactoryState) {
+/** Run a synchronous mutation against the active live state and persist it to SQLite. */
+export function mutate<T>(fn: (state: FactoryState) => T, facilityId?: string): T {
+  const state = getState(facilityId);
+  const result = fn(state);
   try {
-    writeFileAtomic(FILE, JSON.stringify(state));
+    sqliteStore.saveFacility(state, state.profile.isDemo, state.profile.id);
     cache.writeError = null;
   } catch (e) {
     cache.writeError = e instanceof Error ? e.message : String(e);
   }
-}
-
-export function getState(): FactoryState {
-  if (!cache.state) cache.state = load();
-  return cache.state;
-}
-
-/** Run a synchronous mutation against the live state and persist it. */
-export function mutate<T>(fn: (state: FactoryState) => T): T {
-  const state = getState();
-  const result = fn(state);
-  persist(state);
   return result;
 }
 
-export function replaceState(next: FactoryState) {
-  cache.state = next;
-  persist(next);
+/** Replace the state of a facility or save a new one. */
+export function replaceState(next: FactoryState, isDemo = false, customId?: string): FactoryState {
+  try {
+    const id = sqliteStore.saveFacility(next, isDemo, customId);
+    sqliteStore.setActiveFacilityId(id);
+    cache.state = next;
+    cache.activeId = id;
+    cache.writeError = null;
+  } catch (e) {
+    cache.writeError = e instanceof Error ? e.message : String(e);
+  }
   return next;
 }
 
+export function listFacilities(): FacilitySummary[] {
+  return sqliteStore.listFacilities();
+}
+
+export function switchFacility(id: string): FactoryState {
+  sqliteStore.setActiveFacilityId(id);
+  cache.state = null;
+  cache.activeId = null;
+  return getState(id);
+}
+
+export function resetDemo(): FactoryState {
+  const fresh = sqliteStore.resetDemo();
+  cache.state = fresh;
+  cache.activeId = fresh.profile.id;
+  return fresh;
+}
+
+export function deleteFacility(id: string): boolean {
+  const ok = sqliteStore.deleteFacility(id);
+  if (ok && cache.activeId === id) {
+    cache.state = null;
+    cache.activeId = null;
+  }
+  return ok;
+}
+
 export function persistenceInfo() {
+  const dbFile = path.join(dataDir(), "twinforge.db");
   return {
-    kind: "local-json-file" as const,
-    path: displayPath(FILE),
+    kind: "sqlite-database" as const,
+    path: displayPath(dbFile),
+    activeFacility: sqliteStore.getActiveFacilityId(),
+    totalFacilities: sqliteStore.listFacilities().length,
     lastWriteError: cache.writeError,
-    note: "State is persisted to a local JSON file (per server instance). Not shared across instances.",
+    note: "Multi-facility state is persisted to local SQLite (node:sqlite).",
   };
 }

@@ -63,6 +63,7 @@ interface FactoryStore {
   tick: () => Promise<void>;
   setLive: (enabled: boolean) => Promise<void>;
   reset: () => Promise<void>;
+  switchFacility: (id: string) => Promise<boolean>;
   crisis: () => Promise<boolean>;
   advance: (hours: number) => Promise<void>;
   injectFault: (input: FaultInput) => Promise<void>;
@@ -158,6 +159,18 @@ export const useFactory = create<FactoryStore>((set, get) => ({
       },
       "Demo factory restored to its initial state",
     );
+  },
+
+  switchFacility: async (id: string) => {
+    const ok = await get().run("switchFacility", async () => {
+      const next = await api<FactoryState>("/api/facilities/switch", { body: { id } });
+      get().apply(next);
+      set({ analysis: null });
+      useUi.getState().clearHighlight();
+      useWorkbench.getState().clear();
+      return true;
+    }, "Switched active factory twin");
+    return !!ok;
   },
 
   crisis: async () => {
